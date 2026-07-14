@@ -7,6 +7,7 @@ from .jargon.matcher import JargonMatcher
 from .protocol.envelope import EnvelopeBuilder
 from .protocol.parser import ProtocolParser
 from .repositories.sqlite import SQLiteRepository
+from .services.control import ControlService
 from .services.humanize import HumanizeService
 from .web.routes import WebApi
 
@@ -16,6 +17,7 @@ class Container:
     config: PluginConfig
     repository: SQLiteRepository
     service: HumanizeService
+    control_service: ControlService
     web_api: WebApi
 
     @classmethod
@@ -32,9 +34,11 @@ class Container:
             parser=ProtocolParser(config),
             matcher=JargonMatcher(),
         )
+        control_service = ControlService(repository)
         return cls(
             config=config,
             repository=repository,
             service=service,
-            web_api=WebApi(repository, config),
+            control_service=control_service,
+            web_api=WebApi(repository, config, control_service),
         )

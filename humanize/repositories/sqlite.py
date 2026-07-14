@@ -2,19 +2,26 @@ from __future__ import annotations
 
 import asyncio
 import hashlib
+import json
 import sqlite3
 from collections.abc import Callable, Sequence
 from datetime import UTC, datetime, timedelta
 from pathlib import Path
 from typing import Any, TypeVar
 
+from ..domain.control import (
+    BehaviorPolicy,
+    DynamicState,
+    ExpressionConfig,
+    PersonaConfig,
+)
 from ..domain.models import JargonStatus, KnownTerm, MessageContext, UnknownTerm
 from ..jargon.normalizer import normalize_term
 
 T = TypeVar("T")
 
 
-_SCHEMA_VERSION = 1
+_SCHEMA_VERSION = 2
 _SCHEMA = """
 CREATE TABLE IF NOT EXISTS jargon_entries (
     id INTEGER PRIMARY KEY AUTOINCREMENT,
@@ -107,6 +114,69 @@ CREATE INDEX IF NOT EXISTS idx_protocol_created
     ON protocol_logs(created_at DESC);
 """
 
+_CONTROL_SCHEMA = """
+CREATE TABLE IF NOT EXISTS humanize_persona (
+    id INTEGER PRIMARY KEY CHECK (id = 1),
+    name TEXT NOT NULL,
+    identity TEXT NOT NULL,
+    traits_json TEXT NOT NULL,
+    values_json TEXT NOT NULL,
+    boundaries_json TEXT NOT NULL,
+    updated_at TEXT NOT NULL
+);
+
+CREATE TABLE IF NOT EXISTS humanize_state (
+    id INTEGER PRIMARY KEY CHECK (id = 1),
+    mood REAL NOT NULL,
+    energy REAL NOT NULL,
+    interest REAL NOT NULL,
+    stress REAL NOT NULL,
+    focus TEXT NOT NULL,
+    updated_at TEXT NOT NULL
+);
+
+CREATE TABLE IF NOT EXISTS humanize_behavior_policy (
+    id INTEGER PRIMARY KEY CHECK (id = 1),
+    enabled INTEGER NOT NULL,
+    allow_no_reply INTEGER NOT NULL,
+    allow_follow_up INTEGER NOT NULL,
+    allow_proactive INTEGER NOT NULL,
+    allow_end_topic INTEGER NOT NULL,
+    reply_threshold REAL NOT NULL,
+    follow_up_threshold REAL NOT NULL,
+    proactive_threshold REAL NOT NULL,
+    end_topic_threshold REAL NOT NULL,
+    cooldown_minutes INTEGER NOT NULL,
+    updated_at TEXT NOT NULL
+);
+
+CREATE TABLE IF NOT EXISTS humanize_expression (
+    id INTEGER PRIMARY KEY CHECK (id = 1),
+    enabled INTEGER NOT NULL,
+    provider TEXT NOT NULL,
+    mode TEXT NOT NULL,
+    profile TEXT NOT NULL,
+    integration_status TEXT NOT NULL,
+    last_checked_at TEXT,
+    last_error TEXT NOT NULL,
+    updated_at TEXT NOT NULL
+);
+
+CREATE TABLE IF NOT EXISTS humanize_control_audit (
+    id INTEGER PRIMARY KEY AUTOINCREMENT,
+    section TEXT NOT NULL,
+    action TEXT NOT NULL,
+    actor TEXT NOT NULL,
+    reason TEXT NOT NULL,
+    before_json TEXT NOT NULL,
+    after_json TEXT NOT NULL,
+    created_at TEXT NOT NULL
+);
+
+CREATE INDEX IF NOT EXISTS idx_humanize_control_audit_created
+    ON humanize_control_audit(created_at DESC, id DESC);
+"""
+
 
 def _now() -> str:
     return datetime.now(UTC).isoformat(timespec="seconds")
@@ -128,6 +198,385 @@ class SQLiteRepository:
     async def initialize(self) -> None:
         self._db_path.parent.mkdir(parents=True, exist_ok=True)
         await self._run(self._migrate)
+
+    async def get_control_section(self, section: str) -> dict[str, Any]:
+        """Read one non-relationship humanization control section."""
+        if section not in {"persona", "state", "behavior", "expression"}:
+            raise ValueError("unsupported control section")
+
+        def operation(conn: sqlite3.Connection) -> dict[str, Any]:
+            row = conn.execute(
+                {
+                    "persona": "SELECT * FROM humanize_persona WHERE id = 1",
+                    "state": "SELECT * FROM humanize_state WHERE id = 1",
+                    "behavior": "SELECT * FROM humanize_behavior_policy WHERE id = 1",
+                    "expression": "SELECT * FROM humanize_expression WHERE id = 1",
+                }[section]
+            ).fetchone()
+            if row is None:
+                raise RuntimeError(f"missing control defaults for {section}")
+            if section == "persona":
+                result = PersonaConfig.from_row(row).as_dict()
+            elif section == "state":
+                result = DynamicState.from_row(row).as_dict()
+            elif section == "behavior":
+                result = BehaviorPolicy.from_row(row).as_dict()
+            else:
+                result = ExpressionConfig.from_row(row).as_dict()
+            result["updated_at"] = str(row["updated_at"])
+            return result
+
+        return await self._run(operation)
+
+    async def get_control_overview(self) -> dict[str, Any]:
+        """Read all non-relationship controls and recent audit metadata."""
+
+        def operation(conn: sqlite3.Connection) -> dict[str, Any]:
+            rows = {
+                "persona": conn.execute(
+                    "SELECT * FROM humanize_persona WHERE id = 1"
+                ).fetchone(),
+                "state": conn.execute(
+                    "SELECT * FROM humanize_state WHERE id = 1"
+                ).fetchone(),
+                "behavior": conn.execute(
+                    "SELECT * FROM humanize_behavior_policy WHERE id = 1"
+                ).fetchone(),
+                "expression": conn.execute(
+                    "SELECT * FROM humanize_expression WHERE id = 1"
+                ).fetchone(),
+            }
+            if any(row is None for row in rows.values()):
+                raise RuntimeError("missing humanization control defaults")
+            audit = conn.execute(
+                """
+                SELECT COUNT(*) AS total,
+                       MAX(created_at) AS last_changed_at,
+                       MAX(CASE WHEN action = 'reset' THEN created_at END) AS last_reset_at
+                FROM humanize_control_audit
+                """
+            ).fetchone()
+            persona = PersonaConfig.from_row(rows["persona"]).as_dict()
+            persona["updated_at"] = str(rows["persona"]["updated_at"])
+            state = DynamicState.from_row(rows["state"]).as_dict()
+            state["updated_at"] = str(rows["state"]["updated_at"])
+            behavior = BehaviorPolicy.from_row(rows["behavior"]).as_dict()
+            behavior["updated_at"] = str(rows["behavior"]["updated_at"])
+            expression = ExpressionConfig.from_row(rows["expression"]).as_dict()
+            expression["updated_at"] = str(rows["expression"]["updated_at"])
+            audit_rows = conn.execute(
+                """
+                SELECT id, section, action, actor, reason,
+                       before_json, after_json, created_at
+                FROM humanize_control_audit
+                ORDER BY created_at DESC, id DESC LIMIT 20
+                """
+            ).fetchall()
+            audit_items = []
+            for row in audit_rows:
+                item = dict(row)
+                item["before"] = json.loads(item.pop("before_json"))
+                item["after"] = json.loads(item.pop("after_json"))
+                audit_items.append(item)
+            return {
+                "persona": persona,
+                "state": state,
+                "behavior": behavior,
+                "expression": expression,
+                "audit": audit_items,
+                "audit_meta": {
+                    "total": int(audit["total"] or 0),
+                    "last_changed_at": audit["last_changed_at"],
+                    "last_reset_at": audit["last_reset_at"],
+                },
+            }
+
+        return await self._run(operation)
+
+    async def update_control_section(
+        self,
+        section: str,
+        value: dict[str, Any],
+        *,
+        actor: str = "web_admin",
+        reason: str = "web update",
+    ) -> dict[str, Any]:
+        """Validate and persist one control section with an audit record."""
+        if section not in {"persona", "state", "behavior", "expression"}:
+            raise ValueError("unsupported control section")
+        clean_reason = str(reason or "web update").strip()[:500]
+        clean_actor = str(actor or "web_admin").strip()[:120] or "web_admin"
+
+        def operation(conn: sqlite3.Connection) -> dict[str, Any]:
+            now = _now()
+            row = conn.execute(
+                {
+                    "persona": "SELECT * FROM humanize_persona WHERE id = 1",
+                    "state": "SELECT * FROM humanize_state WHERE id = 1",
+                    "behavior": "SELECT * FROM humanize_behavior_policy WHERE id = 1",
+                    "expression": "SELECT * FROM humanize_expression WHERE id = 1",
+                }[section]
+            ).fetchone()
+            if row is None:
+                raise RuntimeError(f"missing control defaults for {section}")
+            if section == "persona":
+                parsed = PersonaConfig.from_mapping(value)
+                before = PersonaConfig.from_row(row).as_dict()
+                conn.execute(
+                    """
+                    UPDATE humanize_persona
+                    SET name = ?, identity = ?, traits_json = ?, values_json = ?,
+                        boundaries_json = ?, updated_at = ?
+                    WHERE id = 1
+                    """,
+                    (
+                        parsed.name,
+                        parsed.identity,
+                        json.dumps(parsed.traits, ensure_ascii=False),
+                        json.dumps(parsed.values, ensure_ascii=False),
+                        json.dumps(parsed.boundaries, ensure_ascii=False),
+                        now,
+                    ),
+                )
+                after = parsed.as_dict()
+            elif section == "state":
+                parsed = DynamicState.from_mapping(value)
+                before = DynamicState.from_row(row).as_dict()
+                conn.execute(
+                    """
+                    UPDATE humanize_state
+                    SET mood = ?, energy = ?, interest = ?, stress = ?, focus = ?,
+                        updated_at = ?
+                    WHERE id = 1
+                    """,
+                    (
+                        parsed.mood,
+                        parsed.energy,
+                        parsed.interest,
+                        parsed.stress,
+                        parsed.focus,
+                        now,
+                    ),
+                )
+                after = parsed.as_dict()
+            elif section == "behavior":
+                parsed = BehaviorPolicy.from_mapping(value)
+                before = BehaviorPolicy.from_row(row).as_dict()
+                conn.execute(
+                    """
+                    UPDATE humanize_behavior_policy
+                    SET enabled = ?, allow_no_reply = ?, allow_follow_up = ?,
+                        allow_proactive = ?, allow_end_topic = ?,
+                        reply_threshold = ?, follow_up_threshold = ?,
+                        proactive_threshold = ?, end_topic_threshold = ?,
+                        cooldown_minutes = ?, updated_at = ?
+                    WHERE id = 1
+                    """,
+                    (
+                        int(parsed.enabled),
+                        int(parsed.allow_no_reply),
+                        int(parsed.allow_follow_up),
+                        int(parsed.allow_proactive),
+                        int(parsed.allow_end_topic),
+                        parsed.reply_threshold,
+                        parsed.follow_up_threshold,
+                        parsed.proactive_threshold,
+                        parsed.end_topic_threshold,
+                        parsed.cooldown_minutes,
+                        now,
+                    ),
+                )
+                after = parsed.as_dict()
+            else:
+                parsed = ExpressionConfig.from_mapping(value)
+                before = ExpressionConfig.from_row(row).as_dict()
+                conn.execute(
+                    """
+                    UPDATE humanize_expression
+                    SET enabled = ?, provider = ?, mode = ?, profile = ?,
+                        integration_status = ?, last_checked_at = ?, last_error = ?,
+                        updated_at = ?
+                    WHERE id = 1
+                    """,
+                    (
+                        int(parsed.enabled),
+                        parsed.provider,
+                        parsed.mode,
+                        parsed.profile,
+                        parsed.integration_status,
+                        parsed.last_checked_at,
+                        parsed.last_error,
+                        now,
+                    ),
+                )
+                after = parsed.as_dict()
+            after["updated_at"] = now
+            conn.execute(
+                """
+                INSERT INTO humanize_control_audit (
+                    section, action, actor, reason, before_json, after_json, created_at
+                ) VALUES (?, 'update', ?, ?, ?, ?, ?)
+                """,
+                (
+                    section,
+                    clean_actor,
+                    clean_reason,
+                    json.dumps(before, ensure_ascii=False, sort_keys=True),
+                    json.dumps(after, ensure_ascii=False, sort_keys=True),
+                    now,
+                ),
+            )
+            conn.commit()
+            return after
+
+        return await self._run(operation)
+
+    async def reset_control(
+        self, section: str, *, actor: str, reason: str
+    ) -> dict[str, Any]:
+        """Reset one or all controls and record before/after values."""
+        sections = (
+            ("persona", "state", "behavior", "expression")
+            if section == "all"
+            else (section,)
+        )
+        if any(
+            item not in {"persona", "state", "behavior", "expression"}
+            for item in sections
+        ):
+            raise ValueError("unsupported control section")
+        clean_reason = str(reason or "manual reset").strip()[:500]
+        clean_actor = str(actor or "web_admin").strip()[:120] or "web_admin"
+
+        def operation(conn: sqlite3.Connection) -> dict[str, Any]:
+            now = _now()
+            result: dict[str, Any] = {}
+            for item in sections:
+                row = conn.execute(
+                    {
+                        "persona": "SELECT * FROM humanize_persona WHERE id = 1",
+                        "state": "SELECT * FROM humanize_state WHERE id = 1",
+                        "behavior": "SELECT * FROM humanize_behavior_policy WHERE id = 1",
+                        "expression": "SELECT * FROM humanize_expression WHERE id = 1",
+                    }[item]
+                ).fetchone()
+                if row is None:
+                    raise RuntimeError(f"missing control defaults for {item}")
+                if item == "persona":
+                    before = PersonaConfig.from_row(row).as_dict()
+                    defaults = PersonaConfig()
+                    conn.execute(
+                        "UPDATE humanize_persona SET name = ?, identity = ?, traits_json = ?, values_json = ?, boundaries_json = ?, updated_at = ? WHERE id = 1",
+                        (
+                            defaults.name,
+                            defaults.identity,
+                            json.dumps(defaults.traits, ensure_ascii=False),
+                            json.dumps(defaults.values, ensure_ascii=False),
+                            json.dumps(defaults.boundaries, ensure_ascii=False),
+                            now,
+                        ),
+                    )
+                    after = defaults.as_dict()
+                elif item == "state":
+                    before = DynamicState.from_row(row).as_dict()
+                    defaults = DynamicState()
+                    conn.execute(
+                        "UPDATE humanize_state SET mood = ?, energy = ?, interest = ?, stress = ?, focus = ?, updated_at = ? WHERE id = 1",
+                        (
+                            defaults.mood,
+                            defaults.energy,
+                            defaults.interest,
+                            defaults.stress,
+                            defaults.focus,
+                            now,
+                        ),
+                    )
+                    after = defaults.as_dict()
+                elif item == "behavior":
+                    before = BehaviorPolicy.from_row(row).as_dict()
+                    defaults = BehaviorPolicy()
+                    conn.execute(
+                        "UPDATE humanize_behavior_policy SET enabled = ?, allow_no_reply = ?, allow_follow_up = ?, allow_proactive = ?, allow_end_topic = ?, reply_threshold = ?, follow_up_threshold = ?, proactive_threshold = ?, end_topic_threshold = ?, cooldown_minutes = ?, updated_at = ? WHERE id = 1",
+                        (
+                            int(defaults.enabled),
+                            int(defaults.allow_no_reply),
+                            int(defaults.allow_follow_up),
+                            int(defaults.allow_proactive),
+                            int(defaults.allow_end_topic),
+                            defaults.reply_threshold,
+                            defaults.follow_up_threshold,
+                            defaults.proactive_threshold,
+                            defaults.end_topic_threshold,
+                            defaults.cooldown_minutes,
+                            now,
+                        ),
+                    )
+                    after = defaults.as_dict()
+                else:
+                    before = ExpressionConfig.from_row(row).as_dict()
+                    defaults = ExpressionConfig()
+                    conn.execute(
+                        "UPDATE humanize_expression SET enabled = ?, provider = ?, mode = ?, profile = ?, integration_status = ?, last_checked_at = ?, last_error = ?, updated_at = ? WHERE id = 1",
+                        (
+                            int(defaults.enabled),
+                            defaults.provider,
+                            defaults.mode,
+                            defaults.profile,
+                            defaults.integration_status,
+                            defaults.last_checked_at,
+                            defaults.last_error,
+                            now,
+                        ),
+                    )
+                    after = defaults.as_dict()
+                after["updated_at"] = now
+                conn.execute(
+                    """
+                    INSERT INTO humanize_control_audit (
+                        section, action, actor, reason, before_json, after_json, created_at
+                    ) VALUES (?, 'reset', ?, ?, ?, ?, ?)
+                    """,
+                    (
+                        item,
+                        clean_actor,
+                        clean_reason,
+                        json.dumps(before, ensure_ascii=False, sort_keys=True),
+                        json.dumps(after, ensure_ascii=False, sort_keys=True),
+                        now,
+                    ),
+                )
+                result[item] = after
+            conn.commit()
+            return result
+
+        return await self._run(operation)
+
+    async def list_control_audit(self, *, page: int, page_size: int) -> dict[str, Any]:
+        """List control changes newest first for the management UI."""
+
+        def operation(conn: sqlite3.Connection) -> dict[str, Any]:
+            total = int(
+                conn.execute(
+                    "SELECT COUNT(*) AS count FROM humanize_control_audit"
+                ).fetchone()["count"]
+            )
+            rows = conn.execute(
+                """
+                SELECT id, section, action, actor, reason, before_json, after_json, created_at
+                FROM humanize_control_audit
+                ORDER BY created_at DESC, id DESC LIMIT ? OFFSET ?
+                """,
+                (page_size, (page - 1) * page_size),
+            ).fetchall()
+            items = []
+            for row in rows:
+                item = dict(row)
+                item["before"] = json.loads(item.pop("before_json"))
+                item["after"] = json.loads(item.pop("after_json"))
+                items.append(item)
+            return {"items": items, "total": total}
+
+        return await self._run(operation)
 
     async def list_injectable_terms(
         self,
@@ -728,6 +1177,87 @@ class SQLiteRepository:
             )
         if version == 0:
             conn.executescript(_SCHEMA)
+            conn.execute("PRAGMA user_version = 1")
+            version = 1
+        if version < 2:
+            conn.executescript(_CONTROL_SCHEMA)
+            now = _now()
+            persona = PersonaConfig()
+            state = DynamicState()
+            behavior = BehaviorPolicy()
+            expression = ExpressionConfig()
+            conn.execute(
+                """
+                INSERT OR IGNORE INTO humanize_persona (
+                    id, name, identity, traits_json, values_json,
+                    boundaries_json, updated_at
+                ) VALUES (1, ?, ?, ?, ?, ?, ?)
+                """,
+                (
+                    persona.name,
+                    persona.identity,
+                    json.dumps(persona.traits, ensure_ascii=False),
+                    json.dumps(persona.values, ensure_ascii=False),
+                    json.dumps(persona.boundaries, ensure_ascii=False),
+                    now,
+                ),
+            )
+            conn.execute(
+                """
+                INSERT OR IGNORE INTO humanize_state (
+                    id, mood, energy, interest, stress, focus, updated_at
+                ) VALUES (1, ?, ?, ?, ?, ?, ?)
+                """,
+                (
+                    state.mood,
+                    state.energy,
+                    state.interest,
+                    state.stress,
+                    state.focus,
+                    now,
+                ),
+            )
+            conn.execute(
+                """
+                INSERT OR IGNORE INTO humanize_behavior_policy (
+                    id, enabled, allow_no_reply, allow_follow_up, allow_proactive,
+                    allow_end_topic, reply_threshold, follow_up_threshold,
+                    proactive_threshold, end_topic_threshold, cooldown_minutes,
+                    updated_at
+                ) VALUES (1, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+                """,
+                (
+                    int(behavior.enabled),
+                    int(behavior.allow_no_reply),
+                    int(behavior.allow_follow_up),
+                    int(behavior.allow_proactive),
+                    int(behavior.allow_end_topic),
+                    behavior.reply_threshold,
+                    behavior.follow_up_threshold,
+                    behavior.proactive_threshold,
+                    behavior.end_topic_threshold,
+                    behavior.cooldown_minutes,
+                    now,
+                ),
+            )
+            conn.execute(
+                """
+                INSERT OR IGNORE INTO humanize_expression (
+                    id, enabled, provider, mode, profile, integration_status,
+                    last_checked_at, last_error, updated_at
+                ) VALUES (1, ?, ?, ?, ?, ?, ?, ?, ?)
+                """,
+                (
+                    int(expression.enabled),
+                    expression.provider,
+                    expression.mode,
+                    expression.profile,
+                    expression.integration_status,
+                    expression.last_checked_at,
+                    expression.last_error,
+                    now,
+                ),
+            )
             conn.execute(f"PRAGMA user_version = {_SCHEMA_VERSION}")
             conn.commit()
 

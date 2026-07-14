@@ -1,10 +1,12 @@
 from __future__ import annotations
 
 import logging
-from typing import Any
+from typing import Any, cast
 
 from ..config import PluginConfig
 from ..ports import RepositoryPort
+from ..repositories.sqlite import SQLiteRepository
+from ..services.control import ControlService
 
 logger = logging.getLogger("astrbot")
 
@@ -28,9 +30,17 @@ def _required_id(value: Any) -> int:
 
 
 class WebApi:
-    def __init__(self, repository: RepositoryPort, config: PluginConfig) -> None:
+    def __init__(
+        self,
+        repository: RepositoryPort,
+        config: PluginConfig,
+        control_service: ControlService | None = None,
+    ) -> None:
         self._repository = repository
         self._config = config
+        self._control = control_service or ControlService(
+            cast(SQLiteRepository, repository)
+        )
 
     async def dispatch(self, subpath: str = ""):
         from astrbot.api.web import error_response, request
@@ -80,17 +90,56 @@ class WebApi:
                 )
             )
         if path == "settings":
-            return self._ok(self._config.as_public_dict())
+            settings = self._config.as_public_dict()
+            settings["control_sections"] = [
+                "persona",
+                "state",
+                "behavior",
+                "expression",
+            ]
+            return self._ok(settings)
+        if path in {"features", "control-overview"}:
+            return self._ok(await self._control.get_features())
+        if path in {"persona", "state", "behavior", "expression"}:
+            return self._ok(await self._control.get_section(path))
+        if path == "control-audit":
+            page = _positive_int(request.query.get("page"), 1, 100_000)
+            page_size = _positive_int(request.query.get("page_size"), 20, 100)
+            return self._ok(
+                await self._control.list_audit(page=page, page_size=page_size)
+            )
         return error_response("未找到该接口", status_code=404)
 
     async def _handle_post(self, path: str):
         from astrbot.api.web import error_response, request
 
-        if path != "jargon-action":
-            return error_response("未找到该接口", status_code=404)
         body = await request.json(default={})
         if not isinstance(body, dict):
             raise ValueError("请求体必须是 JSON 对象")
+        if path in {"persona", "state", "behavior", "expression"}:
+            return self._ok(
+                await self._control.update_section(
+                    path, body, reason=str(body.get("reason") or "web update")
+                )
+            )
+        if path in {"control/reset", "control-reset"}:
+            section = str(body.get("section") or "").strip().lower()
+            reason = str(body.get("reason") or "").strip()
+            return self._ok(
+                {
+                    "sections": await self._control.reset(section, reason),
+                    "reset": [section]
+                    if section != "all"
+                    else [
+                        "persona",
+                        "state",
+                        "behavior",
+                        "expression",
+                    ],
+                }
+            )
+        if path != "jargon-action":
+            return error_response("未找到该接口", status_code=404)
         entry_id = _required_id(body.get("id"))
         action = str(body.get("action", "")).strip()
         if action == "update_meaning":
