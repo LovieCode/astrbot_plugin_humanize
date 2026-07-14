@@ -1,0 +1,109 @@
+{
+  "enabled": {
+    "description": "启用插件",
+    "type": "bool",
+    "default": true,
+    "hint": "关闭后不注入协议、不拦截回复，也不学习黑话。"
+  },
+  "default_rule_enabled": {
+    "description": "注入默认 Rule",
+    "type": "bool",
+    "default": true,
+    "hint": "在可信 system prompt 中注入聊天场景、管理员和表达边界。"
+  },
+  "admin_name": {
+    "description": "管理员称谓",
+    "type": "string",
+    "default": "管理员",
+    "hint": "仅用于可信 Rule 展示。"
+  },
+  "admin_qq_ids": {
+    "description": "管理员 QQ 号",
+    "type": "list",
+    "default": [],
+    "items": {"type": "string"},
+    "hint": "每行一个 QQ 号。只有这里配置的值会被写入可信 system prompt。"
+  },
+  "max_message_chars": {
+    "description": "单条消息最大字符数",
+    "type": "int",
+    "default": 10,
+    "minimum": 1,
+    "maximum": 200,
+    "hint": "每个 <Message> 的最大 Unicode 字符数，超长时按标点兜底切分。"
+  },
+  "max_reply_messages": {
+    "description": "单次最多消息数",
+    "type": "int",
+    "default": 12,
+    "minimum": 1,
+    "maximum": 50,
+    "hint": "防止模型生成大量短消息刷屏。"
+  },
+  "split_long_messages": {
+    "description": "自动拆分超长消息",
+    "type": "bool",
+    "default": true,
+    "hint": "优先按标点和空白切分，无法自然切分时硬切。"
+  },
+  "protocol_enabled": {
+    "description": "启用 XML 决策协议",
+    "type": "bool",
+    "default": true,
+    "hint": "要求最终文本输出完整 AgentResponse。"
+  },
+  "protocol_max_output_chars": {
+    "description": "协议输出长度上限",
+    "type": "int",
+    "default": 20000,
+    "minimum": 1000,
+    "maximum": 100000
+  },
+  "protocol_log_retention_days": {
+    "description": "协议日志保留天数",
+    "type": "int",
+    "default": 7,
+    "minimum": 1,
+    "maximum": 365
+  },
+  "no_reply_enabled": {
+    "description": "允许 No Reply",
+    "type": "bool",
+    "default": true,
+    "hint": "允许 LLM 主动选择不回复。"
+  },
+  "jargon_enabled": {
+    "description": "启用黑话学习",
+    "type": "bool",
+    "default": true,
+    "hint": "从合法 XML 的 UnknownTerms 中记录候选词。"
+  },
+  "min_confidence_for_injection": {
+    "description": "黑话注入置信度阈值",
+    "type": "float",
+    "default": 0.75,
+    "minimum": 0.0,
+    "maximum": 1.0
+  },
+  "max_injected_jargons": {
+    "description": "单次最多注入词条",
+    "type": "int",
+    "default": 5,
+    "minimum": 0,
+    "maximum": 50
+  },
+  "max_injection_tokens": {
+    "description": "黑话注入 Token 预算",
+    "type": "int",
+    "default": 256,
+    "minimum": 0,
+    "maximum": 4096
+  },
+  "max_evidence_per_entry": {
+    "description": "单词条最大证据数",
+    "type": "int",
+    "default": 20,
+    "minimum": 1,
+    "maximum": 500
+  }
+}

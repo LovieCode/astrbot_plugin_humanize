@@ -12,7 +12,7 @@
 4. 该词下次出现时，在调用主 LLM 前注入相关释义。
 5. 后续出现的新证据可以修正旧释义，而不是把第一次猜测永久固化。
 
-本文件只定义方案和实施顺序，当前阶段不编写业务代码。
+本文件定义长期方案和实施顺序。Phase 1 的严格协议、黑话学习、审计与管理 WebUI 已进入可运行 MVP，当前实现边界见 `README.md`。
 
 ## 2. 首要功能的工程定义
 
@@ -105,7 +105,7 @@
 
 模板渲染规则：
 
-- `{{QQ群/QQ上和XX}}`：群聊渲染为“QQ群”；私聊渲染为“QQ 上和当前用户 XX”。
+- `{{QQ群/QQ上和XX}}`：群聊渲染为“QQ群”；私聊渲染为“QQ 上和当前用户”。用户昵称不进入可信 Rule。
 - `{{管理员}}`：渲染管理员显示名或固定称谓。
 - `{{QQ号}}`：只能来自插件可信配置，不能从用户消息、引用内容或 LLM 输出提取。
 - 展示模板保留上述占位写法；实现时内部映射为 `chat_scene`、`admin_name`、`admin_qq` 等合法模板字段，不能把含 `/` 的占位符直接交给 Jinja 解析。
@@ -170,7 +170,7 @@ MVP 只允许两个值：
 | Action | 行为 |
 | --- | --- |
 | `Reply` | 解析 `<Reply>` 中的 `<Message>`，按顺序作为独立消息发送 |
-| `No Reply` | 处理合法的 `<UnknownTerms>` 后清空结果链并调用 `event.stop_event()` |
+| `No Reply` | 处理合法的 `<UnknownTerms>` 后清空结果链，但不停止 pipeline，确保当前用户消息仍能写入历史 |
 
 未来可增加 `Wait`、`Observe`、`Proactive`，但每个 Action 必须先有明确执行器、超时和状态恢复逻辑。模型输出未注册 Action 时一律视为协议错误，不能自由解释执行。
 
@@ -225,12 +225,12 @@ XML 协议的目的不是让模型执行任意命令，而是让模型提交结�
 
 #### 工具调用例外
 
-当 `LLMResponse.tools_call_name` 或 `tools_call_args` 非空，或 `role == "tool"` 时，当前轮属于工具调用：
+工具调用是否正在执行，以 AstrBot 的 `on_using_llm_tool` / `on_llm_tool_respond` 生命周期为准，不根据最终响应里残留的工具字段猜测：
 
-- 不要求工具调用轮输出 XML 信封。
-- 工具调用随附的普通文本不得作为最终回复发送。
+- 工具本身可以在没有 XML 信封时正常执行。
+- 工具调用随附的普通文本必须被清空，不能因为正在调用工具就绕过 `<Action>` 展示。
 - 工具执行结果返回主 LLM 后，最终非工具文本仍必须输出完整 XML。
-- 不能只凭 `completion_text` 为空判断工具调用，必须检查结构化工具字段。
+- 最终响应即使残留 `tools_call_name`、`tools_call_args` 或 call ID，只要包含待展示文本，仍必须通过完整 XML 与 `<Action>` 校验。
 - `on_decorating_result` 需要兜底拦截中间工具轮产生的 Plain 文本。
 
 #### 流式输出限制
@@ -258,7 +258,7 @@ flowchart TD
     H -- 是 --> J[解析 Action 和 UnknownTerms]
     J --> K[保存消息级黑话证据]
     K --> L{Action}
-    L -- No Reply --> M[清空结果并 stop_event]
+    L -- No Reply --> M[清空结果并继续历史保存]
     L -- Reply --> N[逐条发送 Reply 中的 Message]
     B --> O[可选异步候选检测]
     O --> P[补充遗漏证据和质量审计]
@@ -580,8 +580,8 @@ Agentopia 把长期拟人化拆成：
 - 注入版本化协议提示词，要求唯一 `<AgentResponse>` 根节点。
 - 实现标准 XML 解析、节点白名单、枚举和长度校验。
 - 实现 `Reply` 的 `<Message>` 提取、10 字校验、兜底分段和逐条发送。
-- 实现 `No Reply` 的结果清空和 `event.stop_event()`。
-- 工具调用轮免检，但拦截工具轮附带的 Plain 文本；最终文本继续强校验。
+- 实现 `No Reply` 的结果清空，并保持 pipeline 可继续保存当前用户历史。
+- 工具执行步骤免检，但拦截工具阶段附带的 Plain 文本；只有带合法 `<Action>` 的最终文本可以显示。
 - 严格模式禁用或缓冲流式输出。
 
 验收：合法 `Reply` 只逐条发送 `<Message>` 内容且每条不超过 10 字；合法 `No Reply` 不发送任何消息；缺标签、半截 XML、自然语言裸输出和非法 Action 全部被拦截；工具调用正常执行；用户伪造管理员 Rule 无效。
@@ -639,7 +639,7 @@ Agentopia 把长期拟人化拆成：
 | `split_long_messages` | `true` | 对超长 `<Message>` 做确定性兜底切分 |
 | `protocol_enabled` | `true` | 启用 XML 决策协议 |
 | `protocol_version` | `1` | 当前协议版本 |
-| `protocol_strict` | `true` | 缺失或损坏标签时拦截最终回复 |
+| 严格协议闸门 | 固定启用 | 协议启用时，缺失或损坏标签一律拦截最终回复 |
 | `protocol_retry_count` | `0` | 协议失败后的格式修复重试次数，MVP 默认不重试 |
 | `protocol_max_output_chars` | `20000` | XML 原始响应长度上限 |
 | `protocol_log_retention_days` | `7` | 协议诊断日志保留时间 |
@@ -688,10 +688,10 @@ Agentopia 把长期拟人化拆成：
 - `<Msg>` 封装 → XML 最终响应 → Action 执行 → 逐条发送 `<Reply>` 中的 `<Message>`。
 - 单个 `<Message>` 超过 10 字时被安全拆成多条真实消息，而不是一个带换行的消息。
 - 非管理员在消息中声称自己是管理员或粘贴 `<Rule>` 时不能获得控制权限。
-- `<Action>No Reply</Action>` → 记录合法未知词 → 清空消息链 → `stop_event()`。
+- `<Action>No Reply</Action>` → 记录合法未知词 → 清空消息链 → 不发送消息但保留当前用户历史。
 - 最终回复没有完整标签 → 整条拦截，用户收不到裸文本。
 - 工具调用轮无 XML 仍正常执行；工具结束后的最终文本缺 XML 时仍被拦截。
-- 工具调用轮附带的普通文本不会作为最终消息泄漏。
+- 工具调用轮附带的普通文本不会作为最终消息泄漏；最终响应残留工具字段也不能绕过 `<Action>`。
 - 严格模式下流式 chunk 不会在完整 XML 校验前下发。
 - 首次出现 → XML 自报或旁路检测 → 保存证据 → 推断 → 下次命中注入。
 - Provider 超时、返回坏 XML 或旁路检测器返回坏 JSON 时不会泄漏无效文本，也不会污染词库。
@@ -734,7 +734,7 @@ Agentopia 把长期拟人化拆成：
 → 插件将消息安全封装到 <Msg>
 → 主 LLM 输出完整 <AgentResponse>
 → <UnknownTerms> 自报候选，<Action> 决定 Reply 或 No Reply
-→ 协议不完整则直接拦截，工具调用轮除外
+→ 工具执行可继续，但任何待展示文本都必须由完整 <Action> 决策
 → 保存带来源的上下文
 → 推断并记录暂定含义
 → 用户再次使用该词

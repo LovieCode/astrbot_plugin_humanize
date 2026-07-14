@@ -1,0 +1,289 @@
+<!DOCTYPE html>
+<html lang="zh-CN" data-theme="light">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <meta name="color-scheme" content="light">
+  <title>Humanize - 黑话词库</title>
+  <link rel="stylesheet" href="style.css">
+  <script src="lucide.js" defer></script>
+  <script src="api.js" defer></script>
+  <script src="app.js" defer></script>
+</head>
+<body>
+  <div class="app-shell" id="app">
+    <aside class="sidebar" aria-label="Humanize 导航">
+      <div class="sidebar-signal-grid" aria-hidden="true"></div>
+      <div class="brand">
+        <div class="bot-mark" aria-hidden="true">
+          <span class="bot-halo bot-halo-outer"></span>
+          <span class="bot-halo bot-halo-inner"></span>
+          <span class="bot-antenna bot-antenna-left"></span>
+          <span class="bot-antenna bot-antenna-right"></span>
+          <span class="bot-face"><i></i><i></i></span>
+        </div>
+        <span>Humanize</span>
+      </div>
+
+      <nav class="sidebar-nav">
+        <button class="nav-item" type="button" data-nav="overview" aria-label="学习总览" title="学习总览">
+          <i data-lucide="house"></i><span>学习总览</span>
+        </button>
+        <button class="nav-item active" type="button" data-nav="jargons" aria-current="page" aria-label="黑话词库" title="黑话词库">
+          <i data-lucide="book-open"></i><span>黑话词库</span><span class="nav-signal" aria-hidden="true"></span>
+        </button>
+        <button class="nav-item" type="button" data-nav="evidence" aria-label="证据与推断" title="证据与推断">
+          <i data-lucide="scale"></i><span>证据与推断</span>
+        </button>
+        <button class="nav-item" type="button" data-nav="protocol" aria-label="协议监控" title="协议监控">
+          <i data-lucide="chart-no-axes-combined"></i><span>协议监控</span>
+        </button>
+        <button class="nav-item" type="button" data-nav="rules" aria-label="规则与人格" title="规则与人格">
+          <i data-lucide="user-round"></i><span>规则与人格</span>
+        </button>
+        <button class="nav-item" type="button" data-nav="relationships" aria-label="关系记忆" title="关系记忆">
+          <i data-lucide="users-round"></i><span>关系记忆</span><span class="plan-badge">规划中</span>
+        </button>
+        <button class="nav-item" type="button" data-nav="settings" aria-label="设置" title="设置">
+          <i data-lucide="settings"></i><span>设置</span>
+        </button>
+      </nav>
+
+      <div class="sidebar-footer" aria-hidden="true">
+        <i data-lucide="menu"></i>
+        <i data-lucide="chevron-left"></i>
+      </div>
+    </aside>
+
+    <div class="workspace">
+      <header class="topbar">
+        <div class="page-heading">
+          <h1>黑话词库</h1>
+          <span class="signal-motif" aria-hidden="true"><i></i><i></i><b></b></span>
+          <label class="scope-picker">
+            <span class="sr-only">当前作用域</span>
+            <select id="scopePicker" aria-label="当前作用域">
+              <option value="">全部作用域</option>
+            </select>
+            <i data-lucide="chevron-down"></i>
+          </label>
+        </div>
+
+        <div class="topbar-actions">
+          <label class="global-search">
+            <i data-lucide="search"></i>
+            <input id="globalSearch" type="search" placeholder="搜索词条" autocomplete="off">
+          </label>
+          <button class="icon-button" id="exportButton" type="button" title="导出词库" aria-label="导出词库">
+            <i data-lucide="share"></i>
+          </button>
+          <label class="learning-control" title="黑话学习状态">
+            <span>学习中</span>
+            <input id="learningToggle" type="checkbox" checked aria-label="黑话学习状态">
+            <span class="toggle-track" aria-hidden="true"><i></i></span>
+          </label>
+          <button class="admin-menu" type="button" title="管理员账户">
+            <span class="admin-avatar"><i data-lucide="user-round"></i></span>
+            <span>管理员</span>
+            <i data-lucide="chevron-down"></i>
+          </button>
+        </div>
+      </header>
+
+      <main class="main-content">
+        <section class="metrics" aria-label="学习指标">
+          <article class="metric-block">
+            <span>已学习</span><strong id="metricLearned">--</strong>
+          </article>
+          <article class="metric-block metric-pending">
+            <span>待确认</span><strong id="metricPending">--</strong>
+          </article>
+          <article class="metric-block metric-success">
+            <span>协议成功率</span><strong id="metricProtocol">--</strong>
+          </article>
+          <article class="metric-block metric-blocked">
+            <span>本周拦截</span><strong id="metricBlocked">--</strong>
+          </article>
+        </section>
+
+        <section class="content-grid">
+          <div class="terms-section">
+            <div class="section-toolbar">
+              <div class="section-title">
+                <h2>最近词条</h2>
+                <span class="signal-motif" aria-hidden="true"><i></i><i></i><b></b></span>
+              </div>
+              <div class="table-filters">
+                <label class="compact-search">
+                  <i data-lucide="search"></i>
+                  <input id="tableSearch" type="search" placeholder="搜索词条" autocomplete="off">
+                </label>
+                <label class="select-control">
+                  <i data-lucide="list-filter"></i>
+                  <select id="statusFilter" aria-label="按状态筛选">
+                    <option value="">状态</option>
+                    <option value="candidate">待确认</option>
+                    <option value="confirmed">已确认</option>
+                    <option value="ambiguous">有歧义</option>
+                    <option value="rejected">已拒绝</option>
+                  </select>
+                  <i data-lucide="chevron-down"></i>
+                </label>
+                <label class="select-control">
+                  <select id="scopeFilter" aria-label="按作用域筛选">
+                    <option value="">作用域</option>
+                  </select>
+                  <i data-lucide="chevron-down"></i>
+                </label>
+              </div>
+            </div>
+
+            <div class="table-wrap">
+              <table class="jargon-table">
+                <thead>
+                  <tr>
+                    <th>状态</th>
+                    <th>词条</th>
+                    <th>推测含义</th>
+                    <th>作用域</th>
+                    <th>置信度</th>
+                    <th>出现次数</th>
+                    <th>最近出现</th>
+                    <th><span class="sr-only">操作</span></th>
+                  </tr>
+                </thead>
+                <tbody id="jargonRows"></tbody>
+              </table>
+              <div class="table-state" id="tableState" hidden></div>
+            </div>
+
+            <footer class="pagination-bar">
+              <span id="paginationSummary">共 0 条</span>
+              <div class="pagination" id="pagination"></div>
+              <label class="page-size">
+                <select id="pageSize" aria-label="每页条数">
+                  <option value="10">10 条/页</option>
+                  <option value="20">20 条/页</option>
+                  <option value="50">50 条/页</option>
+                </select>
+                <i data-lucide="chevron-down"></i>
+              </label>
+            </footer>
+          </div>
+
+          <aside class="detail-section" aria-label="词条详情">
+            <div id="detailEmpty" class="detail-empty">
+              <i data-lucide="mouse-pointer-2"></i>
+              <span>选择词条查看详情</span>
+            </div>
+            <div id="detailContent" hidden>
+              <header class="detail-header">
+                <div>
+                  <h2 id="detailTerm">--</h2>
+                  <span class="status-badge" id="detailStatus">--</span>
+                </div>
+                <span class="signal-motif" aria-hidden="true"><i></i><i></i><b></b></span>
+              </header>
+
+              <section class="meaning-section">
+                <div class="subheading-row">
+                  <h3>推测含义</h3>
+                  <button class="icon-button icon-button-small" id="editMeaningButton" type="button" title="编辑释义" aria-label="编辑释义">
+                    <i data-lucide="pencil"></i>
+                  </button>
+                </div>
+                <p id="detailMeaning">--</p>
+                <div class="meaning-editor" id="meaningEditor" hidden>
+                  <textarea id="meaningInput" rows="3" maxlength="500" aria-label="释义内容"></textarea>
+                  <div class="editor-actions">
+                    <button class="text-button" id="cancelMeaningButton" type="button">取消</button>
+                    <button class="primary-button compact" id="saveMeaningButton" type="button">
+                      <i data-lucide="save"></i><span>保存</span>
+                    </button>
+                  </div>
+                </div>
+              </section>
+
+              <dl class="detail-facts">
+                <div><dt>置信度</dt><dd><span id="detailConfidence">--</span><span class="confidence-bar"><i id="confidenceFill"></i></span></dd></div>
+                <div><dt>作用域</dt><dd id="detailScope">--</dd></div>
+                <div><dt>出现次数</dt><dd id="detailOccurrences">--</dd></div>
+                <div><dt>首次出现</dt><dd id="detailFirstSeen">--</dd></div>
+                <div><dt>最近出现</dt><dd id="detailLastSeen">--</dd></div>
+              </dl>
+
+              <section class="evidence-section">
+                <h3>证据与上下文</h3>
+                <ol class="evidence-list" id="evidenceList"></ol>
+              </section>
+
+              <div class="detail-actions">
+                <button class="primary-button" id="confirmButton" type="button">
+                  <i data-lucide="check"></i><span>确认释义</span>
+                </button>
+                <button class="secondary-button" id="rejectButton" type="button">
+                  <i data-lucide="ban"></i><span>拒绝</span>
+                </button>
+              </div>
+            </div>
+          </aside>
+        </section>
+
+        <section class="protocol-strip">
+          <div class="protocol-summary">
+            <div class="section-title protocol-title">
+              <h2>XML 协议状态</h2>
+              <button class="info-button" type="button" title="最近 7 天协议解析结果" aria-label="协议说明">
+                <i data-lucide="info"></i>
+              </button>
+              <span class="signal-motif" aria-hidden="true"><i></i><i></i><b></b></span>
+            </div>
+            <div class="chart-layout">
+              <div class="success-stat">
+                <span>成功率</span>
+                <strong id="chartSuccessRate">--</strong>
+                <small>近 7 天</small>
+              </div>
+              <div class="protocol-chart" aria-label="近七天协议成功率折线图">
+                <div class="chart-axis"><span>100%</span><span>75%</span><span>50%</span><span>25%</span><span>0%</span></div>
+                <svg id="protocolChart" viewBox="0 0 360 100" preserveAspectRatio="none" role="img" aria-label="协议成功率趋势"></svg>
+                <div class="chart-labels" id="chartLabels"></div>
+              </div>
+            </div>
+          </div>
+
+          <div class="protocol-log-section">
+            <table class="protocol-table">
+              <thead><tr><th>时间</th><th>类型</th><th>状态</th><th>详情</th></tr></thead>
+              <tbody id="protocolRows"></tbody>
+            </table>
+            <div class="protocol-empty" id="protocolState" hidden></div>
+          </div>
+
+          <aside class="rule-summary">
+            <div class="section-title">
+              <h2>默认规则</h2>
+              <span class="signal-motif" aria-hidden="true"><i></i><i></i><b></b></span>
+            </div>
+            <dl>
+              <div><dt>状态</dt><dd><span class="rule-dot"></span><span id="ruleEnabled">--</span></dd></div>
+              <div><dt>配置者</dt><dd id="ruleAdministrator">--</dd></div>
+              <div><dt>单条消息上限</dt><dd id="ruleMessageLimit">--</dd></div>
+              <div><dt>单次最多消息</dt><dd id="ruleMessageCount">--</dd></div>
+            </dl>
+            <button class="rule-link" id="ruleDetailsButton" type="button">
+              <span>查看规则详情</span><i data-lucide="chevron-right"></i>
+            </button>
+          </aside>
+        </section>
+      </main>
+    </div>
+
+    <span class="glint glint-one" aria-hidden="true"></span>
+    <span class="glint glint-two" aria-hidden="true"></span>
+    <span class="glint glint-three" aria-hidden="true"></span>
+    <span class="glint glint-four" aria-hidden="true"></span>
+    <div class="toast-region" id="toastRegion" aria-live="polite" aria-atomic="true"></div>
+  </div>
+</body>
+</html>

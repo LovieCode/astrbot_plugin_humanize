@@ -1,11 +1,11 @@
 name: astrbot_plugin_humanize
 display_name: Bot 拟人化
-desc: 为 AstrBot 提供稳定人格、状态演化、关系记忆与社交行为决策能力。
-short_desc: 让 Bot 形成连贯的人格、关系和行为表现。
-version: v0.0.0
+desc: 通过严格 XML 决策协议、黑话学习与可审计记忆逐步增强 Bot 的长期交互连贯性。
+short_desc: 严格决策协议与黑话语义记忆。
+version: v0.1.0
 author: LovieCode
 repo: ""
-astrbot_version: ">=4.20,<5"
+astrbot_version: ">=4.26.0,<5"
 tags:
   - persona
   - memory
