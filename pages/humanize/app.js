@@ -281,6 +281,9 @@
     const enabled = settings.default_rule_enabled !== false;
     refs.ruleEnabled.textContent = enabled ? "已启用" : "未启用";
     refs.ruleDot.classList.toggle("disabled", !enabled);
+    refs.ruleInjectionMode.textContent = settings.protocol_injection_mode === "both"
+      ? "用户 + System"
+      : "用户消息（临时）";
     refs.ruleAdministrator.textContent = String(settings.administrator_name || settings.admin_name || "管理员");
     refs.ruleMessageLimit.textContent = `${numberValue(settings.max_message_chars, 10)} 字`;
     refs.ruleMessageCount.textContent = `${numberValue(settings.max_reply_messages, 12)} 条`;
@@ -710,7 +713,7 @@
       "detailConfidence", "confidenceFill", "detailScope", "detailOccurrences", "detailFirstSeen",
       "detailLastSeen", "evidenceList", "confirmButton", "rejectButton", "chartSuccessRate",
       "protocolChart", "chartLabels", "protocolRows", "protocolState", "ruleEnabled",
-      "ruleAdministrator", "ruleMessageLimit", "ruleMessageCount", "ruleDetailsButton", "toastRegion",
+      "ruleInjectionMode", "ruleAdministrator", "ruleMessageLimit", "ruleMessageCount", "ruleDetailsButton", "toastRegion",
     ].forEach((id) => {
       refs[id] = document.getElementById(id);
     });

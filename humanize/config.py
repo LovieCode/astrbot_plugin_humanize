@@ -52,6 +52,7 @@ class PluginConfig:
     max_reply_messages: int = 12
     split_long_messages: bool = True
     protocol_enabled: bool = True
+    protocol_injection_mode: str = "user"
     protocol_version: int = 1
     protocol_max_output_chars: int = 20_000
     protocol_raw_log_chars: int = 4_000
@@ -70,6 +71,11 @@ class PluginConfig:
     @classmethod
     def from_mapping(cls, raw: Mapping[str, Any] | None) -> PluginConfig:
         data = raw or {}
+        protocol_injection_mode = (
+            str(data.get("protocol_injection_mode") or "user").strip().lower()
+        )
+        if protocol_injection_mode not in {"user", "both"}:
+            protocol_injection_mode = "user"
         return cls(
             enabled=_as_bool(data.get("enabled"), True),
             default_rule_enabled=_as_bool(data.get("default_rule_enabled"), True),
@@ -79,6 +85,7 @@ class PluginConfig:
             max_reply_messages=_as_int(data.get("max_reply_messages"), 12, 1, 50),
             split_long_messages=_as_bool(data.get("split_long_messages"), True),
             protocol_enabled=_as_bool(data.get("protocol_enabled"), True),
+            protocol_injection_mode=protocol_injection_mode,
             protocol_version=_as_int(data.get("protocol_version"), 1, 1, 99),
             protocol_max_output_chars=_as_int(
                 data.get("protocol_max_output_chars"), 20_000, 1_000, 100_000
@@ -126,6 +133,7 @@ class PluginConfig:
             "max_reply_messages": self.max_reply_messages,
             "split_long_messages": self.split_long_messages,
             "protocol_enabled": self.protocol_enabled,
+            "protocol_injection_mode": self.protocol_injection_mode,
             "protocol_version": self.protocol_version,
             "protocol_log_retention_days": self.protocol_log_retention_days,
             "no_reply_enabled": self.no_reply_enabled,

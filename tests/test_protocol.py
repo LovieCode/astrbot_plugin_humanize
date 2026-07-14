@@ -156,3 +156,19 @@ def test_rule_uses_trusted_context_for_scene_and_admin(
     assert "10001、10002" in rule_text
     assert "99999" not in rule_text
     assert rule.tag == "Rule"
+
+
+def test_protocol_injection_mode_defaults_to_user_and_rejects_unknown_values() -> None:
+    assert PluginConfig.from_mapping(None).protocol_injection_mode == "user"
+    assert (
+        PluginConfig.from_mapping(
+            {"protocol_injection_mode": "both"}
+        ).protocol_injection_mode
+        == "both"
+    )
+    assert (
+        PluginConfig.from_mapping(
+            {"protocol_injection_mode": "system"}
+        ).protocol_injection_mode
+        == "user"
+    )

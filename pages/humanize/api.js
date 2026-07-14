@@ -204,6 +204,7 @@
     current_scope_label: "QQ群 · 赛博茶话会",
     scopes: demoScopes,
     default_rule_enabled: true,
+    protocol_injection_mode: "user",
     administrator_name: "管理员",
     max_message_chars: 10,
     max_reply_messages: 12,

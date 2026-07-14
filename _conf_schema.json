@@ -9,7 +9,7 @@
     "description": "注入默认 Rule",
     "type": "bool",
     "default": true,
-    "hint": "在可信 system prompt 中注入聊天场景、管理员和表达边界。"
+    "hint": "每轮临时注入聊天场景、管理员和表达边界。"
   },
   "admin_name": {
     "description": "管理员称谓",
@@ -22,7 +22,7 @@
     "type": "list",
     "default": [],
     "items": {"type": "string"},
-    "hint": "每行一个 QQ 号。只有这里配置的值会被写入可信 system prompt。"
+    "hint": "每行一个 QQ 号。只有这里配置的值会被写入临时 Rule。"
   },
   "max_message_chars": {
     "description": "单条消息最大字符数",
@@ -51,6 +51,13 @@
     "type": "bool",
     "default": true,
     "hint": "要求最终文本输出完整 AgentResponse。"
+  },
+  "protocol_injection_mode": {
+    "description": "协议注入模式",
+    "type": "string",
+    "default": "user",
+    "options": ["user", "both"],
+    "hint": "user=每轮仅在用户消息末尾临时注入完整协议（推荐）；both=用户临时注入，同时在 system prompt 保留副本。"
   },
   "protocol_max_output_chars": {
     "description": "协议输出长度上限",

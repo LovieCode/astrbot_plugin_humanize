@@ -108,16 +108,20 @@ class HumanizePlugin(Star):
             return
 
         req.prompt = prepared.message_xml
-        req.system_prompt = self._append_prompt(
-            req.system_prompt, prepared.protocol_prompt
-        )
+        if self._plugin_config.protocol_injection_mode == "both":
+            req.system_prompt = self._append_prompt(
+                req.system_prompt, prepared.protocol_prompt
+            )
         req.extra_user_content_parts.append(
             TextPart(text=prepared.known_terms_xml).mark_as_temp()
         )
         req.extra_user_content_parts.append(
             TextPart(
-                text=_TURN_RESPONSE_CONTRACT.format(
-                    version=self._plugin_config.protocol_version
+                text=(
+                    f"{prepared.protocol_prompt}\n\n"
+                    + _TURN_RESPONSE_CONTRACT.format(
+                        version=self._plugin_config.protocol_version
+                    )
                 )
             ).mark_as_temp()
         )

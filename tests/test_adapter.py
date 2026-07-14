@@ -340,7 +340,7 @@ def test_core_run_agent_intermediate_text_reaches_action_gate() -> None:
     asyncio.run(scenario())
 
 
-def test_request_appends_turn_contract_after_known_terms() -> None:
+def test_request_appends_full_protocol_after_known_terms() -> None:
     class Service:
         async def prepare_request(self, context):
             return PreparedRequest(
@@ -360,17 +360,47 @@ def test_request_appends_turn_contract_after_known_terms() -> None:
         await plugin.on_llm_request(event, request)
 
         assert request.prompt == "<Msg>hello</Msg>"
-        assert request.system_prompt.endswith("<HumanizeProtocol />")
+        assert request.system_prompt == "persona"
         assert [part.text for part in request.extra_user_content_parts] == [
             "<KnownTerms />",
             request.extra_user_content_parts[-1].text,
         ]
         contract = request.extra_user_content_parts[-1].text
-        assert contract.startswith('<ResponseContract version="1">')
+        assert contract.startswith("<HumanizeProtocol />\n\n")
+        assert '<ResponseContract version="1">' in contract
         assert "legacy history and are invalid output examples" in contract
         assert "including after any tool call" in contract
         assert "exactly one complete AgentResponse XML document" in contract
         assert contract.endswith("</ResponseContract>")
+
+    asyncio.run(scenario())
+
+
+def test_both_injection_mode_keeps_user_protocol_and_system_copy() -> None:
+    class Service:
+        async def prepare_request(self, context):
+            return PreparedRequest(
+                protocol_prompt="<HumanizeProtocol />",
+                message_xml="<Msg>hello</Msg>",
+                known_terms_xml="<KnownTerms />",
+                matched_terms=(),
+            )
+
+    async def scenario() -> None:
+        plugin = HumanizePlugin(
+            SimpleNamespace(), {"protocol_injection_mode": "both"}
+        )
+        plugin._container = SimpleNamespace(service=Service())
+        plugin._build_message_context = lambda event, text: _context(text)
+        event = _FakeEvent()
+        request = ProviderRequest(prompt="hello", system_prompt="persona")
+
+        await plugin.on_llm_request(event, request)
+
+        assert request.system_prompt == "persona\n\n<HumanizeProtocol />"
+        assert request.extra_user_content_parts[-1].text.startswith(
+            "<HumanizeProtocol />\n\n"
+        )
 
     asyncio.run(scenario())
 
