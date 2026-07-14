@@ -17,7 +17,7 @@
     },
     behavior: {
       title: "行为决策",
-      description: "控制何时回复、追问、主动发言或自然结束话题。",
+      description: "配置回复、追问、主动发言与话题收束策略。",
       icon: "git-branch",
       saveLabel: "保存决策",
     },
@@ -43,11 +43,11 @@
       allow_follow_up: true,
       allow_proactive: false,
       allow_end_topic: true,
-      reply_threshold: 0.5,
+      reply_threshold: 0.35,
       follow_up_threshold: 0.65,
       proactive_threshold: 0.85,
-      end_topic_threshold: 0.75,
-      cooldown_minutes: 10,
+      end_topic_threshold: 0.8,
+      cooldown_minutes: 30,
     },
     expression: {
       enabled: false,
@@ -157,7 +157,7 @@
       <div class="feature-screen-state loading" role="status">
         <i data-lucide="loader-circle"></i>
         <strong>正在读取拟人化配置</strong>
-        <span>同步 Persona、State 与行为设置…</span>
+        <span>同步人格、状态、行为与表达配置…</span>
       </div>`);
     refreshIcons();
   }
@@ -269,24 +269,30 @@
     shell(`
       <form class="feature-form" data-feature-form="behavior">
         <section class="feature-section">
-          <div class="feature-section-heading"><div><h3>决策开关</h3><p>关闭总开关会保留配置，但暂停行为决策。</p></div><i data-lucide="toggle-right"></i></div>
-          <div class="feature-toggle-list">
+          <div class="feature-section-heading">
+            <div><h3>策略状态</h3><p>配置会写入 Humanize 数据库；运行时决策执行器尚未接入。</p></div>
+            <span class="integration-pill unknown"><i data-lucide="construction"></i>运行时待接入</span>
+          </div>
+          <div class="feature-toggle-list single">
             ${toggleField("enabled", "启用行为决策", "由当前场景决定是否以及如何回应。", value.enabled)}
+          </div>
+          <div class="feature-section-heading"><div><h3>行为许可</h3><p>分别控制决策器可以选择的行为，不会互相覆盖。</p></div><i data-lucide="list-checks"></i></div>
+          <div class="feature-toggle-list">
             ${toggleField("allow_no_reply", "允许不回复", "日常对话没有回应价值时可以保持安静。", value.allow_no_reply)}
             ${toggleField("allow_follow_up", "允许追问", "信息不足或话题值得继续时提出问题。", value.allow_follow_up)}
             ${toggleField("allow_proactive", "允许主动发言", "达到高置信度后可主动加入对话。", value.allow_proactive)}
             ${toggleField("allow_end_topic", "允许结束话题", "识别自然收束点，不强行延长对话。", value.allow_end_topic)}
           </div>
         </section>
-        <section class="feature-section" data-behavior-dependent>
-          <div class="feature-section-heading"><div><h3>决策阈值</h3><p>数值越高，触发对应行为越谨慎。</p></div><i data-lucide="gauge"></i></div>
+        <section class="feature-section">
+          <div class="feature-section-heading"><div><h3>决策阈值</h3><p>数值越高，运行时触发对应行为会越谨慎。</p></div><i data-lucide="gauge"></i></div>
           <div class="decision-grid">
             ${rangeField("reply_threshold", "回复", value.reply_threshold, "回复当前消息")}
             ${rangeField("follow_up_threshold", "追问", value.follow_up_threshold, "继续确认细节")}
             ${rangeField("proactive_threshold", "主动发言", value.proactive_threshold, "未被点名时加入")}
             ${rangeField("end_topic_threshold", "结束话题", value.end_topic_threshold, "自然停止延伸")}
           </div>
-          <label class="feature-field compact-field"><span>主动发言冷却</span><span class="number-control"><input name="cooldown_minutes" type="number" min="0" max="1440" step="1" value="${Math.max(0, numberValue(value.cooldown_minutes, 10))}"><b>分钟</b></span></label>
+          <label class="feature-field compact-field"><span>主动发言冷却</span><span class="number-control"><input name="cooldown_minutes" type="number" min="0" max="10080" step="1" value="${Math.max(0, numberValue(value.cooldown_minutes, 30))}"><b>分钟</b></span></label>
         </section>
       </form>`);
   }
@@ -334,7 +340,7 @@
     shell(`
       <div class="control-layout">
         <section class="feature-section reset-section">
-          <div class="feature-section-heading"><div><h3>恢复默认</h3><p>只重置选择的模块，不影响黑话词库与关系记忆。</p></div><i data-lucide="rotate-ccw"></i></div>
+          <div class="feature-section-heading"><div><h3>恢复默认</h3><p>只重置选择的模块，不影响黑话词库；关系记忆尚未实现。</p></div><i data-lucide="rotate-ccw"></i></div>
           <form class="reset-form" data-reset-form>
             <label class="feature-field"><span>重置范围</span><select name="section">
               <option value="persona">人格设定</option><option value="state">动态状态</option>
@@ -362,10 +368,14 @@
   function updateDependentFields() {
     const behaviorForm = root.querySelector('[data-feature-form="behavior"]');
     if (behaviorForm) {
-      const enabled = behaviorForm.elements.enabled.checked;
-      const section = behaviorForm.querySelector("[data-behavior-dependent]");
-      section.classList.toggle("is-disabled", !enabled);
-      section.querySelectorAll("input").forEach((input) => { input.disabled = !enabled; });
+      const proactiveEnabled = behaviorForm.elements.allow_proactive.checked;
+      const proactiveControls = [
+        behaviorForm.elements.proactive_threshold.closest(".feature-range"),
+        behaviorForm.elements.cooldown_minutes.closest(".feature-field"),
+      ];
+      proactiveControls.forEach((control) => {
+        control.classList.toggle("is-disabled", !proactiveEnabled);
+      });
     }
     const expressionForm = root.querySelector('[data-feature-form="expression"]');
     if (expressionForm) {
@@ -429,7 +439,7 @@
         follow_up_threshold: clampUnit(data.get("follow_up_threshold"), state.data.behavior.follow_up_threshold),
         proactive_threshold: clampUnit(data.get("proactive_threshold"), state.data.behavior.proactive_threshold),
         end_topic_threshold: clampUnit(data.get("end_topic_threshold"), state.data.behavior.end_topic_threshold),
-        cooldown_minutes: Math.max(0, Math.min(1440, Math.round(numberValue(data.get("cooldown_minutes"), 10)))),
+        cooldown_minutes: Math.max(0, Math.min(10080, Math.round(numberValue(data.get("cooldown_minutes"), 30)))),
       };
     }
     return {
