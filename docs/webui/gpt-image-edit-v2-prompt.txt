@@ -1,0 +1,36 @@
+Use case: ui-mockup edit
+Input image: the existing Humanize desktop WebUI screenshot is the edit target.
+
+Primary request:
+Refine the existing interface so it has a little more visual identity and restrained cuteness, while preserving its light, calm, professional administration-console character.
+
+Preserve exactly:
+- Keep the complete layout, sidebar width, top bar, metrics, data table, selected-term detail panel, XML protocol section, default-rule section, spacing, hierarchy, and all visible Chinese text.
+- Keep the interface entirely light theme with white and very pale blush surfaces.
+- Keep the dusty-pink accent, muted gray typography, pale sage and pale amber status colors.
+- Keep the current compact density, 6px-or-less corner radius, thin borders, and almost shadowless appearance.
+- Keep the straight-on full-browser screenshot framing. Do not add a device frame or presentation background.
+
+Add only these subtle signature details:
+1. Give the tiny Bot logo a more distinctive but still minimal outline: a soft dusty-pink double-line signal halo and two tiny square antenna pixels. Keep it small.
+2. Add a very faint micro dot-grid pattern in the upper part of the pale sidebar, limited to a small area behind and below the logo. Opacity should be extremely low.
+3. Add one short, thin abstract chat-wave line beside the page title "黑话词库" and one beside the "XML 协议状态" heading. Use pale dusty pink, no gradient.
+4. Add at most four tiny four-point geometric glints across large empty margins. They must be simple line marks, very pale, and no larger than an icon stroke detail.
+5. Add a subtle 1px pink top accent to the selected table row and a tiny signal-ring marker on the active "学习中" toggle.
+6. Use one small repeating visual motif based on paired dots and a short line to connect the logo, selected navigation state, and section headings. It should feel like a quiet chat signal, not decoration pasted everywhere.
+
+Balance:
+- The result should feel about 15% more distinctive than the input, not redesigned.
+- Cute feeling must come from micro-details and rhythm, not from childish illustrations.
+- Leave abundant clean whitespace and keep every control readable.
+
+Avoid:
+- No dark theme, dark sidebar, dark header, black panel, navy panel, or dark code block.
+- No gradients, glassmorphism, glowing bloom, bokeh, large shadows, floating translucent cards, or decorative blobs.
+- No hearts, bows, flowers, ribbons, sticker sheets, confetti, large sparkles, anime character, animal mascot, or oversized illustration.
+- No saturated hot pink, purple-blue palette, candy colors, or monochrome pink overload.
+- No extra cards, no nested cards, no oversized pills, no marketing hero, and no random text.
+- Do not change, misspell, overlap, or remove the existing interface labels and data.
+
+Output intent:
+The same shippable Humanize WebUI, now with a recognizable quiet chat-signal motif and a touch more restrained pale-pink personality.
