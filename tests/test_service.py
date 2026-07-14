@@ -59,20 +59,13 @@ def test_first_learning_is_injected_only_on_next_matching_scope(tmp_path: Path) 
         first_prepared = await service.prepare_request(first_context)
         assert first_prepared.matched_terms == ()
 
-        raw = """
-<AgentResponse version="1">
-  <Action>Reply</Action>
-  <UnknownTerms>
-    <UnknownTerm>
-      <Word>yyds</Word>
-      <Guess>永远的神，用于强烈称赞</Guess>
-      <Confidence>0.92</Confidence>
-      <Reason>用户用它评价一次很强的操作</Reason>
-    </UnknownTerm>
-  </UnknownTerms>
-  <Reply><Message>确实很强</Message></Reply>
-</AgentResponse>
-"""
+        raw = (
+            "Action: Reply\n"
+            'UnknownTerms: [{"word":"yyds","guess":"永远的神，用于强烈称赞",'
+            '"confidence":0.92,"reason":"用户用它评价一次很强的操作"}]\n'
+            "---\n"
+            "确实很强"
+        )
         outcome = await service.process_final_response(
             first_context, raw, model="test-model", duration_ms=20
         )
@@ -114,18 +107,16 @@ def test_service_filters_noise_before_persistence(tmp_path: Path) -> None:
             message_id="msg-1",
             user_text="yyds 12345 https://example.com",
         )
-        raw = """
-<AgentResponse version="1">
-  <Action>No Reply</Action>
-  <UnknownTerms>
-    <UnknownTerm><Word>yyds</Word><Guess>永远的神</Guess><Confidence>0.9</Confidence><Reason>称赞</Reason></UnknownTerm>
-    <UnknownTerm><Word>12345</Word><Guess>数字</Guess><Confidence>0.9</Confidence><Reason>出现过</Reason></UnknownTerm>
-    <UnknownTerm><Word>https://example.com</Word><Guess>链接</Guess><Confidence>0.9</Confidence><Reason>出现过</Reason></UnknownTerm>
-    <UnknownTerm><Word>不存在</Word><Guess>幻觉</Guess><Confidence>0.9</Confidence><Reason>没有依据</Reason></UnknownTerm>
-  </UnknownTerms>
-  <Reply />
-</AgentResponse>
-"""
+        raw = (
+            "Action: No Reply\n"
+            "UnknownTerms: ["
+            '{"word":"yyds","guess":"永远的神","confidence":0.9,"reason":"称赞"},'
+            '{"word":"12345","guess":"数字","confidence":0.9,"reason":"出现过"},'
+            '{"word":"https://example.com","guess":"链接","confidence":0.9,"reason":"出现过"},'
+            '{"word":"不存在","guess":"幻觉","confidence":0.9,"reason":"没有依据"}'
+            "]\n"
+            "---"
+        )
 
         outcome = await service.process_final_response(
             context, raw, model="test-model", duration_ms=10
@@ -155,7 +146,7 @@ def test_invalid_final_response_is_logged_without_learning(tmp_path: Path) -> No
 
         outcome = await service.process_final_response(
             context,
-            "没有 XML 的自然语言回复",
+            "没有控制头的自然语言回复",
             model="test-model",
             duration_ms=8,
         )
@@ -165,9 +156,9 @@ def test_invalid_final_response_is_logged_without_learning(tmp_path: Path) -> No
         logs = await repository.list_protocol_logs(page=1, page_size=20)
 
         assert not outcome.valid
-        assert outcome.error_code == "malformed_xml"
+        assert outcome.error_code == "invalid_control_header"
         assert stored["total"] == 0
         assert logs["total"] == 1
-        assert logs["items"][0]["failure_code"] == "malformed_xml"
+        assert logs["items"][0]["failure_code"] == "invalid_control_header"
 
     asyncio.run(scenario())

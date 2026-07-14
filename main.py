@@ -14,9 +14,7 @@ from astrbot.core.agent.message import TextPart
 
 from .humanize.config import PluginConfig
 from .humanize.container import Container
-from .humanize.domain.errors import ProtocolValidationError
 from .humanize.domain.models import Action, EventState, MessageContext
-from .humanize.protocol.splitter import enforce_message_limits
 
 PLUGIN_NAME = "astrbot_plugin_humanize"
 _STATE_KEY = "_humanize_state"
@@ -38,14 +36,16 @@ _DISPATCH_PRIORITY = 10_000
 _FINALIZER_PRIORITY = -100_000
 _NO_REPLY_SENTINEL = " "
 _TURN_RESPONSE_CONTRACT = """
-<ResponseContract version="{version}">
-Earlier assistant plain-text messages are legacy history and are invalid output examples.
-For the current turn, including after any tool call, do not answer the Msg directly in plain text.
-Your next user-visible text MUST be exactly one complete AgentResponse XML document with an explicit Action.
-Reply template: &lt;AgentResponse version="{version}"&gt;&lt;Action&gt;Reply&lt;/Action&gt;&lt;UnknownTerms /&gt;&lt;Reply&gt;&lt;Message&gt;message&lt;/Message&gt;&lt;/Reply&gt;&lt;/AgentResponse&gt;
-No-reply template: &lt;AgentResponse version="{version}"&gt;&lt;Action&gt;No Reply&lt;/Action&gt;&lt;UnknownTerms /&gt;&lt;Reply /&gt;&lt;/AgentResponse&gt;
-Do not use Markdown fences or place any text outside AgentResponse.
-</ResponseContract>
+Current-turn response contract v{version}
+Earlier assistant messages without a control header are legacy history and invalid output examples.
+For the current turn, including after any tool call, start every user-visible response exactly like this:
+Action: Reply
+UnknownTerms: []
+---
+ordinary reply text
+
+For silence, use Action: No Reply with an empty body after ---.
+The body after --- is ordinary text. Do not wrap the response in any structured root.
 """.strip()
 
 
@@ -295,26 +295,7 @@ class HumanizePlugin(Star):
             if rendered_text == "\n".join(original_messages):
                 outbound = original_messages
             else:
-                try:
-                    outbound = enforce_message_limits(
-                        [
-                            component.text
-                            for component in result.chain
-                            if component.text.strip()
-                        ],
-                        max_messages=self._plugin_config.max_reply_messages,
-                    )
-                except ProtocolValidationError as exc:
-                    logger.warning(
-                        "[Humanize] blocked decorated response: %s (%s)",
-                        exc.code,
-                        exc.detail,
-                    )
-                    event.set_extra(_STATE_KEY, EventState.FINAL_BLOCKED.value)
-                    event.set_extra(_ERROR_KEY, exc.code)
-                    event.clear_result()
-                    event.stop_event()
-                    return
+                outbound = (rendered_text,) if rendered_text.strip() else ()
             if not outbound:
                 event.clear_result()
                 return

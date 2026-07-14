@@ -16,14 +16,14 @@ from astrbot_plugin_humanize.main import HumanizePlugin
 from astrbot.api.event import MessageChain
 from astrbot.api.message_components import Plain
 from astrbot.api.provider import LLMResponse, ProviderRequest
-from astrbot.core.agent.response import AgentResponse
 from astrbot.core.agent.message import Message, TextPart, ThinkPart
+from astrbot.core.agent.response import AgentResponse
 from astrbot.core.astr_agent_run_util import run_agent
 from astrbot.core.message.message_event_result import MessageEventResult
-from astrbot.core.pipeline.scheduler import PipelineScheduler
 from astrbot.core.pipeline.process_stage.method.agent_sub_stages.internal import (
     InternalAgentSubStage,
 )
+from astrbot.core.pipeline.scheduler import PipelineScheduler
 from astrbot.core.star.star_handler import EventType, star_handlers_registry
 
 
@@ -81,7 +81,7 @@ def _context(user_text: str = "hello") -> MessageContext:
 
 def test_history_sync_restores_user_and_cleans_current_assistant() -> None:
     message_xml = "<Msg>hello</Msg>"
-    raw_output = '<AgentResponse version="1" />'
+    raw_output = "Action: Reply\nUnknownTerms: []\n---\nraw"
     reasoning = ThinkPart(think="internal")
     known_terms = TextPart(text="<KnownTerms />").mark_as_temp()
     run_context = SimpleNamespace(
@@ -149,8 +149,8 @@ def test_residual_tool_fields_do_not_bypass_response_firewall() -> None:
             self.called = True
             return FinalOutcome(
                 valid=False,
-                error_code="malformed_xml",
-                error_detail="not xml",
+                error_code="invalid_control_header",
+                error_detail="missing control header",
             )
 
     async def scenario() -> None:
@@ -184,13 +184,13 @@ def test_tool_stage_text_requires_a_valid_final_action() -> None:
 
         async def process_final_response(self, context, raw_output, **kwargs):
             self.calls.append(raw_output)
-            if "<Action>Reply</Action>" in raw_output:
+            if raw_output.startswith("Action: Reply\n"):
                 return FinalOutcome(
                     valid=True,
                     action=Action.REPLY,
                     messages=("允许显示",),
                 )
-            return FinalOutcome(valid=False, error_code="malformed_xml")
+            return FinalOutcome(valid=False, error_code="invalid_control_header")
 
     async def scenario() -> None:
         service = Service()
@@ -223,12 +223,8 @@ def test_tool_stage_text_requires_a_valid_final_action() -> None:
         assert direct.sent == []
         assert service.calls.count("没有 Action") == 1
 
-        valid_xml = (
-            '<AgentResponse version="1"><Action>Reply</Action>'
-            "<UnknownTerms /><Reply><Message>允许显示</Message></Reply>"
-            "</AgentResponse>"
-        )
-        await direct.send(MessageChain([Plain(valid_xml)]))
+        valid_response = "Action: Reply\nUnknownTerms: []\n---\n允许显示"
+        await direct.send(MessageChain([Plain(valid_response)]))
         assert direct.sent == ["允许显示"]
 
     asyncio.run(scenario())
@@ -237,7 +233,7 @@ def test_tool_stage_text_requires_a_valid_final_action() -> None:
 def test_validated_send_does_not_authorize_concurrent_raw_text() -> None:
     class Service:
         async def process_final_response(self, context, raw_output, **kwargs):
-            return FinalOutcome(valid=False, error_code="malformed_xml")
+            return FinalOutcome(valid=False, error_code="invalid_control_header")
 
     class BlockingEvent(_FakeEvent):
         def __init__(self) -> None:
@@ -304,7 +300,7 @@ def test_core_run_agent_intermediate_text_reaches_action_gate() -> None:
 
         async def process_final_response(self, context, raw_output, **kwargs):
             self.called = True
-            return FinalOutcome(valid=False, error_code="malformed_xml")
+            return FinalOutcome(valid=False, error_code="invalid_control_header")
 
     async def scenario() -> None:
         service = Service()
@@ -344,7 +340,7 @@ def test_request_appends_full_protocol_after_known_terms() -> None:
     class Service:
         async def prepare_request(self, context):
             return PreparedRequest(
-                protocol_prompt="<HumanizeProtocol />",
+                protocol_prompt="Humanize response protocol v1",
                 message_xml="<Msg>hello</Msg>",
                 known_terms_xml="<KnownTerms />",
                 matched_terms=(),
@@ -366,12 +362,13 @@ def test_request_appends_full_protocol_after_known_terms() -> None:
             request.extra_user_content_parts[-1].text,
         ]
         contract = request.extra_user_content_parts[-1].text
-        assert contract.startswith("<HumanizeProtocol />\n\n")
-        assert '<ResponseContract version="1">' in contract
-        assert "legacy history and are invalid output examples" in contract
+        assert contract.startswith("Humanize response protocol v1\n\n")
+        assert "Current-turn response contract v1" in contract
+        assert "legacy history and invalid output examples" in contract
         assert "including after any tool call" in contract
-        assert "exactly one complete AgentResponse XML document" in contract
-        assert contract.endswith("</ResponseContract>")
+        assert "Action: Reply" in contract
+        assert "ordinary reply text" in contract
+        assert "structured root" in contract
 
     asyncio.run(scenario())
 
@@ -380,16 +377,14 @@ def test_both_injection_mode_keeps_user_protocol_and_system_copy() -> None:
     class Service:
         async def prepare_request(self, context):
             return PreparedRequest(
-                protocol_prompt="<HumanizeProtocol />",
+                protocol_prompt="Humanize response protocol v1",
                 message_xml="<Msg>hello</Msg>",
                 known_terms_xml="<KnownTerms />",
                 matched_terms=(),
             )
 
     async def scenario() -> None:
-        plugin = HumanizePlugin(
-            SimpleNamespace(), {"protocol_injection_mode": "both"}
-        )
+        plugin = HumanizePlugin(SimpleNamespace(), {"protocol_injection_mode": "both"})
         plugin._container = SimpleNamespace(service=Service())
         plugin._build_message_context = lambda event, text: _context(text)
         event = _FakeEvent()
@@ -397,9 +392,9 @@ def test_both_injection_mode_keeps_user_protocol_and_system_copy() -> None:
 
         await plugin.on_llm_request(event, request)
 
-        assert request.system_prompt == "persona\n\n<HumanizeProtocol />"
+        assert request.system_prompt == "persona\n\nHumanize response protocol v1"
         assert request.extra_user_content_parts[-1].text.startswith(
-            "<HumanizeProtocol />\n\n"
+            "Humanize response protocol v1\n\n"
         )
 
     asyncio.run(scenario())
@@ -429,10 +424,7 @@ def test_no_reply_keeps_user_history_without_stopping_pipeline() -> None:
         event = _FakeEvent(MessageEventResult(chain=[Plain(" ")]))
         context = _context("先看看")
         message_xml = "<Msg>先看看</Msg>"
-        raw_output = (
-            '<AgentResponse version="1"><Action>No Reply</Action>'
-            "<UnknownTerms /><Reply /></AgentResponse>"
-        )
+        raw_output = "Action: No Reply\nUnknownTerms: []\n---"
         event.set_extra("_humanize_state", EventState.REQUESTED.value)
         event.set_extra("_humanize_context", context)
         event.set_extra("_humanize_message_xml", message_xml)

@@ -294,7 +294,7 @@
       : "用户消息（临时）";
     refs.ruleAdministrator.textContent = String(settings.administrator_name || settings.admin_name || "管理员");
     refs.ruleMessageLimit.textContent = `${numberValue(settings.max_message_chars, 10)} 字`;
-    refs.ruleMessageCount.textContent = `${numberValue(settings.max_reply_messages, 12)} 条`;
+    refs.ruleMessageCount.textContent = "保持完整";
   }
 
   function createStatusBadge(status) {

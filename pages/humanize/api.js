@@ -194,7 +194,7 @@
   const demoProtocolLogs = [
     { id: 1, created_at: "2025-05-24 21:14:02", type: "Reply success", status: "success", detail: "已注入 1 条回复" },
     { id: 2, created_at: "2025-05-24 21:12:11", type: "No Reply success", status: "success", detail: "未生成回复（按规则）" },
-    { id: 3, created_at: "2025-05-24 21:11:03", type: "Reply blocked", status: "blocked", detail: "缺少 </Reply> 标签" },
+    { id: 3, created_at: "2025-05-24 21:11:03", type: "Reply blocked", status: "blocked", detail: "缺少 Action 控制头" },
     { id: 4, created_at: "2025-05-24 20:59:47", type: "Reply success", status: "success", detail: "已注入 2 条回复" },
   ];
 
@@ -207,7 +207,6 @@
     protocol_injection_mode: "user",
     administrator_name: "管理员",
     max_message_chars: 10,
-    max_reply_messages: 12,
   };
 
   const demoFeatures = {

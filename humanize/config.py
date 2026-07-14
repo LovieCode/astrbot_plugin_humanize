@@ -49,15 +49,11 @@ class PluginConfig:
     admin_name: str = "管理员"
     admin_qq_ids: tuple[str, ...] = ()
     max_message_chars: int = 10
-    max_reply_messages: int = 12
     protocol_enabled: bool = True
     protocol_injection_mode: str = "user"
     protocol_version: int = 1
-    protocol_max_output_chars: int = 20_000
     protocol_raw_log_chars: int = 4_000
     protocol_log_retention_days: int = 7
-    max_xml_nodes: int = 128
-    max_xml_depth: int = 8
     max_unknown_terms: int = 8
     no_reply_enabled: bool = True
     jargon_enabled: bool = True
@@ -81,21 +77,15 @@ class PluginConfig:
             admin_name=str(data.get("admin_name") or "管理员").strip() or "管理员",
             admin_qq_ids=_as_string_list(data.get("admin_qq_ids")),
             max_message_chars=_as_int(data.get("max_message_chars"), 10, 1, 200),
-            max_reply_messages=_as_int(data.get("max_reply_messages"), 12, 1, 50),
             protocol_enabled=_as_bool(data.get("protocol_enabled"), True),
             protocol_injection_mode=protocol_injection_mode,
             protocol_version=_as_int(data.get("protocol_version"), 1, 1, 99),
-            protocol_max_output_chars=_as_int(
-                data.get("protocol_max_output_chars"), 20_000, 1_000, 100_000
-            ),
             protocol_raw_log_chars=_as_int(
                 data.get("protocol_raw_log_chars"), 4_000, 256, 20_000
             ),
             protocol_log_retention_days=_as_int(
                 data.get("protocol_log_retention_days"), 7, 1, 365
             ),
-            max_xml_nodes=_as_int(data.get("max_xml_nodes"), 128, 16, 1_024),
-            max_xml_depth=_as_int(data.get("max_xml_depth"), 8, 3, 32),
             max_unknown_terms=_as_int(data.get("max_unknown_terms"), 8, 0, 50),
             no_reply_enabled=_as_bool(data.get("no_reply_enabled"), True),
             jargon_enabled=_as_bool(data.get("jargon_enabled"), True),
@@ -128,7 +118,6 @@ class PluginConfig:
             "admin_name": self.admin_name,
             "admin_qq_ids": list(self.admin_qq_ids),
             "max_message_chars": self.max_message_chars,
-            "max_reply_messages": self.max_reply_messages,
             "protocol_enabled": self.protocol_enabled,
             "protocol_injection_mode": self.protocol_injection_mode,
             "protocol_version": self.protocol_version,

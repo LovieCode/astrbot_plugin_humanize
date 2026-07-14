@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import json
 from xml.etree import ElementTree as ET
 
 import pytest
@@ -8,19 +9,12 @@ from humanize.domain.errors import ProtocolValidationError
 from humanize.domain.models import Action, MessageContext
 from humanize.protocol.envelope import EnvelopeBuilder
 from humanize.protocol.parser import ProtocolParser
-from humanize.protocol.splitter import enforce_message_limits
 
 
-def _response_xml(
-    *, action: str = "Reply", reply: str = "<Message>收到</Message>"
+def _response(
+    *, action: str = "Reply", unknown_terms: str = "[]", body: str = "收到"
 ) -> str:
-    return (
-        '<AgentResponse version="1">'
-        f"<Action>{action}</Action>"
-        "<UnknownTerms />"
-        f"<Reply>{reply}</Reply>"
-        "</AgentResponse>"
-    )
+    return f"Action: {action}\nUnknownTerms: {unknown_terms}\n---\n{body}"
 
 
 def _context(**overrides: object) -> MessageContext:
@@ -41,23 +35,22 @@ def _context(**overrides: object) -> MessageContext:
 
 
 def test_parse_valid_reply_with_unknown_term() -> None:
-    parser = ProtocolParser(PluginConfig())
-    raw = """
-<AgentResponse version="1">
-  <Action>Reply</Action>
-  <UnknownTerms>
-    <UnknownTerm>
-      <Word>yyds</Word>
-      <Guess>永远的神</Guess>
-      <Confidence>0.91</Confidence>
-      <Reason>当前句用于称赞</Reason>
-    </UnknownTerm>
-  </UnknownTerms>
-  <Reply><Message>确实很强</Message></Reply>
-</AgentResponse>
-"""
+    unknown_terms = json.dumps(
+        [
+            {
+                "word": "yyds",
+                "guess": "永远的神",
+                "confidence": 0.91,
+                "reason": "当前句用于称赞",
+            }
+        ],
+        ensure_ascii=False,
+        separators=(",", ":"),
+    )
 
-    decision = parser.parse(raw)
+    decision = ProtocolParser(PluginConfig()).parse(
+        _response(unknown_terms=unknown_terms, body="确实很强")
+    )
 
     assert decision.action is Action.REPLY
     assert decision.messages == ("确实很强",)
@@ -68,7 +61,7 @@ def test_parse_valid_reply_with_unknown_term() -> None:
 
 def test_parse_valid_no_reply() -> None:
     decision = ProtocolParser(PluginConfig()).parse(
-        _response_xml(action="No Reply", reply="")
+        _response(action="No Reply", body="\n\n")
     )
 
     assert decision.action is Action.NO_REPLY
@@ -79,17 +72,12 @@ def test_parse_valid_no_reply() -> None:
 @pytest.mark.parametrize(
     ("raw", "error_code"),
     [
-        ("<AgentResponse>", "malformed_xml"),
-        (
-            '<!DOCTYPE foo [<!ENTITY xxe "boom">]>'
-            '<AgentResponse version="1"><Action>Reply</Action>'
-            "<UnknownTerms/><Reply><Message>&xxe;</Message></Reply>"
-            "</AgentResponse>",
-            "forbidden_xml_declaration",
-        ),
-        (_response_xml(action="Wait"), "invalid_action"),
-        ("这是一段没有协议标签的回复", "malformed_xml"),
-        (f"```xml\n{_response_xml()}\n```", "markdown_wrapper"),
+        ("普通文本", "invalid_control_header"),
+        (_response(action="Wait"), "invalid_action"),
+        (_response(unknown_terms="{}"), "invalid_unknown_terms"),
+        (_response(unknown_terms="[broken"), "invalid_unknown_terms_json"),
+        (_response(body=""), "reply_missing_text"),
+        (_response(action="No Reply", body="不该出现"), "no_reply_has_text"),
     ],
 )
 def test_reject_invalid_protocol(raw: str, error_code: str) -> None:
@@ -99,24 +87,23 @@ def test_reject_invalid_protocol(raw: str, error_code: str) -> None:
     assert error.value.code == error_code
 
 
-def test_long_task_message_is_not_split_by_casual_length_preference() -> None:
-    message = "```html\n<div data-value=\"a&b\">long task output</div>\n```"
+def test_long_task_message_is_plain_text_and_kept_intact() -> None:
+    body = '```html\n<div data-value="a&b">long task output</div>\n```\n' * 10_000
 
     decision = ProtocolParser(PluginConfig(max_message_chars=5)).parse(
-        _response_xml(reply=f"<Message><![CDATA[{message}]]></Message>")
+        _response(body=body)
     )
 
-    assert decision.messages == (message,)
+    assert decision.messages == (body,)
 
 
-def test_message_count_limit_still_blocks_spam() -> None:
+def test_unknown_term_text_fields_must_be_strings() -> None:
+    invalid = '[{"word":1,"guess":"meaning","confidence":0.5,"reason":"context"}]'
+
     with pytest.raises(ProtocolValidationError) as error:
-        enforce_message_limits(
-            ["第一条", "第二条", "第三条"],
-            max_messages=2,
-        )
+        ProtocolParser(PluginConfig()).parse(_response(unknown_terms=invalid))
 
-    assert error.value.code == "too_many_messages"
+    assert error.value.code == "invalid_unknown_term"
 
 
 def test_envelope_escapes_message_as_xml_data() -> None:
@@ -152,6 +139,8 @@ def test_rule_uses_trusted_context_for_scene_and_admin(
     assert "10001、10002" in rule_text
     assert "99999" not in rule_text
     assert rule.tag == "Rule"
+    assert "Action: Reply" in prompt
+    assert "AgentResponse" not in prompt
 
 
 def test_protocol_injection_mode_defaults_to_user_and_rejects_unknown_values() -> None:

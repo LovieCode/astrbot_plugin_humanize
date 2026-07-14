@@ -1,7 +1,7 @@
 name: astrbot_plugin_humanize
 display_name: Bot 拟人化
-desc: 通过严格 XML 决策协议、黑话学习与可审计记忆逐步增强 Bot 的长期交互连贯性。
-short_desc: 严格决策协议与黑话语义记忆。
+desc: 通过轻量回复控制协议、黑话学习与可审计状态逐步增强 Bot 的长期交互连贯性。
+short_desc: 让 Bot 形成稳定人格、动态状态与有边界的行为选择。
 version: v0.1.0
 author: LovieCode
 repo: ""
