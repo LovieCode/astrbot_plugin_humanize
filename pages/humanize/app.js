@@ -9,6 +9,14 @@
     ambiguous: { label: "有歧义", className: "status-ambiguous" },
     rejected: { label: "已拒绝", className: "status-rejected" },
   };
+  const FEATURE_VIEWS = new Set(["persona", "state", "behavior", "expression", "control"]);
+  const FEATURE_TITLES = {
+    persona: "人格设定",
+    state: "动态状态",
+    behavior: "行为决策",
+    expression: "Expression",
+    control: "运行控制",
+  };
 
   const state = {
     settings: {},
@@ -642,6 +650,28 @@
     }, 260);
   }
 
+  function activateView(view) {
+    const isFeature = FEATURE_VIEWS.has(view);
+    if (view !== "jargons" && !isFeature) {
+      const button = document.querySelector(`[data-nav="${view}"]`);
+      const label = button && button.querySelector("span");
+      showToast(`${label ? label.textContent : "该视图"}将在后续阶段开放`, "info");
+      return;
+    }
+
+    document.querySelectorAll("[data-nav]").forEach((button) => {
+      const active = button.dataset.nav === view;
+      button.classList.toggle("active", active);
+      if (active) button.setAttribute("aria-current", "page");
+      else button.removeAttribute("aria-current");
+    });
+    refs.workspace.classList.toggle("feature-view", isFeature);
+    refs.legacyWorkspace.hidden = isFeature;
+    refs.featureWorkspace.hidden = !isFeature;
+    refs.pageTitle.textContent = isFeature ? FEATURE_TITLES[view] : "黑话词库";
+    if (isFeature) global.HumanizeFeatures.open(view);
+  }
+
   function bindEvents() {
     refs.globalSearch.addEventListener("input", (event) => scheduleSearch(event.target.value));
     refs.tableSearch.addEventListener("input", (event) => scheduleSearch(event.target.value));
@@ -685,7 +715,7 @@
     });
     refs.confirmButton.addEventListener("click", () => performJargonAction("confirm", state.selectedDetail && state.selectedDetail.meaning));
     refs.rejectButton.addEventListener("click", () => performJargonAction("reject"));
-    refs.ruleDetailsButton.addEventListener("click", () => showToast("完整规则可在“规则与人格”阶段管理", "info"));
+    refs.ruleDetailsButton.addEventListener("click", () => activateView("persona"));
     refs.learningToggle.addEventListener("change", () => {
       if (api.demoMode) {
         showToast(refs.learningToggle.checked ? "已恢复演示学习状态" : "已暂停演示学习状态", "info");
@@ -695,11 +725,7 @@
       showToast("学习状态请在插件配置中修改", "info");
     });
     document.querySelectorAll("[data-nav]").forEach((button) => {
-      button.addEventListener("click", () => {
-        if (button.dataset.nav === "jargons") return;
-        const label = button.querySelector("span");
-        showToast(`${label ? label.textContent : "该视图"}将在后续阶段开放`, "info");
-      });
+      button.addEventListener("click", () => activateView(button.dataset.nav));
     });
   }
 
@@ -714,14 +740,18 @@
       "detailLastSeen", "evidenceList", "confirmButton", "rejectButton", "chartSuccessRate",
       "protocolChart", "chartLabels", "protocolRows", "protocolState", "ruleEnabled",
       "ruleInjectionMode", "ruleAdministrator", "ruleMessageLimit", "ruleMessageCount", "ruleDetailsButton", "toastRegion",
+      "legacyWorkspace", "featureWorkspace",
     ].forEach((id) => {
       refs[id] = document.getElementById(id);
     });
     refs.ruleDot = document.querySelector(".rule-dot");
+    refs.workspace = document.querySelector(".workspace");
+    refs.pageTitle = document.querySelector(".page-heading h1");
   }
 
   async function boot() {
     collectRefs();
+    global.HumanizeFeatures.mount(refs.featureWorkspace, { notify: showToast });
     bindEvents();
     refreshIcons();
     setTableState("正在连接插件…");

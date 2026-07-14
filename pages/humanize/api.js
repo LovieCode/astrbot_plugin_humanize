@@ -210,6 +210,49 @@
     max_reply_messages: 12,
   };
 
+  const demoFeatures = {
+    persona: {
+      name: "眠汐",
+      identity: "AstrBot 的拟人化助手",
+      traits: ["冷静", "直接", "有边界感"],
+      values: ["诚实", "可靠", "尊重上下文"],
+      boundaries: ["不冒充真人", "不泄露隐私"],
+    },
+    state: {
+      mood: 0.68,
+      energy: 0.74,
+      interest: 0.82,
+      stress: 0.2,
+      focus: "当前对话",
+      updated_at: "2026-07-14 19:42:00",
+    },
+    behavior: {
+      enabled: true,
+      allow_no_reply: true,
+      allow_follow_up: true,
+      allow_proactive: false,
+      allow_end_topic: true,
+      reply_threshold: 0.54,
+      follow_up_threshold: 0.68,
+      proactive_threshold: 0.86,
+      end_topic_threshold: 0.76,
+      cooldown_minutes: 8,
+    },
+    expression: {
+      enabled: true,
+      provider: "builtin",
+      mode: "observe",
+      profile: "日常对话保持自然简短，复杂任务允许完整展开。",
+      integration_status: "ready",
+      last_checked_at: "2026-07-14 19:42:00",
+      last_error: "",
+    },
+    audit: [
+      { time: "2026-07-14 19:42", section: "state", action: "自动更新", detail: "情绪与精力已刷新" },
+      { time: "2026-07-14 18:26", section: "behavior", action: "保存", detail: "决策阈值已更新" },
+    ],
+  };
+
   function copy(value) {
     return JSON.parse(JSON.stringify(value));
   }
@@ -332,12 +375,37 @@
       return { items: copy(demoProtocolLogs.slice(offset, offset + pageSize)), total: demoProtocolLogs.length };
     }
     if (endpoint === "/settings") return copy(demoSettings);
+    if (endpoint === "/features") return copy(demoFeatures);
     throw new Error(`未知演示接口：${endpoint}`);
   }
 
   async function demoPost(endpoint, body) {
     await new Promise((resolve) => global.setTimeout(resolve, 100));
     if (endpoint === "/jargon-action") return demoJargonAction(body || {});
+    const section = endpoint.slice(1);
+    if (["persona", "state", "behavior", "expression"].includes(section)) {
+      demoFeatures[section] = { ...copy(demoFeatures[section]), ...copy(body || {}) };
+      if (section === "state") demoFeatures.state.updated_at = new Date().toLocaleString("zh-CN");
+      return copy(demoFeatures[section]);
+    }
+    if (endpoint === "/control/reset" || endpoint === "/control-reset") {
+      const target = String((body && body.section) || "all");
+      const defaults = {
+        persona: { name: "", identity: "", traits: [], values: [], boundaries: [] },
+        state: { mood: 0.5, energy: 0.5, interest: 0.5, stress: 0, focus: "" },
+        behavior: {
+          enabled: true, allow_no_reply: true, allow_follow_up: true, allow_proactive: false,
+          allow_end_topic: true, reply_threshold: 0.5, follow_up_threshold: 0.65,
+          proactive_threshold: 0.85, end_topic_threshold: 0.75, cooldown_minutes: 10,
+        },
+        expression: { enabled: false, provider: "builtin", mode: "off", profile: "" },
+      };
+      const reset = target === "all" ? Object.keys(defaults) : [target];
+      reset.forEach((key) => {
+        if (defaults[key]) demoFeatures[key] = copy(defaults[key]);
+      });
+      return { reset, sections: copy(demoFeatures) };
+    }
     throw new Error(`未知演示接口：${endpoint}`);
   }
 
@@ -355,6 +423,43 @@
     return unwrap(await bridge.apiPost(normalized, body || {}));
   }
 
+  async function getFeatures() {
+    try {
+      return await get("features");
+    } catch (featuresError) {
+      try {
+        const [persona, featureState, behavior, expression, auditPayload] = await Promise.all([
+          get("persona"),
+          get("state"),
+          get("behavior"),
+          get("expression"),
+          get("control-audit", { page: 1, page_size: 8 }).catch(() => ({ items: [] })),
+        ]);
+        return {
+          persona,
+          state: featureState,
+          behavior,
+          expression,
+          audit: Array.isArray(auditPayload) ? auditPayload : auditPayload.items || [],
+        };
+      } catch {
+        throw featuresError;
+      }
+    }
+  }
+
+  async function resetControl(body) {
+    try {
+      return await post("control-reset", body);
+    } catch (legacyError) {
+      try {
+        return await post("control/reset", body);
+      } catch {
+        throw legacyError;
+      }
+    }
+  }
+
   global.HumanizeApi = Object.freeze({
     demoMode: DEMO_MODE,
     ready: async function ready() {
@@ -365,6 +470,12 @@
     getJargonDetail: (id) => get("jargon-detail", { id }),
     getProtocolLogs: (params) => get("protocol-logs", params),
     getSettings: () => get("settings"),
+    getFeatures,
     jargonAction: (body) => post("jargon-action", body),
+    savePersona: (body) => post("persona", body),
+    saveState: (body) => post("state", body),
+    saveBehavior: (body) => post("behavior", body),
+    saveExpression: (body) => post("expression", body),
+    resetControl,
   });
 })(window);

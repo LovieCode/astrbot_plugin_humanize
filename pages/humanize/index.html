@@ -4,10 +4,12 @@
   <meta charset="UTF-8">
   <meta name="viewport" content="width=device-width, initial-scale=1.0">
   <meta name="color-scheme" content="light">
-  <title>Humanize - 黑话词库</title>
+  <title>Humanize - 拟人化管理</title>
+  <link rel="icon" href="data:,">
   <link rel="stylesheet" href="style.css">
   <script src="lucide.js" defer></script>
   <script src="api.js" defer></script>
+  <script src="features.js" defer></script>
   <script src="app.js" defer></script>
 </head>
 <body>
@@ -38,8 +40,20 @@
         <button class="nav-item" type="button" data-nav="protocol" aria-label="协议监控" title="协议监控">
           <i data-lucide="chart-no-axes-combined"></i><span>协议监控</span>
         </button>
-        <button class="nav-item" type="button" data-nav="rules" aria-label="规则与人格" title="规则与人格">
-          <i data-lucide="user-round"></i><span>规则与人格</span>
+        <button class="nav-item" type="button" data-nav="persona" aria-label="人格设定" title="人格设定">
+          <i data-lucide="user-round"></i><span>人格设定</span>
+        </button>
+        <button class="nav-item" type="button" data-nav="state" aria-label="动态状态" title="动态状态">
+          <i data-lucide="activity"></i><span>动态状态</span>
+        </button>
+        <button class="nav-item" type="button" data-nav="behavior" aria-label="行为决策" title="行为决策">
+          <i data-lucide="git-branch"></i><span>行为决策</span>
+        </button>
+        <button class="nav-item" type="button" data-nav="expression" aria-label="表达方式" title="表达方式">
+          <i data-lucide="message-circle-more"></i><span>表达方式</span>
+        </button>
+        <button class="nav-item" type="button" data-nav="control" aria-label="运行控制" title="运行控制">
+          <i data-lucide="sliders-horizontal"></i><span>运行控制</span>
         </button>
         <button class="nav-item" type="button" data-nav="relationships" aria-label="关系记忆" title="关系记忆">
           <i data-lucide="users-round"></i><span>关系记忆</span><span class="plan-badge">规划中</span>
@@ -90,7 +104,7 @@
         </div>
       </header>
 
-      <main class="main-content">
+      <main class="main-content" id="legacyWorkspace">
         <section class="metrics" aria-label="学习指标">
           <article class="metric-block">
             <span>已学习</span><strong id="metricLearned">--</strong>
@@ -278,6 +292,7 @@
           </aside>
         </section>
       </main>
+      <main class="feature-workspace" id="featureWorkspace" hidden aria-live="polite"></main>
     </div>
 
     <span class="glint glint-one" aria-hidden="true"></span>
