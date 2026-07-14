@@ -32,7 +32,7 @@ _HISTORY_SYNC_KEY = "_humanize_history_sync_required"
 _TOOL_HISTORY_KEY = "_humanize_tool_history_replacements"
 _SEND_GATE_KEY = "_humanize_send_gate_installed"
 _SEND_GATE_ERROR_KEY = "_humanize_send_gate_error"
-_AUTHORIZED_SEND_KEY = "_humanize_authorized_send"
+_ORIGINAL_SEND_KEY = "_humanize_original_send"
 _FIREWALL_PRIORITY = 100_000
 _DISPATCH_PRIORITY = 10_000
 _FINALIZER_PRIORITY = -100_000
@@ -312,8 +312,10 @@ class HumanizePlugin(Star):
             EventState.TOOL_RUNNING.value,
         }:
             result = event.get_result()
-            if result and result.chain and all(
-                isinstance(component, Plain) for component in result.chain
+            if (
+                result
+                and result.chain
+                and all(isinstance(component, Plain) for component in result.chain)
             ):
                 await self._process_tool_stage_payload(
                     event,
@@ -382,12 +384,17 @@ class HumanizePlugin(Star):
         return f"{existing.rstrip()}\n\n{addition}"
 
     def _install_send_gate(self, event: AstrMessageEvent) -> None:
+        """Install a per-event outbound protocol gate.
+
+        Args:
+            event: The message event whose direct sends must be guarded.
+        """
         if event.get_extra(_SEND_GATE_KEY, False):
             return
         original_send = event.send
 
         async def guarded_send(message: MessageChain | None) -> None:
-            if message is None or event.get_extra(_AUTHORIZED_SEND_KEY, False):
+            if message is None:
                 await original_send(message)
                 return
 
@@ -416,6 +423,7 @@ class HumanizePlugin(Star):
                 )
 
         try:
+            event.set_extra(_ORIGINAL_SEND_KEY, original_send)
             setattr(event, "send", guarded_send)
         except (AttributeError, TypeError):
             logger.exception("[Humanize] failed to install outbound send gate")
@@ -477,12 +485,22 @@ class HumanizePlugin(Star):
         event: AstrMessageEvent,
         messages: tuple[str, ...],
     ) -> None:
-        event.set_extra(_AUTHORIZED_SEND_KEY, True)
-        try:
-            for message in messages:
-                await event.send(MessageChain([Plain(message)]))
-        finally:
-            event.set_extra(_AUTHORIZED_SEND_KEY, False)
+        """Send validated messages without reopening the public send gate.
+
+        Args:
+            event: The active message event.
+            messages: Validated plain-text messages to send in order.
+
+        Raises:
+            RuntimeError: If a gate is installed without its original sender.
+        """
+        sender = event.get_extra(_ORIGINAL_SEND_KEY)
+        if not callable(sender):
+            if event.get_extra(_SEND_GATE_KEY, False):
+                raise RuntimeError("outbound send gate is missing its original sender")
+            sender = event.send
+        for message in messages:
+            await sender(MessageChain([Plain(message)]))
 
     def _block_response(
         self,
@@ -606,7 +624,5 @@ class HumanizePlugin(Star):
             )
         else:
             message.content = (
-                text
-                if text or getattr(message, "tool_calls", None) is None
-                else None
+                text if text or getattr(message, "tool_calls", None) is None else None
             )

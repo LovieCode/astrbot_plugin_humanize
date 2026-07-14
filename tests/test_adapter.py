@@ -233,6 +233,44 @@ def test_tool_stage_text_requires_a_valid_final_action() -> None:
     asyncio.run(scenario())
 
 
+def test_validated_send_does_not_authorize_concurrent_raw_text() -> None:
+    class Service:
+        async def process_final_response(self, context, raw_output, **kwargs):
+            return FinalOutcome(valid=False, error_code="malformed_xml")
+
+    class BlockingEvent(_FakeEvent):
+        def __init__(self) -> None:
+            super().__init__()
+            self.send_started = asyncio.Event()
+            self.release_send = asyncio.Event()
+
+        async def send(self, chain: MessageChain | None) -> None:
+            self.send_started.set()
+            await self.release_send.wait()
+            await super().send(chain)
+
+    async def scenario() -> None:
+        plugin = HumanizePlugin(SimpleNamespace(), {})
+        plugin._container = SimpleNamespace(service=Service())
+        event = BlockingEvent()
+        event.set_extra("_humanize_state", EventState.REQUESTED.value)
+        event.set_extra("_humanize_context", _context())
+        event.set_extra("_humanize_tool_history_replacements", {})
+        await plugin.prepare_message_event(event)
+
+        validated_send = asyncio.create_task(
+            plugin._send_messages(event, ("允许显示",))
+        )
+        await event.send_started.wait()
+        await event.send(MessageChain([Plain("没有 Action")]))
+        event.release_send.set()
+        await validated_send
+
+        assert event.sent == ["允许显示"]
+
+    asyncio.run(scenario())
+
+
 def test_tool_stage_history_replaces_suppressed_raw_text() -> None:
     raw = "我先查一下"
     run_context = SimpleNamespace(
