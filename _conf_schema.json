@@ -25,12 +25,12 @@
     "hint": "每行一个 QQ 号。只有这里配置的值会被写入临时 Rule。"
   },
   "max_message_chars": {
-    "description": "单条消息最大字符数",
+    "description": "日常消息建议字符数",
     "type": "int",
     "default": 10,
     "minimum": 1,
     "maximum": 200,
-    "hint": "每个 <Message> 的最大 Unicode 字符数，超长时按标点兜底切分。"
+    "hint": "仅用于提示模型保持日常闲聊简短。代码、日志、教程等任务所需长内容不会被拆分或拦截。"
   },
   "max_reply_messages": {
     "description": "单次最多消息数",
@@ -39,12 +39,6 @@
     "minimum": 1,
     "maximum": 50,
     "hint": "防止模型生成大量短消息刷屏。"
-  },
-  "split_long_messages": {
-    "description": "自动拆分超长消息",
-    "type": "bool",
-    "default": true,
-    "hint": "优先按标点和空白切分，无法自然切分时硬切。"
   },
   "protocol_enabled": {
     "description": "启用 XML 决策协议",

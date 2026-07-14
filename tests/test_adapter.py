@@ -503,7 +503,7 @@ def test_no_reply_keeps_user_history_without_stopping_pipeline() -> None:
     asyncio.run(scenario())
 
 
-def test_dispatch_respects_prior_rejection_and_splits_modified_plain_text() -> None:
+def test_dispatch_respects_prior_rejection_and_preserves_modified_long_text() -> None:
     async def scenario() -> None:
         plugin = HumanizePlugin(SimpleNamespace(), {})
         rejected = _FakeEvent(MessageEventResult(chain=[]))
@@ -522,9 +522,7 @@ def test_dispatch_respects_prior_rejection_and_splits_modified_plain_text() -> N
         await plugin.dispatch_response(modified)
 
         assert modified.result is None
-        assert len(modified.sent) == 2
-        assert all(len(message) <= 10 for message in modified.sent)
-        assert "".join(modified.sent) == "这是其他插件修改后的较长回复"
+        assert modified.sent == ["这是其他插件修改后的较长回复"]
 
     asyncio.run(scenario())
 

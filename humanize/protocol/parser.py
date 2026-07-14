@@ -173,9 +173,7 @@ class ProtocolParser:
             messages.append((child.text or "").strip())
         return enforce_message_limits(
             messages,
-            max_chars=self._config.max_message_chars,
             max_messages=self._config.max_reply_messages,
-            split_long_messages=self._config.split_long_messages,
         )
 
     def _validate_tree_limits(self, root: ET.Element) -> None:

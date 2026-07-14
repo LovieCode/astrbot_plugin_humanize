@@ -302,9 +302,7 @@ class HumanizePlugin(Star):
                             for component in result.chain
                             if component.text.strip()
                         ],
-                        max_chars=self._plugin_config.max_message_chars,
                         max_messages=self._plugin_config.max_reply_messages,
-                        split_long_messages=self._plugin_config.split_long_messages,
                     )
                 except ProtocolValidationError as exc:
                     logger.warning(

@@ -8,7 +8,7 @@ from humanize.domain.errors import ProtocolValidationError
 from humanize.domain.models import Action, MessageContext
 from humanize.protocol.envelope import EnvelopeBuilder
 from humanize.protocol.parser import ProtocolParser
-from humanize.protocol.splitter import enforce_message_limits, split_message
+from humanize.protocol.splitter import enforce_message_limits
 
 
 def _response_xml(
@@ -99,25 +99,21 @@ def test_reject_invalid_protocol(raw: str, error_code: str) -> None:
     assert error.value.code == error_code
 
 
-def test_message_limit_keeps_exact_boundary_and_prefers_punctuation() -> None:
-    assert split_message("1234567890", 10) == ["1234567890"]
-    assert split_message("今天心情不错，要一起玩吗", 10) == [
-        "今天心情不错，",
-        "要一起玩吗",
-    ]
-    assert split_message("一二三四五六七八九十十一", 10) == [
-        "一二三四五六七八九十",
-        "十一",
-    ]
+def test_long_task_message_is_not_split_by_casual_length_preference() -> None:
+    message = "```html\n<div data-value=\"a&b\">long task output</div>\n```"
+
+    decision = ProtocolParser(PluginConfig(max_message_chars=5)).parse(
+        _response_xml(reply=f"<Message><![CDATA[{message}]]></Message>")
+    )
+
+    assert decision.messages == (message,)
 
 
-def test_message_limit_rejects_expansion_beyond_maximum() -> None:
+def test_message_count_limit_still_blocks_spam() -> None:
     with pytest.raises(ProtocolValidationError) as error:
         enforce_message_limits(
-            ["一二三四五六七八九十十一十二十三十四十五"],
-            max_chars=5,
+            ["第一条", "第二条", "第三条"],
             max_messages=2,
-            split_long_messages=True,
         )
 
     assert error.value.code == "too_many_messages"

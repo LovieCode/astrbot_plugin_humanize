@@ -45,7 +45,7 @@
 </AgentResponse>
 ```
 
-`No Reply` 必须配合空的 `<Reply />`。它会静默清空待发送结果，但不中断 AstrBot 的历史保存路径。回复超过配置的单条字符限制时，会优先按标点拆分；拆分后超过单次消息数上限则整次拦截。
+`No Reply` 必须配合空的 `<Reply />`。它会静默清空待发送结果，但不中断 AstrBot 的历史保存路径。日常闲聊的单条字符数只是模型表达偏好，不是协议硬限制；代码、日志、命令、教程和结构化数据等长内容会保持完整。单次 `<Message>` 节点数量超过配置上限时仍会整次拦截，防止刷屏。
 
 实际工具调用不要求先生成 XML，避免破坏 Agent 工具循环；但工具调用前后的附带 Plain 文本会被清空。只有最终完整 `AgentResponse` 中通过校验的 `<Action>Reply</Action>` 内容才会展示。
 
@@ -55,7 +55,7 @@
 | --- | --- |
 | `main.py` | AstrBot 生命周期适配、状态机和最终发送闸门 |
 | `humanize/domain/` | 领域模型和协议错误 |
-| `humanize/protocol/` | XML 构建、严格解析和消息拆分 |
+| `humanize/protocol/` | XML 构建、严格解析和消息数量校验 |
 | `humanize/jargon/` | 黑话归一化、候选过滤和匹配策略 |
 | `humanize/repositories/` | SQLite Repository 与审计日志 |
 | `humanize/services/` | 请求准备和最终响应应用服务 |
