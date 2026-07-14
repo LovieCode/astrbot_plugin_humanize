@@ -104,3 +104,10 @@ def test_webui_feature_navigation_matches_frontend_api_contract() -> None:
     assert "data-feature-form" in features_js
     assert "data-feature-save" in features_js
     assert "data-reset-form" in features_js
+
+    save_function = features_js.index("async function save()")
+    payload_collection = features_js.index(
+        "const payload = collectPayload();", save_function
+    )
+    controls_disabled = features_js.index("state.pending = true;", save_function)
+    assert payload_collection < controls_disabled

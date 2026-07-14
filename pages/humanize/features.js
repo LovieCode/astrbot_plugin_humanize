@@ -458,11 +458,12 @@
       behavior: api.saveBehavior,
       expression: api.saveExpression,
     };
+    const payload = collectPayload();
     state.pending = true;
     root.querySelectorAll("input, textarea, select, button").forEach((control) => { control.disabled = true; });
     updateStatus();
     try {
-      const result = await methods[state.active](collectPayload());
+      const result = await methods[state.active](payload);
       state.data[state.active] = { ...copy(DEFAULTS[state.active]), ...(result || {}) };
       state.dirty = false;
       state.savedAt = new Date().toLocaleTimeString("zh-CN", { hour: "2-digit", minute: "2-digit" });
