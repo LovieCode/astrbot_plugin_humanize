@@ -6,7 +6,19 @@ from typing import Any
 
 
 def _clean_text(value: Any, *, default: str, limit: int) -> str:
-    """Normalize a bounded text field."""
+    """Normalize a bounded text field.
+
+    Args:
+        value: Value supplied by the caller.
+        default: Fallback text when the value is missing.
+        limit: Maximum character count.
+
+    Returns:
+        Stripped text within the configured limit.
+
+    Raises:
+        ValueError: If the text exceeds the configured limit.
+    """
     text = str(value if value is not None else default).strip()
     if len(text) > limit:
         raise ValueError(f"text field exceeds {limit} characters")
@@ -14,7 +26,19 @@ def _clean_text(value: Any, *, default: str, limit: int) -> str:
 
 
 def _clean_list(value: Any, *, limit: int, item_limit: int) -> list[str]:
-    """Normalize a bounded list of unique text values."""
+    """Normalize a bounded list of unique text values.
+
+    Args:
+        value: List-like value supplied by the caller.
+        limit: Maximum number of items.
+        item_limit: Maximum length of each item.
+
+    Returns:
+        Stripped, deduplicated text items.
+
+    Raises:
+        ValueError: If the input shape or limits are invalid.
+    """
     if value is None:
         return []
     if not isinstance(value, (list, tuple)):
@@ -34,7 +58,15 @@ def _clean_list(value: Any, *, limit: int, item_limit: int) -> list[str]:
 
 
 def _bounded_float(value: Any, *, default: float) -> float:
-    """Parse a state or policy value and keep it within the 0..1 range."""
+    """Parse a state or policy value and keep it within the 0..1 range.
+
+    Args:
+        value: Value supplied by the caller.
+        default: Fallback value when parsing fails.
+
+    Returns:
+        A finite value rounded to three decimals and clamped to 0..1.
+    """
     try:
         parsed = float(value)
     except (TypeError, ValueError):
@@ -45,7 +77,16 @@ def _bounded_float(value: Any, *, default: float) -> float:
 
 
 def _bounded_int(value: Any, *, default: int, maximum: int) -> int:
-    """Parse a non-negative integer with a product-level ceiling."""
+    """Parse a non-negative integer with a product-level ceiling.
+
+    Args:
+        value: Value supplied by the caller.
+        default: Fallback value when parsing fails.
+        maximum: Highest accepted value.
+
+    Returns:
+        A non-negative integer no greater than ``maximum``.
+    """
     try:
         parsed = int(value)
     except (TypeError, ValueError):
@@ -54,7 +95,15 @@ def _bounded_int(value: Any, *, default: int, maximum: int) -> int:
 
 
 def _boolean(value: Any, *, default: bool) -> bool:
-    """Parse booleans from JSON values and common form encodings."""
+    """Parse booleans from JSON values and common form encodings.
+
+    Args:
+        value: JSON, SQLite, or form value supplied by the caller.
+        default: Fallback value for unsupported encodings.
+
+    Returns:
+        The parsed boolean value.
+    """
     if isinstance(value, bool):
         return value
     if isinstance(value, (int, float)) and value in {0, 1}:
@@ -80,7 +129,17 @@ class PersonaConfig:
 
     @classmethod
     def from_mapping(cls, raw: dict[str, Any] | None) -> PersonaConfig:
-        """Build a validated persona from an API payload or database row."""
+        """Build a validated persona from an API payload or database row.
+
+        Args:
+            raw: API payload or database mapping.
+
+        Returns:
+            A validated persona configuration.
+
+        Raises:
+            ValueError: If a text field or list exceeds its limit.
+        """
         data = raw or {}
         defaults = cls()
         return cls(
@@ -96,7 +155,14 @@ class PersonaConfig:
 
     @classmethod
     def from_row(cls, row: Any) -> PersonaConfig:
-        """Build a persona from a SQLite row."""
+        """Build a persona from a SQLite row.
+
+        Args:
+            row: SQLite row containing serialized persona lists.
+
+        Returns:
+            A validated persona configuration.
+        """
         return cls.from_mapping(
             {
                 "name": row["name"],
@@ -108,7 +174,11 @@ class PersonaConfig:
         )
 
     def as_dict(self) -> dict[str, Any]:
-        """Return a JSON-serializable representation."""
+        """Return a JSON-serializable representation.
+
+        Returns:
+            Persona fields suitable for an API response.
+        """
         return {
             "name": self.name,
             "identity": self.identity,
@@ -131,7 +201,14 @@ class DynamicState:
 
     @classmethod
     def from_mapping(cls, raw: dict[str, Any] | None) -> DynamicState:
-        """Build validated dynamic state from an API payload or database row."""
+        """Build validated dynamic state from an API payload or database row.
+
+        Args:
+            raw: API payload or database mapping.
+
+        Returns:
+            A bounded dynamic state.
+        """
         data = raw or {}
         defaults = cls()
         return cls(
@@ -145,11 +222,22 @@ class DynamicState:
 
     @classmethod
     def from_row(cls, row: Any) -> DynamicState:
-        """Build dynamic state from a SQLite row."""
+        """Build dynamic state from a SQLite row.
+
+        Args:
+            row: SQLite row containing state values.
+
+        Returns:
+            A bounded dynamic state.
+        """
         return cls.from_mapping(dict(row))
 
     def as_dict(self) -> dict[str, Any]:
-        """Return a JSON-serializable representation."""
+        """Return a JSON-serializable representation.
+
+        Returns:
+            State fields suitable for an API response.
+        """
         return {
             "mood": self.mood,
             "energy": self.energy,
@@ -178,7 +266,14 @@ class BehaviorPolicy:
 
     @classmethod
     def from_mapping(cls, raw: dict[str, Any] | None) -> BehaviorPolicy:
-        """Build a validated behavior policy from an API payload or row."""
+        """Build a validated behavior policy from an API payload or row.
+
+        Args:
+            raw: API payload or database mapping.
+
+        Returns:
+            A validated behavior policy.
+        """
         data = raw or {}
         defaults = cls()
         return cls(
@@ -217,11 +312,22 @@ class BehaviorPolicy:
 
     @classmethod
     def from_row(cls, row: Any) -> BehaviorPolicy:
-        """Build a behavior policy from a SQLite row."""
+        """Build a behavior policy from a SQLite row.
+
+        Args:
+            row: SQLite row containing policy values.
+
+        Returns:
+            A validated behavior policy.
+        """
         return cls.from_mapping(dict(row))
 
     def as_dict(self) -> dict[str, Any]:
-        """Return a JSON-serializable representation."""
+        """Return a JSON-serializable representation.
+
+        Returns:
+            Policy fields suitable for an API response.
+        """
         return {
             "enabled": self.enabled,
             "allow_no_reply": self.allow_no_reply,
@@ -252,7 +358,17 @@ class ExpressionConfig:
 
     @classmethod
     def from_mapping(cls, raw: dict[str, Any] | None) -> ExpressionConfig:
-        """Build validated expression integration configuration."""
+        """Build validated expression integration configuration.
+
+        Args:
+            raw: API payload or database mapping.
+
+        Returns:
+            A validated expression configuration.
+
+        Raises:
+            ValueError: If the mode or integration status is unsupported.
+        """
         data = raw or {}
         defaults = cls()
         mode = str(data.get("mode") or defaults.mode).strip().lower()
@@ -296,11 +412,22 @@ class ExpressionConfig:
 
     @classmethod
     def from_row(cls, row: Any) -> ExpressionConfig:
-        """Build expression configuration from a SQLite row."""
+        """Build expression configuration from a SQLite row.
+
+        Args:
+            row: SQLite row containing expression settings.
+
+        Returns:
+            A validated expression configuration.
+        """
         return cls.from_mapping(dict(row))
 
     def as_dict(self) -> dict[str, Any]:
-        """Return a JSON-serializable representation."""
+        """Return a JSON-serializable representation.
+
+        Returns:
+            Expression settings suitable for an API response.
+        """
         return {
             "enabled": self.enabled,
             "provider": self.provider,

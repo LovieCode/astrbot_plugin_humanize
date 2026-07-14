@@ -200,7 +200,18 @@ class SQLiteRepository:
         await self._run(self._migrate)
 
     async def get_control_section(self, section: str) -> dict[str, Any]:
-        """Read one non-relationship humanization control section."""
+        """Read one non-relationship humanization control section.
+
+        Args:
+            section: One of persona, state, behavior, or expression.
+
+        Returns:
+            The persisted section fields.
+
+        Raises:
+            ValueError: If the section is not supported.
+            RuntimeError: If control defaults are missing from the database.
+        """
         if section not in {"persona", "state", "behavior", "expression"}:
             raise ValueError("unsupported control section")
 
@@ -229,7 +240,14 @@ class SQLiteRepository:
         return await self._run(operation)
 
     async def get_control_overview(self) -> dict[str, Any]:
-        """Read all non-relationship controls and recent audit metadata."""
+        """Read all non-relationship controls and recent audit metadata.
+
+        Returns:
+            All controls, recent audit items, and audit summary metadata.
+
+        Raises:
+            RuntimeError: If control defaults are missing from the database.
+        """
 
         def operation(conn: sqlite3.Connection) -> dict[str, Any]:
             rows = {
@@ -301,7 +319,21 @@ class SQLiteRepository:
         actor: str = "web_admin",
         reason: str = "web update",
     ) -> dict[str, Any]:
-        """Validate and persist one control section with an audit record."""
+        """Validate and persist one control section with an audit record.
+
+        Args:
+            section: Section to update.
+            value: Complete validated section payload.
+            actor: Audit actor label.
+            reason: Audit reason.
+
+        Returns:
+            The persisted section including its update timestamp.
+
+        Raises:
+            ValueError: If the section or payload is invalid.
+            RuntimeError: If control defaults are missing from the database.
+        """
         if section not in {"persona", "state", "behavior", "expression"}:
             raise ValueError("unsupported control section")
         clean_reason = str(reason or "web update").strip()[:500]
@@ -434,7 +466,20 @@ class SQLiteRepository:
     async def reset_control(
         self, section: str, *, actor: str, reason: str
     ) -> dict[str, Any]:
-        """Reset one or all controls and record before/after values."""
+        """Reset one or all controls and record before/after values.
+
+        Args:
+            section: Section name or ``all``.
+            actor: Audit actor label.
+            reason: Audit reason.
+
+        Returns:
+            Reset section values keyed by section name.
+
+        Raises:
+            ValueError: If the section is not supported.
+            RuntimeError: If control defaults are missing from the database.
+        """
         sections = (
             ("persona", "state", "behavior", "expression")
             if section == "all"
@@ -552,7 +597,15 @@ class SQLiteRepository:
         return await self._run(operation)
 
     async def list_control_audit(self, *, page: int, page_size: int) -> dict[str, Any]:
-        """List control changes newest first for the management UI."""
+        """List control changes newest first for the management UI.
+
+        Args:
+            page: One-based page number.
+            page_size: Maximum records per page.
+
+        Returns:
+            Audit items and their total count.
+        """
 
         def operation(conn: sqlite3.Connection) -> dict[str, Any]:
             total = int(
