@@ -37,6 +37,16 @@ _FIREWALL_PRIORITY = 100_000
 _DISPATCH_PRIORITY = 10_000
 _FINALIZER_PRIORITY = -100_000
 _NO_REPLY_SENTINEL = " "
+_TURN_RESPONSE_CONTRACT = """
+<ResponseContract version="{version}">
+Earlier assistant plain-text messages are legacy history and are invalid output examples.
+For the current turn, including after any tool call, do not answer the Msg directly in plain text.
+Your next user-visible text MUST be exactly one complete AgentResponse XML document with an explicit Action.
+Reply template: &lt;AgentResponse version="{version}"&gt;&lt;Action&gt;Reply&lt;/Action&gt;&lt;UnknownTerms /&gt;&lt;Reply&gt;&lt;Message&gt;message&lt;/Message&gt;&lt;/Reply&gt;&lt;/AgentResponse&gt;
+No-reply template: &lt;AgentResponse version="{version}"&gt;&lt;Action&gt;No Reply&lt;/Action&gt;&lt;UnknownTerms /&gt;&lt;Reply /&gt;&lt;/AgentResponse&gt;
+Do not use Markdown fences or place any text outside AgentResponse.
+</ResponseContract>
+""".strip()
 
 
 class HumanizePlugin(Star):
@@ -103,6 +113,13 @@ class HumanizePlugin(Star):
         )
         req.extra_user_content_parts.append(
             TextPart(text=prepared.known_terms_xml).mark_as_temp()
+        )
+        req.extra_user_content_parts.append(
+            TextPart(
+                text=_TURN_RESPONSE_CONTRACT.format(
+                    version=self._plugin_config.protocol_version
+                )
+            ).mark_as_temp()
         )
 
         event.set_extra(_STATE_KEY, EventState.REQUESTED.value)
