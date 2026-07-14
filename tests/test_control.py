@@ -62,6 +62,26 @@ def test_control_update_clamps_state_and_records_audit(tmp_path: Path) -> None:
     asyncio.run(scenario())
 
 
+def test_control_boolean_values_survive_repository_reopen(tmp_path: Path) -> None:
+    async def scenario() -> None:
+        db_path = tmp_path / "humanize.db"
+        first = await _service(db_path)
+        await first.update_section(
+            "behavior",
+            {"enabled": False, "allow_proactive": True},
+        )
+        await first.update_section("expression", {"enabled": True, "mode": "observe"})
+
+        second = await _service(db_path)
+        behavior = await second.get_section("behavior")
+        expression = await second.get_section("expression")
+        assert behavior["enabled"] is False
+        assert behavior["allow_proactive"] is True
+        assert expression["enabled"] is True
+
+    asyncio.run(scenario())
+
+
 def test_control_reset_is_auditable_and_validates_expression_mode(
     tmp_path: Path,
 ) -> None:

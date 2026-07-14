@@ -57,6 +57,8 @@ def _boolean(value: Any, *, default: bool) -> bool:
     """Parse booleans from JSON values and common form encodings."""
     if isinstance(value, bool):
         return value
+    if isinstance(value, (int, float)) and value in {0, 1}:
+        return bool(value)
     if isinstance(value, str):
         normalized = value.strip().lower()
         if normalized in {"1", "true", "yes", "on"}:
