@@ -340,7 +340,7 @@ def test_request_appends_full_protocol_after_known_terms() -> None:
     class Service:
         async def prepare_request(self, context):
             return PreparedRequest(
-                protocol_prompt="Humanize response protocol v1",
+                protocol_prompt="Humanize 回复控制协议 v1",
                 message_xml="<Msg>hello</Msg>",
                 known_terms_xml="<KnownTerms />",
                 matched_terms=(),
@@ -362,13 +362,13 @@ def test_request_appends_full_protocol_after_known_terms() -> None:
             request.extra_user_content_parts[-1].text,
         ]
         contract = request.extra_user_content_parts[-1].text
-        assert contract.startswith("Humanize response protocol v1\n\n")
-        assert "Current-turn response contract v1" in contract
-        assert "legacy history and invalid output examples" in contract
-        assert "including after any tool call" in contract
+        assert contract.startswith("Humanize 回复控制协议 v1\n\n")
+        assert "当前轮回复契约 v1" in contract
+        assert "只是旧记录" in contract
+        assert "包括任意工具调用之后" in contract
         assert "Action: Reply" in contract
-        assert "ordinary reply text" in contract
-        assert "structured root" in contract
+        assert "这里填写普通回复正文" in contract
+        assert "结构化根节点" in contract
 
     asyncio.run(scenario())
 
@@ -377,7 +377,7 @@ def test_both_injection_mode_keeps_user_protocol_and_system_copy() -> None:
     class Service:
         async def prepare_request(self, context):
             return PreparedRequest(
-                protocol_prompt="Humanize response protocol v1",
+                protocol_prompt="Humanize 回复控制协议 v1",
                 message_xml="<Msg>hello</Msg>",
                 known_terms_xml="<KnownTerms />",
                 matched_terms=(),
@@ -392,9 +392,9 @@ def test_both_injection_mode_keeps_user_protocol_and_system_copy() -> None:
 
         await plugin.on_llm_request(event, request)
 
-        assert request.system_prompt == "persona\n\nHumanize response protocol v1"
+        assert request.system_prompt == "persona\n\nHumanize 回复控制协议 v1"
         assert request.extra_user_content_parts[-1].text.startswith(
-            "Humanize response protocol v1\n\n"
+            "Humanize 回复控制协议 v1\n\n"
         )
 
     asyncio.run(scenario())

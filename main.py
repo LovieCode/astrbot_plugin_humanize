@@ -36,16 +36,16 @@ _DISPATCH_PRIORITY = 10_000
 _FINALIZER_PRIORITY = -100_000
 _NO_REPLY_SENTINEL = " "
 _TURN_RESPONSE_CONTRACT = """
-Current-turn response contract v{version}
-Earlier assistant messages without a control header are legacy history and invalid output examples.
-For the current turn, including after any tool call, start every user-visible response exactly like this:
+当前轮回复契约 v{version}
+历史中不带控制头的助手消息只是旧记录，不能作为当前输出格式的示例。
+当前轮中，包括任意工具调用之后，每段需要展示给用户的文本都必须严格以以下格式开头：
 Action: Reply
 UnknownTerms: []
 ---
-ordinary reply text
+这里填写普通回复正文
 
-For silence, use Action: No Reply with an empty body after ---.
-The body after --- is ordinary text. Do not wrap the response in any structured root.
+需要保持沉默时，使用 Action: No Reply，并确保 --- 后正文为空。
+--- 后是普通文本正文，不要使用任何结构化根节点包裹回复。
 """.strip()
 
 
