@@ -432,6 +432,70 @@ astrbot_plugin_humanize/
 - 不把裁剪代码伪装成原创实现，不从 PyPI 运行时下载 OpenViking。
 - 任何新增 vendor 文件必须先检查许可证、依赖和是否属于聊天记忆边界。
 
+### 5.4 插件自身多余功能裁剪
+
+内置 OpenViking 后，插件不再维护第二套记忆语义。插件只负责 AstrBot 适配、安全边界、回复协议、审计和管理面。
+
+#### 保留
+
+- AstrBot 事件接入、插件生命周期和热重载。
+- `Reply / No Reply` 协议、严格发送闸门和重复回复防护。
+- `<Msg>`、规则、黑话和记忆上下文注入。
+- Agent、群聊、用户作用域隔离和 HMAC 身份映射。
+- AstrBot Chat、Embedding、Rerank Provider 适配。
+- Context Trace、协议审计、错误记录和 fail-open 降级。
+- 基础 WebUI：运行状态、任务状态、记忆审核、召回调试、提示词和配置管理。
+
+#### 并入 OpenViking，不再双维护
+
+- `ChatMemoryService` 中的记忆提取语义。
+- 插件自研 session/archive 语义和 session commit。
+- 自研 L0/L1/L2 摘要、页面和分层读取。
+- 自研 memory merge、replace、patch、memory diff。
+- 自研 memory link 和关系更新。
+- 自研记忆召回排序、分层展开和来源关联。
+- 记忆 embedding/vector 的核心索引逻辑。
+- 记忆后台 worker 中与 OpenViking commit/extract 语义重复的部分。
+
+插件保留 adapter、scope 过滤、任务租约、审计和旧 API facade；上述记忆行为以 OpenViking 为唯一实现来源。
+
+#### 直接裁剪
+
+- Persona、State、Behavior、Expression 的运行时逻辑。
+- Relationship Memory 的独立实现、关系评分、亲密度和信任度。
+- OpenViking 安装按钮、依赖安装器、独立服务、HTTP API 和 Web Studio。
+- 旧 archive、重复 session commit、重复 L0/L1 表和专用归档链路。
+- 插件内部 LLM 回复缓存、query embedding 缓存、召回结果缓存和 rerank 结果缓存。
+- FAISS、Qdrant、VikingDB、CuVS 等额外向量后端，除非评测证明确有必要。
+- 本地模型下载、模型权重、GPU 管理和插件自建 Provider。
+- 多租户、Skill、Tool、Trajectory、Training、Workflow、Resource Hub 和 Data Bank。
+- 与聊天记忆无关的导入器、文件资源管理、通用知识库和独立数据目录。
+
+历史表和配置如涉及用户数据，先停止运行时读写并保留迁移窗口，不直接破坏性删除。
+
+#### 暂缓评估
+
+- 黑话词库是否并入 OpenViking entity/alias；当前继续保留独立审核体验。
+- 回复样例是否转为 OpenViking experience；当前继续保留人工审核和 few-shot 注入。
+- Provider Cache 观测；它属于运行观测，继续独立保留。
+- 完整 retention、导出、整域重置和 dead-letter 恢复；不阻塞核心内置工作。
+
+#### 最终插件职责
+
+```text
+AstrBot 适配
++ 回复协议与发送安全
++ scope / Agent 安全边界
++ Provider Bridge
++ 任务租约与审计
++ WebUI 管理
+```
+
+```text
+OpenViking 内核负责：
+Session + Memory + Memory Link + L0/L1/L2 + 提取、更新、召回
+```
+
 ## 6. 目标运行链路
 
 ```text
