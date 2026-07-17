@@ -104,6 +104,23 @@ def test_webui_static_assets_and_dom_references_are_consistent() -> None:
         assert f'{{ key: "{name}"' in app_js
 
 
+def test_webui_type_scale_is_readable_and_consistent() -> None:
+    """The shared type scale keeps body text readable and strictly ordered."""
+    style_css = _read("style.css")
+    names = ("xs", "sm", "base", "md", "lg", "xl", "2xl", "3xl")
+    sizes = []
+    for name in names:
+        match = re.search(rf"--fs-{name}:\s*(\d+)px;", style_css)
+        assert match is not None, name
+        sizes.append(int(match.group(1)))
+
+    assert sizes[0] >= 13
+    assert sizes == sorted(set(sizes))
+    assert "font-size: 0.92em" not in style_css
+    responsive = style_css.split("@media (max-width: 1024px)", 1)[1]
+    assert re.search(r"\.workspace\s*{[^}]*grid-column:\s*1;", responsive)
+
+
 def test_webui_uses_real_api_without_demo_or_fake_data() -> None:
     """All visible operational views are backed by plugin API calls."""
     api_js = _read("api.js")
