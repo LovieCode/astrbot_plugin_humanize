@@ -2,7 +2,7 @@ from __future__ import annotations
 
 import logging
 import re
-from typing import Any, cast
+from typing import Any
 
 from ..config import PluginConfig
 from ..domain.prompts import PROMPT_TEMPLATE_SPEC_BY_KEY, PromptTemplates
@@ -10,8 +10,6 @@ from ..memory import ChatMemoryService
 from ..ports import RepositoryPort
 from ..protocol.envelope import EnvelopeBuilder
 from ..provider_catalog import ProviderCatalog
-from ..repositories.sqlite import SQLiteRepository
-from ..services.control import ControlService
 
 logger = logging.getLogger("astrbot")
 
@@ -66,16 +64,12 @@ class WebApi:
         self,
         repository: RepositoryPort,
         config: PluginConfig,
-        control_service: ControlService | None = None,
         envelope: EnvelopeBuilder | None = None,
         provider_catalog: ProviderCatalog | None = None,
         memory: ChatMemoryService | None = None,
     ) -> None:
         self._repository = repository
         self._config = config
-        self._control = control_service or ControlService(
-            cast(SQLiteRepository, repository)
-        )
         self._envelope = envelope or EnvelopeBuilder(config)
         self._provider_catalog = provider_catalog
         self._memory = memory
@@ -390,14 +384,7 @@ class WebApi:
                 )
             return self._ok(await self._provider_catalog.list_memory_providers())
         if path == "settings":
-            settings = self._config.as_public_dict()
-            settings["control_sections"] = [
-                "persona",
-                "state",
-                "behavior",
-                "expression",
-            ]
-            return self._ok(settings)
+            return self._ok(self._config.as_public_dict())
         if path == "prompt-templates":
             stored = await self._repository.get_prompt_templates()
             templates = PromptTemplates.from_mapping(stored["templates"])
@@ -408,16 +395,6 @@ class WebApi:
                     "updated_at": stored["updated_at"],
                 }
             )
-        if path in {"features", "control-overview"}:
-            return self._ok(await self._control.get_features())
-        if path in {"persona", "state", "behavior", "expression"}:
-            return self._ok(await self._control.get_section(path))
-        if path == "control-audit":
-            page = _positive_int(request.query.get("page"), 1, 100_000)
-            page_size = _positive_int(request.query.get("page_size"), 20, 100)
-            return self._ok(
-                await self._control.list_audit(page=page, page_size=page_size)
-            )
         return error_response("未找到该接口", status_code=404)
 
     async def _handle_post(self, path: str):
@@ -426,28 +403,6 @@ class WebApi:
         body = await request.json(default={})
         if not isinstance(body, dict):
             raise ValueError("请求体必须是 JSON 对象")
-        if path in {"persona", "state", "behavior", "expression"}:
-            return self._ok(
-                await self._control.update_section(
-                    path, body, reason=str(body.get("reason") or "web update")
-                )
-            )
-        if path in {"control/reset", "control-reset"}:
-            section = str(body.get("section") or "").strip().lower()
-            reason = str(body.get("reason") or "").strip()
-            return self._ok(
-                {
-                    "sections": await self._control.reset(section, reason),
-                    "reset": [section]
-                    if section != "all"
-                    else [
-                        "persona",
-                        "state",
-                        "behavior",
-                        "expression",
-                    ],
-                }
-            )
         if path == "prompt-templates":
             action = str(body.get("action") or "update").strip().lower()
             reason = str(body.get("reason") or "").strip()

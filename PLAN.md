@@ -82,6 +82,8 @@
 - 聊天记忆读写和管理切换为 OpenViking 单一路径，故障时 fail-open。
 - 删除旧数据迁移、shadow、cutover 和 SQLite recall fallback 过渡层。
 - 删除旧 SQLite memory、重复运行时代码及残留 schema。
+- 删除旧 Control 后端的 Persona、State、Behavior、Expression 配置、服务、API、SQLite 表和测试；保留协议控制头、AstrBot Persona ID 与 OpenViking Agent 作用域。
+- 将提示词模板审计从旧 Control 审计表拆分为专用 `humanize_prompt_template_audit`。
 - 清理对应配置、API、WebUI 文案、测试、README 和依赖。
 - 完成全量回归、发布包审计和最终提交。
 

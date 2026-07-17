@@ -21,7 +21,6 @@ from humanize.protocol.envelope import EnvelopeBuilder
 from humanize.protocol.parser import ProtocolParser
 from humanize.repositories.sqlite import (
     _CONTEXT_SCHEMA,
-    _CONTROL_SCHEMA,
     _SCHEMA,
     _SCHEMA_VERSION,
     SQLiteRepository,
@@ -572,7 +571,6 @@ def test_v5_migration_preserves_bounded_legacy_snapshots_and_is_repeatable(
     with sqlite3.connect(db_path) as conn:
         conn.row_factory = sqlite3.Row
         conn.executescript(legacy_schema)
-        conn.executescript(_CONTROL_SCHEMA)
         conn.executescript(legacy_context_schema)
         SQLiteRepository._migrate_jargon_v2(conn)
         conn.execute(
@@ -658,7 +656,6 @@ def test_v6_migration_marks_legacy_request_and_response_snapshots_incomplete(
     with sqlite3.connect(db_path) as conn:
         conn.row_factory = sqlite3.Row
         conn.executescript(v5_schema)
-        conn.executescript(_CONTROL_SCHEMA)
         conn.executescript(v5_context_schema)
         SQLiteRepository._migrate_jargon_v2(conn)
         conn.execute(

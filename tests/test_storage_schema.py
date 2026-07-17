@@ -28,6 +28,7 @@ def test_fresh_database_keeps_only_plugin_owned_memory_support_tables(
         assert {
             "humanize_context_runs",
             "humanize_prompt_templates",
+            "humanize_prompt_template_audit",
             "humanize_provider_cache_capabilities",
             "humanize_memory_jobs",
             "humanize_memory_audit",
@@ -45,6 +46,11 @@ def test_fresh_database_keeps_only_plugin_owned_memory_support_tables(
         )
         assert (
             not {
+                "humanize_persona",
+                "humanize_state",
+                "humanize_behavior_policy",
+                "humanize_expression",
+                "humanize_control_audit",
                 "humanize_llm_cache_entries",
                 "humanize_llm_cache_events",
                 "humanize_embedding_cache",
@@ -72,7 +78,7 @@ def test_fresh_database_keeps_only_plugin_owned_memory_support_tables(
     asyncio.run(scenario())
 
 
-def test_schema_upgrade_drops_legacy_memory_tables(
+def test_schema_upgrade_drops_legacy_memory_and_control_tables(
     tmp_path: Path,
 ) -> None:
     async def scenario() -> None:
@@ -108,6 +114,11 @@ def test_schema_upgrade_drops_legacy_memory_tables(
                 CREATE TABLE humanize_memory_recall_logs (id INTEGER PRIMARY KEY);
                 CREATE TABLE humanize_memory_fts (id INTEGER PRIMARY KEY);
                 CREATE TABLE humanize_vector_index_state (id INTEGER PRIMARY KEY);
+                CREATE TABLE humanize_persona (id INTEGER PRIMARY KEY);
+                CREATE TABLE humanize_state (id INTEGER PRIMARY KEY);
+                CREATE TABLE humanize_behavior_policy (id INTEGER PRIMARY KEY);
+                CREATE TABLE humanize_expression (id INTEGER PRIMARY KEY);
+                CREATE TABLE humanize_control_audit (id INTEGER PRIMARY KEY);
                 PRAGMA user_version = 16;
                 """
             )
@@ -148,6 +159,11 @@ def test_schema_upgrade_drops_legacy_memory_tables(
                 "humanize_memory_recall_logs",
                 "humanize_memory_fts",
                 "humanize_vector_index_state",
+                "humanize_persona",
+                "humanize_state",
+                "humanize_behavior_policy",
+                "humanize_expression",
+                "humanize_control_audit",
             }
             & tables
         )

@@ -17,7 +17,6 @@ from .protocol.envelope import EnvelopeBuilder
 from .protocol.parser import ProtocolParser
 from .provider_catalog import ProviderCatalog
 from .repositories.sqlite import SQLiteRepository
-from .services.control import ControlService
 from .services.humanize import HumanizeService
 from .web.routes import WebApi
 
@@ -29,7 +28,6 @@ class Container:
     envelope: EnvelopeBuilder
     memory: ChatMemoryService
     service: HumanizeService
-    control_service: ControlService
     provider_catalog: ProviderCatalog
     web_api: WebApi
 
@@ -83,7 +81,6 @@ class Container:
             composer=composer,
             memory=memory,
         )
-        control_service = ControlService(repository)
         provider_catalog = ProviderCatalog(context)
         return cls(
             config=config,
@@ -91,12 +88,10 @@ class Container:
             envelope=envelope,
             memory=memory,
             service=service,
-            control_service=control_service,
             provider_catalog=provider_catalog,
             web_api=WebApi(
                 repository,
                 config,
-                control_service,
                 envelope,
                 provider_catalog,
                 memory=memory,

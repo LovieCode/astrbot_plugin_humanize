@@ -11,7 +11,6 @@ from humanize.jargon.normalizer import term_matches
 from humanize.protocol.envelope import EnvelopeBuilder
 from humanize.repositories.sqlite import (
     _CONTEXT_SCHEMA,
-    _CONTROL_SCHEMA,
     _SCHEMA,
     _SCHEMA_VERSION,
     SQLiteRepository,
@@ -197,7 +196,6 @@ def test_v3_migration_preserves_entry_and_sense_ids(tmp_path: Path) -> None:
     db_path = tmp_path / "humanize.db"
     with sqlite3.connect(db_path) as conn:
         conn.executescript(_SCHEMA)
-        conn.executescript(_CONTROL_SCHEMA)
         conn.executescript(
             _CONTEXT_SCHEMA.replace(
                 "    content_chars INTEGER NOT NULL,\n"
@@ -255,7 +253,6 @@ def test_v4_migration_resumes_after_partial_column_upgrade(tmp_path: Path) -> No
     db_path = tmp_path / "humanize.db"
     with sqlite3.connect(db_path) as conn:
         conn.executescript(_SCHEMA)
-        conn.executescript(_CONTROL_SCHEMA)
         conn.executescript(_CONTEXT_SCHEMA)
         conn.execute(
             "ALTER TABLE jargon_entries ADD COLUMN enabled INTEGER NOT NULL DEFAULT 1"

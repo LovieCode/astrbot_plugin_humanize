@@ -12,7 +12,6 @@ from humanize.domain.models import MessageContext
 from humanize.domain.prompts import PromptTemplates
 from humanize.protocol.envelope import EnvelopeBuilder
 from humanize.repositories.sqlite import _SCHEMA_VERSION, SQLiteRepository
-from humanize.services.control import ControlService
 from humanize.web.routes import WebApi
 
 
@@ -55,7 +54,7 @@ def _payload(response: Any) -> dict[str, Any]:
     return json.loads(response.body.decode("utf-8"))
 
 
-def test_prompt_templates_persist_and_reuse_control_audit(tmp_path: Path) -> None:
+def test_prompt_templates_persist_with_dedicated_audit(tmp_path: Path) -> None:
     async def scenario() -> None:
         db_path = tmp_path / "humanize.db"
         repository = SQLiteRepository(db_path)
@@ -70,7 +69,6 @@ def test_prompt_templates_persist_and_reuse_control_audit(tmp_path: Path) -> Non
         reopened = SQLiteRepository(db_path)
         await reopened.initialize()
         persisted = await reopened.get_prompt_templates()
-        audit = await reopened.list_control_audit(page=1, page_size=20)
 
         assert set(defaults["templates"]) == {
             "rule",
@@ -81,9 +79,6 @@ def test_prompt_templates_persist_and_reuse_control_audit(tmp_path: Path) -> Non
         }
         assert updated["templates"]["protocol"] == custom
         assert persisted["templates"]["protocol"] == custom
-        assert audit["items"][0]["section"] == "prompts"
-        assert audit["items"][0]["action"] == "update"
-        assert audit["items"][0]["reason"] == "edit protocol template"
         assert list(tmp_path.glob("*.db")) == [db_path]
         with sqlite3.connect(db_path) as conn:
             assert conn.execute("PRAGMA user_version").fetchone()[0] == _SCHEMA_VERSION
@@ -93,6 +88,28 @@ def test_prompt_templates_persist_and_reuse_control_audit(tmp_path: Path) -> Non
                 ).fetchone()[0]
                 == 1
             )
+            audit = conn.execute(
+                """
+                SELECT action, actor, reason, before_json, after_json
+                FROM humanize_prompt_template_audit
+                ORDER BY id DESC
+                LIMIT 1
+                """
+            ).fetchone()
+            tables = {
+                str(row[0])
+                for row in conn.execute(
+                    "SELECT name FROM sqlite_master WHERE type = 'table'"
+                )
+            }
+
+        assert audit is not None
+        assert audit[0] == "update"
+        assert audit[1] == "web_admin"
+        assert audit[2] == "edit protocol template"
+        assert json.loads(audit[3])["protocol"] == defaults["templates"]["protocol"]
+        assert json.loads(audit[4])["protocol"] == custom
+        assert "humanize_control_audit" not in tables
 
     asyncio.run(scenario())
 
@@ -155,7 +172,6 @@ def test_web_api_supports_get_save_bulk_update_and_reset(
         api = WebApi(
             repository,
             PluginConfig(),
-            ControlService(repository),
             envelope,
         )
 
