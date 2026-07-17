@@ -270,4 +270,5 @@ vendor 使用私有命名空间 `humanize.vendor.openviking_core`，禁止运行
 - 形成首批文件级保留白名单和平台模块裁剪清单。
 - 建立 `humanize.vendor.openviking_core` 私有命名空间、许可证和来源记录。
 - 内置首批可独立导入的 OpenViking 领域内核，并增加禁用导入与行为测试。
+- 内置 merge/replace/patch/sum/immutable、Memory Link 去重和带行号 patch 内核。
 - 实现受控 workspace、版本 manifest、原子写入、跨实例文件锁和损坏恢复。

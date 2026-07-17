@@ -3,6 +3,7 @@
 from .dataclass import (
     LinkType,
     MemoryData,
+    MemoryField,
     MemoryFile,
     MemoryOperationSource,
     StoredLink,
@@ -12,6 +13,7 @@ from .dataclass import (
 __all__ = [
     "LinkType",
     "MemoryData",
+    "MemoryField",
     "MemoryFile",
     "MemoryOperationSource",
     "StoredLink",
