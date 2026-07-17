@@ -84,3 +84,15 @@
 - 删除旧 SQLite memory、重复运行时代码及残留 schema。
 - 清理对应配置、API、WebUI 文案、测试、README 和依赖。
 - 完成全量回归、发布包审计和最终提交。
+
+## 6. 部署记录（2026-07-17）
+
+- 部署目标：远端 AstrBot 的 `data/plugins/astrbot_plugin_humanize`。
+- 发布包 SHA-256：`cca378fa08352f2f4b2ae9a68183235122d1f4a92e57ba503fa03ce7c3cb332c`。
+- 覆盖部署后确认 `humanize/openviking/management.py` 存在，旧 `humanize/openviking/migration.py` 不存在。
+- 远端执行插件测试：`223 passed`。
+- 远端执行 Ruff 检查、Ruff format check 和 JavaScript `node --check`，全部通过。
+- 临时实例验证 Humanize 加载成功，OpenViking memory 状态为 `ready`。
+- 通过 AstrBot 插件 reload API 热重载正式运行实例，接口返回 HTTP `200` 和“重载成功”。
+- 最终确认 AstrBot `6185` 端口监听正常，首页返回 HTTP `200`。
+- 部署生成的远端临时备份和上传包已删除；不保留额外部署备份。
