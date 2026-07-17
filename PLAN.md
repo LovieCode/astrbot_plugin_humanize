@@ -96,3 +96,5 @@
 - 通过 AstrBot 插件 reload API 热重载正式运行实例，接口返回 HTTP `200` 和“重载成功”。
 - 最终确认 AstrBot `6185` 端口监听正常，首页返回 HTTP `200`。
 - 部署生成的远端临时备份和上传包已删除；不保留额外部署备份。
+- 2026-07-18 补充清理 WebUI：删除 Persona、State、Behavior、Expression 和配置审计的冻结入口、前端 API、脚本及死样式；保留 OpenViking 记忆管理、召回调试和任务页面。
+- WebUI 补充部署后，远端 JavaScript 检查和静态测试通过（`9 passed`），AstrBot 首页继续返回 HTTP `200`。
