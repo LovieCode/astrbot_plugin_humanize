@@ -269,3 +269,5 @@ vendor 使用私有命名空间 `humanize.vendor.openviking_core`，禁止运行
 - 固定 OpenViking `v0.4.9` 上游 commit 和 AGPL-3.0 合规边界。
 - 完成上游目标入口 import graph 审计，确认不能整目录复制。
 - 形成首批文件级保留白名单和平台模块裁剪清单。
+- 建立 `humanize.vendor.openviking_core` 私有命名空间、许可证和来源记录。
+- 内置首批可独立导入的 OpenViking 领域内核，并增加禁用导入与行为测试。
