@@ -6,6 +6,7 @@ from .dataclass import (
     MemoryField,
     MemoryFile,
     MemoryOperationSource,
+    MemoryTypeSchema,
     StoredLink,
     WikiLink,
 )
@@ -16,6 +17,7 @@ __all__ = [
     "MemoryField",
     "MemoryFile",
     "MemoryOperationSource",
+    "MemoryTypeSchema",
     "StoredLink",
     "WikiLink",
 ]

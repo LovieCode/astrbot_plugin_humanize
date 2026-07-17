@@ -104,7 +104,7 @@ vendor 使用私有命名空间 `humanize.vendor.openviking_core`，禁止运行
 - `message/part.py`、`message/message.py`。
 - `session/memory/dataclass.py`。
 - `session/memory/merge_op/` 下的 `base.py`、`factory.py`、`immutable.py`、`link_merge.py`、`patch.py`、`patch_handler.py`、`replace.py`、`sum.py`。
-- `session/memory/utils/` 下的 `line_numbers.py`、`link_renderer.py`、`memory_file_utils.py`、`messages.py`、`model.py`、`resource_refs.py`、`template_utils.py`、`uri.py`。
+- `session/memory/utils/` 下的 `line_numbers.py`、`link_renderer.py`、`memory_file_utils.py`、`messages.py`、`model.py`、`template_utils.py`、`uri.py`。
 - `retrieve/memory_lifecycle.py`。
 - `utils/time_utils.py`、`utils/token_estimation.py`。
 
@@ -258,7 +258,6 @@ vendor 使用私有命名空间 `humanize.vendor.openviking_core`，禁止运行
 
 ### 进行中
 
-- Phase B：建立 vendor 私有命名空间，复制首批白名单源码、AGPL-3.0 和来源/修改清单。
 - Phase C-D：接入 Session、Memory、L0/L1/L2、Provider Bridge 和分层召回。
 - Phase E-F：迁移旧数据，切换正式读写，裁剪重复实现并完成发布验证。
 
@@ -271,4 +270,5 @@ vendor 使用私有命名空间 `humanize.vendor.openviking_core`，禁止运行
 - 建立 `humanize.vendor.openviking_core` 私有命名空间、许可证和来源记录。
 - 内置首批可独立导入的 OpenViking 领域内核，并增加禁用导入与行为测试。
 - 内置 merge/replace/patch/sum/immutable、Memory Link 去重和带行号 patch 内核。
+- 完成文件级 vendor 白名单、私有导入改造和平台依赖清除。
 - 实现受控 workspace、版本 manifest、原子写入、跨实例文件锁和损坏恢复。
