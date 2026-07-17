@@ -2,6 +2,13 @@
 
 > 目标版本：OpenViking 0.4.9。当前插件代码是过渡基线；本计划完成后，OpenViking 承担聊天记忆核心，插件只负责 AstrBot 适配、安全、协议、审计和管理面。
 
+固定上游基线：
+
+- 仓库：`https://github.com/volcengine/OpenViking.git`
+- Tag：`v0.4.9`
+- Commit：`4f0bd86f32c5a98ed78e7ba04adb5708c0bdb89a`
+- License：`AGPL-3.0`
+
 ## 1. 最终目标
 
 把 OpenViking 的聊天记忆核心以内置源码方式放入插件，不安装完整 `openviking` wheel，不启动独立服务，不引入第二个数据库。
@@ -88,6 +95,22 @@ astrbot_plugin_humanize/
 ```
 
 vendor 使用私有命名空间 `humanize.vendor.openviking_core`，禁止运行时依赖顶层 `openviking` 包。
+
+### 3.4 文件级白名单
+
+首批只从上游复制并改造以下聊天记忆内核；文件内导入统一改为私有命名空间：
+
+- `core/identifiers.py`、`core/peer_id.py`、`core/namespace.py`。
+- `message/part.py`、`message/message.py`。
+- `session/memory/dataclass.py`。
+- `session/memory/merge_op/` 下的 `base.py`、`factory.py`、`immutable.py`、`link_merge.py`、`patch.py`、`patch_handler.py`、`replace.py`、`sum.py`。
+- `session/memory/utils/` 下的 `line_numbers.py`、`link_renderer.py`、`memory_file_utils.py`、`messages.py`、`model.py`、`resource_refs.py`、`template_utils.py`、`uri.py`。
+- `retrieve/memory_lifecycle.py`。
+- `utils/time_utils.py`、`utils/token_estimation.py`。
+
+`session/session.py`、`session/memory/extract_loop.py`、`session/memory/memory_updater.py` 和 `retrieve/hierarchical_retriever.py` 不直接复制。它们的上游静态 import 闭包会把被裁剪的平台模块重新带回，必须按现有语义拆成插件适配层，并只调用上述内核。
+
+基线 import graph 审计结果：以上游 `message`、`session.session`、`extract_loop`、`memory_updater`、`hierarchical_retriever` 为入口，闭包共 307 个 Python 文件，其中包含 `server` 19 个、`pyagfs` 3 个、`storage` 49 个、`models` 10 个、`telemetry` 7 个、`session.train` 27 个、`session.skill` 4 个和 `openviking_cli` 24 个文件。该闭包不作为 vendor 清单；vendor 采用白名单并对每个新增文件执行禁用导入扫描。
 
 ## 4. 插件自身裁剪清单
 
@@ -230,3 +253,19 @@ vendor 使用私有命名空间 `humanize.vendor.openviking_core`，禁止运行
 - 发布包提供 OpenViking AGPL-3.0 文本、来源说明和裁剪说明。
 - 不把裁剪代码伪装成原创实现。
 - 不在日志、快照、提交或插件压缩包中写入密码、API Key、HMAC key 或原始身份标识。
+
+## 11. Todo
+
+### 进行中
+
+- Phase B：建立 vendor 私有命名空间，复制首批白名单源码、AGPL-3.0 和来源/修改清单。
+- Phase B：实现受控 workspace、manifest、原子写入、文件锁和损坏恢复。
+- Phase C-D：接入 Session、Memory、L0/L1/L2、Provider Bridge 和分层召回。
+- Phase E-F：迁移旧数据，切换正式读写，裁剪重复实现并完成发布验证。
+
+### 已完成
+
+- 清理计划中的重复、推测性和偏离 OpenViking 内置目标的内容。
+- 固定 OpenViking `v0.4.9` 上游 commit 和 AGPL-3.0 合规边界。
+- 完成上游目标入口 import graph 审计，确认不能整目录复制。
+- 形成首批文件级保留白名单和平台模块裁剪清单。
