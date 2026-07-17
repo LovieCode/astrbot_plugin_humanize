@@ -85,16 +85,31 @@
 - 清理对应配置、API、WebUI 文案、测试、README 和依赖。
 - 完成全量回归、发布包审计和最终提交。
 
-## 6. 部署记录（2026-07-17）
+## 6. 部署与验收流程
 
-- 部署目标：远端 AstrBot 的 `data/plugins/astrbot_plugin_humanize`。
-- 发布包 SHA-256：`cca378fa08352f2f4b2ae9a68183235122d1f4a92e57ba503fa03ce7c3cb332c`。
-- 覆盖部署后确认 `humanize/openviking/management.py` 存在，旧 `humanize/openviking/migration.py` 不存在。
-- 远端执行插件测试：`223 passed`。
-- 远端执行 Ruff 检查、Ruff format check 和 JavaScript `node --check`，全部通过。
-- 临时实例验证 Humanize 加载成功，OpenViking memory 状态为 `ready`。
-- 通过 AstrBot 插件 reload API 热重载正式运行实例，接口返回 HTTP `200` 和“重载成功”。
-- 最终确认 AstrBot `6185` 端口监听正常，首页返回 HTTP `200`。
-- 部署生成的远端临时备份和上传包已删除；不保留额外部署备份。
-- 2026-07-18 补充清理 WebUI：删除 Persona、State、Behavior、Expression 和配置审计的冻结入口、前端 API、脚本及死样式；保留 OpenViking 记忆管理、召回调试和任务页面。
-- WebUI 补充部署后，远端 JavaScript 检查和静态测试通过（`9 passed`），AstrBot 首页继续返回 HTTP `200`。
+### 发布前
+
+1. 确认待发布差异只包含本计划范围，不携带 `.git`、pytest 缓存、临时文件、本地配置、密钥或历史备份。
+2. 执行全量 Python 测试、Ruff check、Ruff format check、所有 WebUI JavaScript `node --check` 和 `git diff --check`；任一失败都停止部署。
+3. 从插件根目录生成发布包，计算 SHA-256，并检查压缩包内文件清单。发布包必须包含 OpenViking license、来源和版本说明。
+
+### 远端部署
+
+1. 将发布包上传到远端用户目录，校验远端 SHA-256 与本地一致。
+2. 解压到插件扫描目录之外的临时目录，确认入口、OpenViking 管理模块、vendor 白名单和 WebUI 静态资源完整。
+3. 确认发布包不含旧 migration、SQLite memory、Control 冻结页面、安装器、独立服务和其他已裁剪模块。
+4. 将临时目录原子替换到 AstrBot 的 `data/plugins/astrbot_plugin_humanize`。不创建额外部署备份；需要回退时使用已有版本控制或用户指定备份。
+5. 通过 AstrBot WebUI 或带鉴权的插件 reload API 热重载 Humanize。不得把登录凭据、JWT secret 或 token 写入仓库、计划、日志和临时脚本。
+
+### 远端验收
+
+1. 在远端插件目录重新执行 Python 测试、Ruff、Ruff format check 和 JavaScript `node --check`。
+2. 检查加载日志：Humanize 无导入异常，OpenViking memory 状态为 `ready`；未配置 Provider 时允许按设计降级，但不得阻断基础聊天。
+3. 确认 AstrBot 服务端口正常、首页返回 HTTP `200`、未鉴权管理 API 拒绝访问、插件 reload 返回成功。
+4. 在真实会话完成一次记忆写入和召回，确认 `Session append -> commit -> memory diff -> L0/L1/L2 -> recall` 可用且重试不重复写入。
+5. 打开 WebUI 检查长期记忆、召回调试、后台任务和回复样例；确认已裁剪入口、脚本、API 文案和死样式不存在。
+
+### 收尾
+
+1. 删除远端上传包、解压临时目录、临时鉴权脚本和本地部署包，不删除用户已有备份。
+2. 再次确认正式插件目录存在、AstrBot HTTP `200`、Humanize 可加载；完成这些检查后才视为部署成功。
