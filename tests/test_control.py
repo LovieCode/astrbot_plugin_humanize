@@ -5,7 +5,7 @@ import sqlite3
 from pathlib import Path
 
 import pytest
-from humanize.repositories.sqlite import SQLiteRepository
+from humanize.repositories.sqlite import _SCHEMA_VERSION, SQLiteRepository
 from humanize.services.control import ControlService
 
 
@@ -35,7 +35,7 @@ def test_control_defaults_share_humanize_database(tmp_path: Path) -> None:
             assert "humanize_state" in tables
             assert "humanize_control_audit" in tables
             assert not any("relationship" in table for table in tables)
-            assert conn.execute("PRAGMA user_version").fetchone()[0] == 2
+            assert conn.execute("PRAGMA user_version").fetchone()[0] == _SCHEMA_VERSION
 
     asyncio.run(scenario())
 

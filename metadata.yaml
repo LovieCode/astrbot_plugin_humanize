@@ -1,14 +1,12 @@
 name: astrbot_plugin_humanize
 display_name: Bot 拟人化
-desc: 通过轻量回复控制协议、黑话学习与可审计状态逐步增强 Bot 的长期交互连贯性。
-short_desc: 让 Bot 形成稳定人格、动态状态与有边界的行为选择。
-version: v0.1.0
+desc: 通过严格回复控制、上下文编排、可审核黑话、长期记忆和回复样例增强 Bot 的交互连贯性。
+short_desc: 可观测的回复控制、长期记忆与回复样例。
+version: v0.2.0
 author: LovieCode
 repo: ""
 astrbot_version: ">=4.26.0,<5"
 tags:
-  - persona
   - memory
-  - emotion
   - behavior
   - humanize

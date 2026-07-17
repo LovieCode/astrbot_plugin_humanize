@@ -14,7 +14,11 @@ from humanize.protocol.parser import ProtocolParser
 def _response(
     *, action: str = "Reply", unknown_terms: str = "[]", body: str = "收到"
 ) -> str:
-    return f"Action: {action}\nUnknownTerms: {unknown_terms}\n---\n{body}"
+    return (
+        f"<Action>{action}</Action>\n"
+        f"<UnknownTerms>{unknown_terms}</UnknownTerms>\n"
+        f"{body}"
+    )
 
 
 def _context(**overrides: object) -> MessageContext:
@@ -74,6 +78,7 @@ def test_parse_valid_no_reply() -> None:
     [
         ("普通文本", "invalid_control_header"),
         (_response(action="Wait"), "invalid_action"),
+        ("Action: Reply\nUnknownTerms: []\n旧格式", "missing_action"),
         (_response(unknown_terms="{}"), "invalid_unknown_terms"),
         (_response(unknown_terms="[broken"), "invalid_unknown_terms_json"),
         (_response(body=""), "reply_missing_text"),
@@ -95,6 +100,184 @@ def test_long_task_message_is_plain_text_and_kept_intact() -> None:
     )
 
     assert decision.messages == (body,)
+
+
+def test_reply_block_preserves_multiple_message_children() -> None:
+    raw = (
+        "<Action>Reply</Action>\n"
+        "<UnknownTerms>[]</UnknownTerms>\n"
+        "<Reply><Message>第一条</Message><Message>第二条</Message></Reply>"
+    )
+
+    decision = ProtocolParser(PluginConfig()).parse(raw)
+
+    assert decision.messages == ("第一条", "第二条")
+
+
+@pytest.mark.parametrize("newline", ["\n", "\r\n", "\r"])
+def test_reply_block_ignores_outer_framing_blank_line(newline: str) -> None:
+    raw = (
+        f"<Action>Reply</Action>{newline}"
+        f"<UnknownTerms>[]</UnknownTerms>{newline}{newline}"
+        f"<Reply><Message>贴贴真好</Message></Reply>{newline}"
+    )
+
+    decision = ProtocolParser(PluginConfig()).parse(raw)
+
+    assert decision.messages == ("贴贴真好",)
+
+
+@pytest.mark.parametrize(
+    "body",
+    [
+        "\n<Reply><Message>不能泄露</Message>",
+        "\n<Message>不能泄露</Message>",
+        "\n<reply><message>不能泄露</message></reply>",
+        "普通正文<Message>不能泄露</Message>",
+        "普通正文<Action>Reply</Action>",
+    ],
+)
+def test_protocol_like_body_fails_closed_when_reply_block_is_invalid(
+    body: str,
+) -> None:
+    raw = f"<Action>Reply</Action>\n<UnknownTerms>[]</UnknownTerms>\n{body}"
+
+    with pytest.raises(ProtocolValidationError) as error:
+        ProtocolParser(PluginConfig()).parse(raw)
+
+    assert error.value.code == "invalid_reply_block"
+
+
+def test_reply_block_rejects_nested_control_tags_in_message_text() -> None:
+    raw = (
+        "<Action>Reply</Action>\n"
+        "<UnknownTerms>[]</UnknownTerms>\n"
+        "<Reply><Message>正文<Action>Reply</Action></Message></Reply>"
+    )
+
+    with pytest.raises(ProtocolValidationError) as error:
+        ProtocolParser(PluginConfig()).parse(raw)
+
+    assert error.value.code == "invalid_reply_block"
+
+
+def test_reply_block_preserves_formatted_message_content() -> None:
+    body = "<div>长代码</div>\n```text\n日志\n```"
+    raw = (
+        "<Action>Reply</Action>\n"
+        "<UnknownTerms>[]</UnknownTerms>\n"
+        f"<Reply><Message>{body}</Message></Reply>"
+    )
+
+    decision = ProtocolParser(PluginConfig(max_message_chars=5)).parse(raw)
+
+    assert decision.messages == (body,)
+
+
+def test_empty_reply_block_is_valid_for_no_reply() -> None:
+    raw = "<Action>No Reply</Action>\n<UnknownTerms>[]</UnknownTerms>\n<Reply></Reply>"
+
+    decision = ProtocolParser(PluginConfig()).parse(raw)
+
+    assert decision.action is Action.NO_REPLY
+    assert decision.messages == ()
+
+
+def test_reply_block_rejects_empty_message() -> None:
+    raw = (
+        "<Action>Reply</Action>\n"
+        "<UnknownTerms>[]</UnknownTerms>\n"
+        "<Reply><Message></Message></Reply>"
+    )
+
+    with pytest.raises(ProtocolValidationError) as error:
+        ProtocolParser(PluginConfig()).parse(raw)
+
+    assert error.value.code == "empty_message"
+
+
+def test_reply_body_preserves_original_line_endings_and_blank_lines() -> None:
+    body = "\r\n第一行\r第二行\n```text\r\ncode\r\n```\r\n"
+    raw = f"<Action>Reply</Action>\r\n<UnknownTerms>[]</UnknownTerms>\r\n{body}"
+
+    decision = ProtocolParser(PluginConfig()).parse(raw)
+
+    assert decision.messages == (body,)
+
+
+def test_parser_preserves_leading_blank_lines_for_audit() -> None:
+    raw = (
+        "<Action>Reply</Action>\n"
+        "<UnknownTerms>[]</UnknownTerms>\n"
+        "\n"
+        "正文第一行\n\n正文第三行"
+    )
+
+    decision = ProtocolParser(PluginConfig()).parse(raw)
+
+    assert decision.messages == ("\n正文第一行\n\n正文第三行",)
+
+
+def test_reply_body_preserves_additional_leading_blank_lines() -> None:
+    raw = "<Action>Reply</Action>\n<UnknownTerms>[]</UnknownTerms>\n\n\n正文"
+
+    decision = ProtocolParser(PluginConfig()).parse(raw)
+
+    assert decision.messages == ("\n\n正文",)
+
+
+def test_protocol_repair_keeps_only_a_strict_header_and_original_body() -> None:
+    parser = ProtocolParser(PluginConfig())
+    body = "第一行\r\n\r\n第二行\r"
+    malformed = f"Action: Reply\r\nUnknownTerms: []\r\n{body}"
+
+    extracted = parser.extract_repair_body(malformed)
+    repaired = parser.compose_repaired_response(
+        "<Action>Reply</Action>\n<UnknownTerms>[]</UnknownTerms>",
+        extracted or "",
+    )
+
+    assert extracted == body
+    assert parser.parse(repaired).messages == (body,)
+
+
+def test_protocol_repair_rejects_partial_headers_and_generated_body() -> None:
+    parser = ProtocolParser(PluginConfig())
+
+    assert parser.extract_repair_body("<Action>Reply</Action>\n缺少其余控制头") is None
+    assert parser.extract_repair_body("普通正文\r\n第二行") == "普通正文\r\n第二行"
+    assert (
+        parser.extract_repair_candidate(
+            "<Action>No Reply</Action>\n<UnknownTerms>[]</UnknownTerms>\n不得发送"
+        )
+        is None
+    )
+    assert (
+        parser.extract_repair_candidate("action: No Reply\nUnknownTerms: []\n不得发送")
+        is None
+    )
+    assert (
+        parser.extract_repair_candidate(
+            "<Acton>No Reply</Acton>\nUnknownTerms: []\n不得发送"
+        )
+        is None
+    )
+    assert (
+        parser.extract_repair_candidate(
+            "<Action>Reply</Action>\n<UnknownTerms>[broken</UnknownTerms>"
+        )
+        is None
+    )
+    assert parser.extract_repair_candidate(
+        "<Action>No Reply</Action>\n<UnknownTerms>[broken</UnknownTerms>"
+    ) == ("", "No Reply")
+    with pytest.raises(ProtocolValidationError) as error:
+        parser.compose_repaired_response(
+            "<Action>Reply</Action>\n<UnknownTerms>[]</UnknownTerms>\n被重写正文",
+            "原正文",
+        )
+
+    assert error.value.code == "repair_has_body"
 
 
 def test_unknown_term_text_fields_must_be_strings() -> None:
@@ -119,7 +302,7 @@ def test_envelope_escapes_message_as_xml_data() -> None:
 
 @pytest.mark.parametrize(
     ("scene", "expected"),
-    [("QQ群", "你正在一个QQ群聊天"), ("QQ 上和小明", "你正在一个QQ 上和小明聊天")],
+    [("QQ群", "1.你正在QQ群聊天"), ("QQ 上和小明", "1.你正在和小明 QQ私聊")],
 )
 def test_rule_uses_trusted_context_for_scene_and_admin(
     scene: str, expected: str
@@ -132,14 +315,19 @@ def test_rule_uses_trusted_context_for_scene_and_admin(
     )
 
     prompt = builder.build_protocol_prompt(context)
-    rule = ET.fromstring(prompt.split("\n\n", 1)[0])
-    rule_text = "".join(rule.itertext())
+    rule_text = prompt.split("\n\n", 1)[0]
 
     assert expected in rule_text
     assert "10001、10002" in rule_text
     assert "99999" not in rule_text
-    assert rule.tag == "Rule"
-    assert "Action: Reply" in prompt
+    assert rule_text.startswith("<Rule>\n")
+    assert rule_text.endswith("\n<Rule/>")
+    assert "<Action>Reply</Action>" in prompt
+    assert '"word":"开香槟"' in prompt
+    assert "对象只能有四个字段" in prompt
+    assert "普通发言（非代码、格式化文本）每条不超过 10 字" in prompt
+    assert "超过时必须另起一条 Message" in prompt
+    assert "---" not in prompt
     assert "AgentResponse" not in prompt
 
 
@@ -156,4 +344,14 @@ def test_protocol_injection_mode_defaults_to_user_and_rejects_unknown_values() -
             {"protocol_injection_mode": "system"}
         ).protocol_injection_mode
         == "user"
+    )
+
+
+def test_protocol_repair_retry_defaults_to_enabled_and_parses_boolean_values() -> None:
+    assert PluginConfig.from_mapping(None).protocol_repair_retry_enabled is True
+    assert (
+        PluginConfig.from_mapping(
+            {"protocol_repair_retry_enabled": "false"}
+        ).protocol_repair_retry_enabled
+        is False
     )

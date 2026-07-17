@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import re
 from collections.abc import Mapping
 from dataclasses import dataclass
 from pathlib import Path
@@ -42,6 +43,13 @@ def _as_string_list(value: Any) -> tuple[str, ...]:
     )
 
 
+def _as_identifier(value: Any, default: str) -> str:
+    candidate = str(value or default).strip()
+    if candidate and re.fullmatch(r"[A-Za-z0-9][A-Za-z0-9_.@-]*", candidate):
+        return candidate
+    return default
+
+
 @dataclass(frozen=True, slots=True)
 class PluginConfig:
     enabled: bool = True
@@ -52,6 +60,7 @@ class PluginConfig:
     protocol_enabled: bool = True
     protocol_injection_mode: str = "user"
     protocol_version: int = 1
+    protocol_repair_retry_enabled: bool = True
     protocol_raw_log_chars: int = 4_000
     protocol_log_retention_days: int = 7
     max_unknown_terms: int = 8
@@ -62,6 +71,26 @@ class PluginConfig:
     max_injection_tokens: int = 256
     max_evidence_per_entry: int = 20
     max_term_chars: int = 32
+    memory_enabled: bool = True
+    memory_auto_extract_enabled: bool = True
+    memory_extraction_provider_id: str = ""
+    memory_embedding_provider_id: str = ""
+    memory_rerank_provider_id: str = ""
+    memory_identity_secret_env: str = "HUMANIZE_MEMORY_SECRET"
+    memory_recall_timeout_seconds: float = 1.5
+    memory_auto_activate_confidence: float = 0.88
+    memory_candidate_min_confidence: float = 0.55
+    memory_recall_limit: int = 5
+    memory_recall_score_threshold: float = 0.2
+    memory_recall_max_chars: int = 2_500
+    memory_extract_batch_turns: int = 4
+    memory_extract_idle_seconds: int = 180
+    memory_job_max_attempts: int = 5
+    reply_examples_enabled: bool = True
+    reply_examples_limit: int = 3
+    reply_examples_max_chars: int = 2_000
+    reply_examples_min_quality: float = 0.7
+    reply_examples_recall_score_threshold: float = 0.2
 
     @classmethod
     def from_mapping(cls, raw: Mapping[str, Any] | None) -> PluginConfig:
@@ -80,6 +109,9 @@ class PluginConfig:
             protocol_enabled=_as_bool(data.get("protocol_enabled"), True),
             protocol_injection_mode=protocol_injection_mode,
             protocol_version=_as_int(data.get("protocol_version"), 1, 1, 99),
+            protocol_repair_retry_enabled=_as_bool(
+                data.get("protocol_repair_retry_enabled"), True
+            ),
             protocol_raw_log_chars=_as_int(
                 data.get("protocol_raw_log_chars"), 4_000, 256, 20_000
             ),
@@ -100,6 +132,58 @@ class PluginConfig:
                 data.get("max_evidence_per_entry"), 20, 1, 500
             ),
             max_term_chars=_as_int(data.get("max_term_chars"), 32, 2, 128),
+            memory_enabled=_as_bool(data.get("memory_enabled"), True),
+            memory_auto_extract_enabled=_as_bool(
+                data.get("memory_auto_extract_enabled"), True
+            ),
+            memory_extraction_provider_id=_as_identifier(
+                data.get("memory_extraction_provider_id"), ""
+            ),
+            memory_embedding_provider_id=_as_identifier(
+                data.get("memory_embedding_provider_id"), ""
+            ),
+            memory_rerank_provider_id=_as_identifier(
+                data.get("memory_rerank_provider_id"), ""
+            ),
+            memory_identity_secret_env=_as_identifier(
+                data.get("memory_identity_secret_env"), "HUMANIZE_MEMORY_SECRET"
+            ),
+            memory_recall_timeout_seconds=_as_float(
+                data.get("memory_recall_timeout_seconds"), 1.5, 0.2, 10.0
+            ),
+            memory_auto_activate_confidence=_as_float(
+                data.get("memory_auto_activate_confidence"), 0.88, 0.5, 1.0
+            ),
+            memory_candidate_min_confidence=_as_float(
+                data.get("memory_candidate_min_confidence"), 0.55, 0.0, 1.0
+            ),
+            memory_recall_limit=_as_int(data.get("memory_recall_limit"), 5, 1, 20),
+            memory_recall_score_threshold=_as_float(
+                data.get("memory_recall_score_threshold"), 0.2, 0.0, 1.0
+            ),
+            memory_recall_max_chars=_as_int(
+                data.get("memory_recall_max_chars"), 2_500, 256, 20_000
+            ),
+            memory_extract_batch_turns=_as_int(
+                data.get("memory_extract_batch_turns"), 4, 1, 20
+            ),
+            memory_extract_idle_seconds=_as_int(
+                data.get("memory_extract_idle_seconds"), 180, 15, 3_600
+            ),
+            memory_job_max_attempts=_as_int(
+                data.get("memory_job_max_attempts"), 5, 1, 20
+            ),
+            reply_examples_enabled=_as_bool(data.get("reply_examples_enabled"), True),
+            reply_examples_limit=_as_int(data.get("reply_examples_limit"), 3, 0, 10),
+            reply_examples_max_chars=_as_int(
+                data.get("reply_examples_max_chars"), 2_000, 128, 20_000
+            ),
+            reply_examples_min_quality=_as_float(
+                data.get("reply_examples_min_quality"), 0.7, 0.0, 1.0
+            ),
+            reply_examples_recall_score_threshold=_as_float(
+                data.get("reply_examples_recall_score_threshold"), 0.2, 0.0, 1.0
+            ),
         )
 
     @property
@@ -121,9 +205,32 @@ class PluginConfig:
             "protocol_enabled": self.protocol_enabled,
             "protocol_injection_mode": self.protocol_injection_mode,
             "protocol_version": self.protocol_version,
+            "protocol_repair_retry_enabled": self.protocol_repair_retry_enabled,
             "protocol_log_retention_days": self.protocol_log_retention_days,
             "no_reply_enabled": self.no_reply_enabled,
             "jargon_enabled": self.jargon_enabled,
             "min_confidence_for_injection": self.min_confidence_for_injection,
             "max_injected_jargons": self.max_injected_jargons,
+            "memory_enabled": self.memory_enabled,
+            "memory_auto_extract_enabled": self.memory_auto_extract_enabled,
+            "memory_extraction_provider_id": self.memory_extraction_provider_id,
+            "memory_embedding_provider_id": self.memory_embedding_provider_id,
+            "memory_rerank_provider_id": self.memory_rerank_provider_id,
+            "memory_identity_secret_env": self.memory_identity_secret_env,
+            "memory_recall_timeout_seconds": self.memory_recall_timeout_seconds,
+            "memory_auto_activate_confidence": (self.memory_auto_activate_confidence),
+            "memory_candidate_min_confidence": (self.memory_candidate_min_confidence),
+            "memory_recall_limit": self.memory_recall_limit,
+            "memory_recall_score_threshold": self.memory_recall_score_threshold,
+            "memory_recall_max_chars": self.memory_recall_max_chars,
+            "memory_extract_batch_turns": self.memory_extract_batch_turns,
+            "memory_extract_idle_seconds": self.memory_extract_idle_seconds,
+            "memory_job_max_attempts": self.memory_job_max_attempts,
+            "reply_examples_enabled": self.reply_examples_enabled,
+            "reply_examples_limit": self.reply_examples_limit,
+            "reply_examples_max_chars": self.reply_examples_max_chars,
+            "reply_examples_min_quality": self.reply_examples_min_quality,
+            "reply_examples_recall_score_threshold": (
+                self.reply_examples_recall_score_threshold
+            ),
         }

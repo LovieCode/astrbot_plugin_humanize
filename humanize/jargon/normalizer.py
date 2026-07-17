@@ -10,19 +10,48 @@ _ONLY_NUMBER_OR_PUNCT_RE = re.compile(r"^[\W\d_]+$", re.UNICODE)
 _LATINISH_RE = re.compile(r"^[a-z0-9_+.-]+$", re.IGNORECASE)
 
 
-def normalize_term(value: str) -> str:
-    normalized = unicodedata.normalize("NFKC", value).casefold().strip()
+def normalize_term(value: str, *, case_sensitive: bool = False) -> str:
+    normalized = unicodedata.normalize("NFKC", value).strip()
+    if not case_sensitive:
+        normalized = normalized.casefold()
     return " ".join(normalized.split())
 
 
-def term_matches(term: str, text: str) -> bool:
-    normalized_term = normalize_term(term)
-    normalized_text = normalize_term(text)
+def term_matches(
+    term: str,
+    text: str,
+    *,
+    match_mode: str = "smart",
+    case_sensitive: bool = False,
+) -> bool:
+    """Match a term with an explicit, deterministic policy.
+
+    Args:
+        term: Canonical term or alias.
+        text: Current user message.
+        match_mode: One of smart, contains, or exact.
+        case_sensitive: Whether letter case must be preserved.
+
+    Returns:
+        Whether the term matches the supplied text.
+
+    Raises:
+        ValueError: If the match mode is unsupported.
+    """
+    if match_mode not in {"smart", "contains", "exact"}:
+        raise ValueError("unsupported jargon match mode")
+    normalized_term = normalize_term(term, case_sensitive=case_sensitive)
+    normalized_text = normalize_term(text, case_sensitive=case_sensitive)
     if not normalized_term or not normalized_text:
         return False
+    if match_mode == "exact":
+        return normalized_term == normalized_text
+    if match_mode == "contains":
+        return normalized_term in normalized_text
     if _LATINISH_RE.fullmatch(normalized_term):
         pattern = re.compile(
-            rf"(?<![\w]){re.escape(normalized_term)}(?![\w])", re.IGNORECASE
+            rf"(?<![\w]){re.escape(normalized_term)}(?![\w])",
+            0 if case_sensitive else re.IGNORECASE,
         )
         return pattern.search(normalized_text) is not None
     return normalized_term in normalized_text

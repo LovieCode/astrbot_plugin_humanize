@@ -23,7 +23,20 @@ class JargonMatcher:
         max_count: int,
         char_budget: int,
     ) -> tuple[KnownTerm, ...]:
-        matched = [term for term in terms if term_matches(term.term, text)]
+        matched = [
+            term
+            for term in terms
+            if term.enabled
+            and any(
+                term_matches(
+                    candidate,
+                    text,
+                    match_mode=term.match_mode,
+                    case_sensitive=term.case_sensitive,
+                )
+                for candidate in (term.term, *term.aliases)
+            )
+        ]
         matched.sort(
             key=lambda term: (
                 self._STATUS_PRIORITY.get(term.status, 99),
@@ -36,7 +49,18 @@ class JargonMatcher:
         selected: list[KnownTerm] = []
         used_chars = 0
         for term in matched:
-            estimated = len(term.term) + len(term.meaning) + 24
+            meanings = term.senses or ()
+            meaning_chars = (
+                sum(len(sense.meaning) for sense in meanings)
+                if meanings
+                else len(term.meaning)
+            )
+            estimated = (
+                len(term.term)
+                + sum(len(alias) for alias in term.aliases)
+                + meaning_chars
+                + 24
+            )
             if selected and used_chars + estimated > char_budget:
                 continue
             if not selected and estimated > char_budget:
