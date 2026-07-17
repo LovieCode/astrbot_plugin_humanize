@@ -97,7 +97,7 @@
 ### 进行中
 
 - 完成旧数据全量迁移与逐项校验，保留旧表作为回滚来源。
-- shadow read 对比达标后切换 OpenViking 正式读写，并停止旧记忆表运行时读写。
+- 完成管理 API/WebUI 的 OpenViking 切换，并停止旧记忆表全部运行时读写。
 - 删除插件重复功能及对应配置、API、页面、测试和依赖，完成发布检查。
 
 ### 已完成
@@ -111,3 +111,4 @@
 - 接入 worker shadow write，保留旧 Repository 正式写入并实现 OpenViking fail-open。
 - 实现 Provider Bridge、Recall Adapter、shadow read、分层召回和读取后最终过滤。
 - 实现旧 memory、evidence、revision 的幂等迁移、历史页校验、后台分页和无正文审计。
+- 实现稳定主键迁移扫描、shadow read 连续一致门槛、持久化 cutover 和聊天 runtime 正式读写切换。
