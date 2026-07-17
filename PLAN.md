@@ -115,7 +115,6 @@
 
 ### 进行中
 
-- 完成 Memory upsert、diff、link、低置信度 keep 和中断重试幂等测试。
 - 接入 worker shadow write，保留旧 Repository 正式写入。
 - 实现 Provider Bridge、Recall Adapter、shadow read 和最终作用域过滤。
 - 迁移旧数据并验证，再切换正式读写、删除重复功能和完成发布检查。
@@ -127,3 +126,4 @@
 - 内置 Message、Memory、merge/replace/patch/sum/immutable、Memory Link 和 L0/L1/L2 基础内核。
 - 实现受控 workspace、manifest、原子写、跨实例锁和损坏恢复。
 - 实现 Session append/commit、稳定消息 ID、deterministic fallback 和崩溃重试幂等。
+- 实现 Memory upsert、diff、derived-from link、低置信度 keep 和中断重试幂等。
