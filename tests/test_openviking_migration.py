@@ -219,4 +219,3 @@ def test_migration_reports_invalid_identity_without_partial_files(
     assert result.verified == 0
     assert result.items[0].error == "ValueError"
     assert not list((workspace.root / "memories").rglob("*.md"))
-
