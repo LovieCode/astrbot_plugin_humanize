@@ -29,6 +29,86 @@ class WorkspaceVersionError(RuntimeError):
     """Raised when a workspace requires an explicit migration."""
 
 
+class WorkspaceTransaction:
+    """Perform validated workspace operations while its file lock is held."""
+
+    def __init__(self, workspace: OpenVikingWorkspace) -> None:
+        """Bind a transaction view to its owning workspace.
+
+        Args:
+            workspace: Locked workspace owner.
+        """
+        self._workspace = workspace
+
+    def is_file(self, relative_path: str | Path) -> bool:
+        """Return whether a validated transaction path is a file.
+
+        Args:
+            relative_path: Path relative to the workspace root.
+
+        Returns:
+            Whether the path currently points to a file.
+        """
+        return self._workspace.resolve_path(relative_path).is_file()
+
+    def read_bytes(self, relative_path: str | Path) -> bytes:
+        """Read one validated file while the transaction lock is held.
+
+        Args:
+            relative_path: Path relative to the workspace root.
+
+        Returns:
+            Complete file content.
+        """
+        return self._workspace.resolve_path(relative_path).read_bytes()
+
+    def atomic_write(self, relative_path: str | Path, data: str | bytes) -> Path:
+        """Atomically replace one validated file without taking another lock.
+
+        Args:
+            relative_path: Destination relative to the workspace root.
+            data: UTF-8 text or raw bytes to persist.
+
+        Returns:
+            Absolute destination path.
+
+        Raises:
+            TypeError: If ``data`` is not text or bytes.
+        """
+        if isinstance(data, str):
+            payload = data.encode("utf-8")
+        elif isinstance(data, bytes):
+            payload = data
+        else:
+            raise TypeError("workspace data must be str or bytes")
+        destination = self._workspace.resolve_path(relative_path)
+        self._workspace._write_bytes_unlocked(destination, payload)
+        return destination
+
+    def list_files(
+        self, relative_directory: str | Path, *, suffix: str = ""
+    ) -> tuple[Path, ...]:
+        """List direct child files in one validated directory.
+
+        Args:
+            relative_directory: Directory relative to the workspace root.
+            suffix: Optional filename suffix filter.
+
+        Returns:
+            Sorted absolute child paths.
+        """
+        directory = self._workspace.resolve_path(relative_directory)
+        if not directory.is_dir():
+            return ()
+        return tuple(
+            sorted(
+                path
+                for path in directory.iterdir()
+                if path.is_file() and (not suffix or path.name.endswith(suffix))
+            )
+        )
+
+
 @dataclass(frozen=True, slots=True)
 class WorkspaceManifest:
     """Persisted format and upstream source identity for one workspace."""
@@ -233,6 +313,19 @@ class OpenVikingWorkspace:
             OSError: If the file cannot be read.
         """
         return self.resolve_path(relative_path).read_bytes()
+
+    @contextmanager
+    def transaction(self) -> Iterator[WorkspaceTransaction]:
+        """Hold the cross-instance lock for a related set of file operations.
+
+        Yields:
+            Restricted transaction view using the same path and atomic-write rules.
+
+        Raises:
+            TimeoutError: If another process keeps the workspace lock too long.
+        """
+        with self._locked():
+            yield WorkspaceTransaction(self)
 
     def _write_bytes_unlocked(self, destination: Path, payload: bytes) -> None:
         destination.parent.mkdir(parents=True, exist_ok=True)

@@ -1,5 +1,6 @@
 """AstrBot adapters for the embedded OpenViking memory core."""
 
+from .adapter import OpenVikingMemoryAdapter, SessionCommitResult
 from .workspace import (
     OpenVikingWorkspace,
     WorkspaceManifest,
@@ -9,6 +10,8 @@ from .workspace import (
 
 __all__ = [
     "OpenVikingWorkspace",
+    "OpenVikingMemoryAdapter",
+    "SessionCommitResult",
     "WorkspaceManifest",
     "WorkspacePathError",
     "WorkspaceVersionError",

@@ -272,3 +272,4 @@ vendor 使用私有命名空间 `humanize.vendor.openviking_core`，禁止运行
 - 内置 merge/replace/patch/sum/immutable、Memory Link 去重和带行号 patch 内核。
 - 完成文件级 vendor 白名单、私有导入改造和平台依赖清除。
 - 实现受控 workspace、版本 manifest、原子写入、跨实例文件锁和损坏恢复。
+- 实现 Session append/commit、稳定消息 ID、L0/L1/L2 fallback 和崩溃重试幂等。

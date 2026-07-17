@@ -124,3 +124,27 @@ def test_workspace_serializes_concurrent_atomic_writes(tmp_path: Path) -> None:
     assert first.read_bytes("memories/shared.md") in payloads
     assert not list(first.root.rglob("*.tmp"))
     assert not (first.root / first.LOCK_NAME).exists()
+
+
+def test_workspace_transaction_serializes_related_read_modify_write(
+    tmp_path: Path,
+) -> None:
+    first = OpenVikingWorkspace(tmp_path / "plugin-data")
+    second = OpenVikingWorkspace(tmp_path / "plugin-data")
+    first.initialize()
+    first.atomic_write("sessions/counter.txt", "0")
+
+    def increment(workspace: OpenVikingWorkspace) -> None:
+        with workspace.transaction() as transaction:
+            current = int(transaction.read_bytes("sessions/counter.txt"))
+            transaction.atomic_write("sessions/counter.txt", str(current + 1))
+
+    with ThreadPoolExecutor(max_workers=4) as executor:
+        list(
+            executor.map(
+                increment,
+                [first if index % 2 == 0 else second for index in range(12)],
+            )
+        )
+
+    assert first.read_bytes("sessions/counter.txt") == b"12"
