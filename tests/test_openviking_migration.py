@@ -97,6 +97,41 @@ def test_migration_dry_run_validates_without_writing_memory(tmp_path: Path) -> N
     assert not list((workspace.root / "sessions").rglob("*.json"))
 
 
+def test_cutover_marker_requires_complete_verification_and_survives_restart(
+    tmp_path: Path,
+) -> None:
+    migration, _ = _migration(tmp_path)
+
+    marker = migration.activate_cutover(
+        total=2,
+        verified=2,
+        source_digest="a" * 64,
+        activated_at="2026-07-17T00:00:00+00:00",
+    )
+    restarted, _ = _migration(tmp_path)
+
+    assert marker["state"] == "authoritative"
+    assert restarted.read_cutover_state() == marker
+
+
+def test_cutover_marker_rejects_partial_migration(tmp_path: Path) -> None:
+    migration, _ = _migration(tmp_path)
+
+    try:
+        migration.activate_cutover(
+            total=2,
+            verified=1,
+            source_digest="a" * 64,
+            activated_at="2026-07-17T00:00:00+00:00",
+        )
+    except ValueError as exc:
+        assert "every legacy row" in str(exc)
+    else:
+        raise AssertionError("partial migration unexpectedly activated cutover")
+
+    assert migration.read_cutover_state() == {}
+
+
 def test_migration_writes_history_manifest_and_is_idempotent(tmp_path: Path) -> None:
     migration, workspace = _migration(tmp_path)
 

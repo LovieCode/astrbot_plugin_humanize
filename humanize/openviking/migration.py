@@ -22,6 +22,7 @@ from .workspace import OpenVikingWorkspace, WorkspaceTransaction
 
 _DIGEST_LENGTH = 64
 _HISTORY_LINK_DESCRIPTION = "Migrated legacy memory history"
+_CUTOVER_PATH = Path("migration/cutover.json")
 _MAX_EVIDENCE = 1_000
 _MAX_REVISIONS = 1_000
 _SCOPE_TYPES = {"global", "private_user", "group", "group_member"}
@@ -92,6 +93,77 @@ class OpenVikingMigrationAdapter:
         """
         self._memory = memory_adapter
         self._workspace = workspace
+
+    def read_cutover_state(self) -> dict[str, Any]:
+        """Read a validated anonymous authoritative-mode marker.
+
+        Returns:
+            Cutover metadata, or an empty mapping when absent or invalid.
+        """
+        with self._workspace.transaction() as transaction:
+            if not transaction.is_file(_CUTOVER_PATH):
+                return {}
+            payload = self._read_json(transaction, _CUTOVER_PATH)
+        source_digest = str(payload.get("source_digest") or "")
+        try:
+            total = int(payload.get("total"))
+            verified = int(payload.get("verified"))
+        except (TypeError, ValueError):
+            return {}
+        if (
+            payload.get("format_version") != 1
+            or payload.get("state") != "authoritative"
+            or len(source_digest) != _DIGEST_LENGTH
+            or any(character not in "0123456789abcdef" for character in source_digest)
+            or total < 0
+            or verified < 0
+            or verified != total
+        ):
+            return {}
+        return payload
+
+    def activate_cutover(
+        self,
+        *,
+        total: int,
+        verified: int,
+        source_digest: str,
+        activated_at: str,
+    ) -> dict[str, Any]:
+        """Persist the verified switch from legacy memory rows to OpenViking.
+
+        Args:
+            total: Number of legacy snapshots inspected.
+            verified: Number of snapshots verified in the workspace.
+            source_digest: Aggregate digest of normalized source hashes.
+            activated_at: UTC activation timestamp.
+
+        Returns:
+            Persisted anonymous cutover marker.
+
+        Raises:
+            ValueError: If counts or the aggregate digest are invalid.
+        """
+        clean_total = max(0, int(total))
+        clean_verified = max(0, int(verified))
+        clean_digest = str(source_digest or "").strip().lower()
+        if clean_verified != clean_total:
+            raise ValueError("OpenViking cutover requires every legacy row verified")
+        if len(clean_digest) != _DIGEST_LENGTH or any(
+            character not in "0123456789abcdef" for character in clean_digest
+        ):
+            raise ValueError("OpenViking cutover source digest is invalid")
+        payload = {
+            "activated_at": self._timestamp(activated_at),
+            "format_version": 1,
+            "source_digest": clean_digest,
+            "state": "authoritative",
+            "total": clean_total,
+            "verified": clean_verified,
+        }
+        with self._workspace.transaction() as transaction:
+            transaction.atomic_write(_CUTOVER_PATH, self._json_text(payload))
+        return payload
 
     def migrate(
         self,
