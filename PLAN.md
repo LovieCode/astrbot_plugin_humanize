@@ -259,7 +259,6 @@ vendor 使用私有命名空间 `humanize.vendor.openviking_core`，禁止运行
 ### 进行中
 
 - Phase B：建立 vendor 私有命名空间，复制首批白名单源码、AGPL-3.0 和来源/修改清单。
-- Phase B：实现受控 workspace、manifest、原子写入、文件锁和损坏恢复。
 - Phase C-D：接入 Session、Memory、L0/L1/L2、Provider Bridge 和分层召回。
 - Phase E-F：迁移旧数据，切换正式读写，裁剪重复实现并完成发布验证。
 
@@ -271,3 +270,4 @@ vendor 使用私有命名空间 `humanize.vendor.openviking_core`，禁止运行
 - 形成首批文件级保留白名单和平台模块裁剪清单。
 - 建立 `humanize.vendor.openviking_core` 私有命名空间、许可证和来源记录。
 - 内置首批可独立导入的 OpenViking 领域内核，并增加禁用导入与行为测试。
+- 实现受控 workspace、版本 manifest、原子写入、跨实例文件锁和损坏恢复。
