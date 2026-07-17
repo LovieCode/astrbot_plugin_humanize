@@ -108,6 +108,42 @@ class WorkspaceTransaction:
             )
         )
 
+    def list_files_recursive(
+        self,
+        relative_directory: str | Path,
+        *,
+        suffix: str = "",
+        limit: int = 10_000,
+    ) -> tuple[Path, ...]:
+        """List validated workspace-relative files below one directory.
+
+        Args:
+            relative_directory: Directory relative to the workspace root.
+            suffix: Optional filename suffix filter.
+            limit: Maximum number of files returned.
+
+        Returns:
+            Sorted relative paths safe to pass to other transaction methods.
+
+        Raises:
+            ValueError: If ``limit`` is not positive.
+            WorkspacePathError: If a discovered path escapes the workspace.
+        """
+        if limit <= 0:
+            raise ValueError("workspace recursive file limit must be positive")
+        directory = self._workspace.resolve_path(relative_directory)
+        if not directory.is_dir():
+            return ()
+        files: list[Path] = []
+        for path in directory.rglob("*"):
+            relative_path = path.relative_to(self._workspace.root)
+            validated = self._workspace.resolve_path(relative_path)
+            if validated.is_file() and (not suffix or validated.name.endswith(suffix)):
+                files.append(relative_path)
+                if len(files) >= limit:
+                    break
+        return tuple(sorted(files))
+
 
 @dataclass(frozen=True, slots=True)
 class WorkspaceManifest:
