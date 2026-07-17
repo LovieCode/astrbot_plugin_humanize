@@ -107,7 +107,6 @@ def test_webui_static_assets_and_dom_references_are_consistent() -> None:
 def test_webui_uses_real_api_without_demo_or_fake_data() -> None:
     """All visible operational views are backed by plugin API calls."""
     api_js = _read("api.js")
-    app_js = _read("app.js")
     ui_js = _runtime_js()
 
     forbidden = [
