@@ -469,7 +469,7 @@ def test_internal_memory_and_reply_examples_are_modular_and_single_column() -> N
         "page: 1, page_size: 50",
     ]:
         assert marker in memory_js
-    assert 'failed: {' not in memory_js
+    assert "failed: {" not in memory_js
 
     assert "openviking-status" not in all_sources
     for removed in [
