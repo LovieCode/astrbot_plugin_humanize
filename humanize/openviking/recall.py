@@ -270,9 +270,18 @@ class OpenVikingRecallAdapter:
                         or str(fields.get("status") or "") != "active"
                     ):
                         continue
+                    valid_from = str(fields.get("valid_from") or "").strip()
                     valid_until = str(fields.get("valid_until") or "").strip()
-                    if valid_until:
-                        try:
+                    try:
+                        if valid_from:
+                            starts = datetime.fromisoformat(
+                                valid_from.replace("Z", "+00:00")
+                            )
+                            if starts.tzinfo is None:
+                                starts = starts.replace(tzinfo=UTC)
+                            if starts > now:
+                                continue
+                        if valid_until:
                             expires = datetime.fromisoformat(
                                 valid_until.replace("Z", "+00:00")
                             )
@@ -280,8 +289,8 @@ class OpenVikingRecallAdapter:
                                 expires = expires.replace(tzinfo=UTC)
                             if expires <= now:
                                 continue
-                        except ValueError:
-                            continue
+                    except ValueError:
+                        continue
                     abstract = str(fields.get("abstract") or "").strip()
                     overview = str(fields.get("overview") or "").strip()
                     content = str(memory.content or "").strip()

@@ -271,6 +271,7 @@ class OpenVikingMemoryAdapter:
         *,
         evidence: list[dict[str, Any]],
         source_commit_ids: tuple[str, ...],
+        force_replace: bool = False,
     ) -> MemoryUpsertResult:
         """Create or update one scoped OpenViking memory with diff and links.
 
@@ -278,6 +279,7 @@ class OpenVikingMemoryAdapter:
             candidate: Normalized memory candidate from the extraction stage.
             evidence: Trusted evidence records supporting the candidate.
             source_commit_ids: Session commits used by this extraction operation.
+            force_replace: Whether a trusted migration snapshot overrides confidence.
 
         Returns:
             Stable operation identity, URI, version, and duplicate state.
@@ -407,8 +409,10 @@ class OpenVikingMemoryAdapter:
                 if old_file is not None
                 else 0.0
             )
-            should_replace = old_file is None or (
-                float(normalized["confidence"]) >= old_confidence
+            should_replace = (
+                force_replace
+                or old_file is None
+                or (float(normalized["confidence"]) >= old_confidence)
             )
             content = (
                 str(normalized["content"])
@@ -457,6 +461,11 @@ class OpenVikingMemoryAdapter:
                 old_file.extra_fields.get("valid_until", normalized["valid_until"])
                 if keep_existing
                 else normalized["valid_until"]
+            )
+            effective_valid_from = (
+                old_file.extra_fields.get("valid_from", normalized["valid_from"])
+                if keep_existing
+                else normalized["valid_from"]
             )
             old_evidence = (
                 old_file.extra_fields.get("evidence", [])
@@ -551,6 +560,7 @@ class OpenVikingMemoryAdapter:
                 "structured_value": effective_structured_value,
                 "subject_hash": normalized["subject_hash"],
                 "updated_at": occurred_at,
+                "valid_from": effective_valid_from,
                 "valid_until": effective_valid_until,
                 "version": version,
             }
@@ -638,6 +648,7 @@ class OpenVikingMemoryAdapter:
             "status": status,
             "structured_value": structured_value,
             "subject_hash": subject_hash,
+            "valid_from": str(candidate.get("valid_from") or "")[:64],
             "valid_until": str(candidate.get("valid_until") or "")[:64],
         }
 

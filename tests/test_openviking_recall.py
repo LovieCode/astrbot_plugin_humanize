@@ -42,6 +42,7 @@ def _candidate(
     scope_hash: str = "b",
     subject_hash: str = "c",
     conversation_hash: str = "d",
+    valid_from: str = "",
     valid_until: str = "",
 ) -> dict[str, object]:
     return {
@@ -60,6 +61,7 @@ def _candidate(
         "status": status,
         "structured_value": {"like": "无糖乌龙茶"},
         "subject_hash": subject_hash * 64,
+        "valid_from": valid_from,
         "valid_until": valid_until,
     }
 
@@ -100,6 +102,15 @@ async def test_recall_filters_scope_agent_subject_status_and_expiry(
                 content="不应召回的过期记忆",
                 conversation_hash="f",
                 valid_until="2000-01-01T00:00:00+00:00",
+            ),
+        ),
+        (
+            _payload(commit="3", conversation_hash="3"),
+            _candidate(
+                memory_key="preference:future",
+                content="不应召回的未来记忆",
+                conversation_hash="3",
+                valid_from="2999-01-01T00:00:00+00:00",
             ),
         ),
         (

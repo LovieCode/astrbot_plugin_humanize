@@ -317,3 +317,29 @@ def test_memory_upsert_rejects_missing_source_commit(tmp_path: Path) -> None:
             evidence=[],
             source_commit_ids=("a" * 64,),
         )
+
+
+def test_trusted_migration_can_replace_higher_confidence_memory(tmp_path: Path) -> None:
+    adapter = _adapter(tmp_path)
+    adapter.commit_turn(_payload(commit="a"))
+    adapter.commit_turn(_payload(commit="e"))
+    adapter.upsert_memory(
+        _candidate(confidence=0.9),
+        evidence=[],
+        source_commit_ids=("a" * 64,),
+    )
+
+    replaced = adapter.upsert_memory(
+        _candidate(content="迁移后的当前快照", confidence=0.2),
+        evidence=[],
+        source_commit_ids=("e" * 64,),
+        force_replace=True,
+    )
+
+    memory_path = next(
+        (tmp_path / "plugin-data" / "openviking" / "memories").rglob("*.md")
+    )
+    content = memory_path.read_text(encoding="utf-8")
+    assert replaced.operation == "replace"
+    assert "迁移后的当前快照" in content
+    assert '"confidence": 0.2' in content
