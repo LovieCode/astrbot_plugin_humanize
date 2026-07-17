@@ -1,11 +1,7 @@
 """AstrBot adapters for the embedded OpenViking memory core."""
 
 from .adapter import MemoryUpsertResult, OpenVikingMemoryAdapter, SessionCommitResult
-from .migration import (
-    MigrationBatchResult,
-    MigrationItemResult,
-    OpenVikingMigrationAdapter,
-)
+from .management import OpenVikingManagementAdapter
 from .provider import OpenVikingProviderBridge, ProviderRerankResult
 from .recall import OpenVikingRecallAdapter, OpenVikingRecallResult
 from .workspace import (
@@ -18,14 +14,12 @@ from .workspace import (
 __all__ = [
     "OpenVikingWorkspace",
     "OpenVikingMemoryAdapter",
-    "OpenVikingMigrationAdapter",
+    "OpenVikingManagementAdapter",
     "OpenVikingProviderBridge",
     "OpenVikingRecallAdapter",
     "OpenVikingRecallResult",
     "ProviderRerankResult",
     "MemoryUpsertResult",
-    "MigrationBatchResult",
-    "MigrationItemResult",
     "SessionCommitResult",
     "WorkspaceManifest",
     "WorkspacePathError",

@@ -279,7 +279,7 @@ class OpenVikingMemoryAdapter:
             candidate: Normalized memory candidate from the extraction stage.
             evidence: Trusted evidence records supporting the candidate.
             source_commit_ids: Session commits used by this extraction operation.
-            force_replace: Whether a trusted migration snapshot overrides confidence.
+            force_replace: Whether a trusted caller overrides confidence ordering.
 
         Returns:
             Stable operation identity, URI, version, and duplicate state.

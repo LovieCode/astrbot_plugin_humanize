@@ -67,6 +67,7 @@ class OpenVikingRecallAdapter:
         limit: int,
         threshold: float,
         max_chars: int,
+        memory_type: str = "",
     ) -> OpenVikingRecallResult:
         """Recall active memories after final identity and expiry filtering.
 
@@ -77,6 +78,7 @@ class OpenVikingRecallAdapter:
             limit: Maximum number of rendered memories.
             threshold: Minimum final relevance score.
             max_chars: Maximum rendered XML characters.
+            memory_type: Optional exact memory type filter for admin debugging.
 
         Returns:
             Safe ``MemoryContext`` XML or an omitted fail-open result.
@@ -96,6 +98,13 @@ class OpenVikingRecallAdapter:
             bounded_threshold = max(0.0, min(float(threshold), 1.0))
             bounded_chars = max(256, min(int(max_chars), 20_000))
             rows = await asyncio.to_thread(self._read_candidates, clean_agent, filters)
+            clean_memory_type = str(memory_type or "").strip()
+            if clean_memory_type:
+                rows = [
+                    row
+                    for row in rows
+                    if str(row.get("memory_type") or "") == clean_memory_type
+                ]
             candidate_count = len(rows)
             if not rows:
                 return self._empty("no_match", started, candidate_count=0)
