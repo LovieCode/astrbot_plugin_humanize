@@ -427,19 +427,20 @@
     providerRoot.append(Ui.createLoading("加载 Provider 观测…"));
     contextRoot.append(Ui.createLoading("加载上下文运行…"));
 
+    // Create the memory slot before loading its status; parallel startup can
+    // otherwise observe a missing slot and leave the loading placeholder stuck.
+    await loadOverview();
     await Promise.all([
-      loadOverview(), loadMemoryStatus(), loadProviderCache(),
-      loadRecentContexts(), loadRecentLogs(),
+      loadMemoryStatus(), loadProviderCache(), loadRecentContexts(), loadRecentLogs(),
     ]);
   }
 
   /** Reload all overview sections. */
-  function refreshAll() {
-    loadOverview();
-    loadMemoryStatus();
-    loadProviderCache();
-    loadRecentContexts();
-    loadRecentLogs();
+  async function refreshAll() {
+    await loadOverview();
+    await Promise.all([
+      loadMemoryStatus(), loadProviderCache(), loadRecentContexts(), loadRecentLogs(),
+    ]);
   }
 
   /** Reset view-scoped state on unmount. */

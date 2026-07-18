@@ -121,6 +121,16 @@ def test_webui_type_scale_is_readable_and_consistent() -> None:
     assert re.search(r"\.workspace\s*{[^}]*grid-column:\s*1;", responsive)
 
 
+def test_overview_loads_memory_status_after_creating_panel_slot() -> None:
+    """Overview startup must create the memory slot before fetching its status."""
+    overview = _read("views/overview.js")
+    startup = overview.split("await loadOverview();", 1)[1]
+    assert startup.index("loadMemoryStatus()") < startup.index("loadProviderCache()")
+    assert (
+        "await Promise.all([\n      loadOverview(), loadMemoryStatus()" not in overview
+    )
+
+
 def test_webui_uses_real_api_without_demo_or_fake_data() -> None:
     """All visible operational views are backed by plugin API calls."""
     api_js = _read("api.js")
