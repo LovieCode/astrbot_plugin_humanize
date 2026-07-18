@@ -155,7 +155,7 @@ def test_envelope_renders_only_declared_double_brace_variables() -> None:
     )
 
 
-def test_default_protocol_template_distinguishes_message_tags_and_unknown_terms() -> None:
+def test_default_protocol_template_covers_messages_and_terms() -> None:
     assert "换行只是同一条消息的内容，不是消息边界" in DEFAULT_PROTOCOL_TEMPLATE
     assert "不是模型自我知识测验" in DEFAULT_PROTOCOL_TEMPLATE
     assert "不要因为自己能够解释一个词就默认写 []" in DEFAULT_PROTOCOL_TEMPLATE
