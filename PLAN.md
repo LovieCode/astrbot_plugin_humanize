@@ -182,6 +182,8 @@
 - [x] 部署后服务已受控重启：新 Python 进程于 `18:47` 启动，Humanize `memory state=ready`，首页 HTTP `200`。远端完整插件回归为 `238 passed, 1 warning`，Ruff `69 files already formatted`；父仓库 `git diff --check` 的失败仅来自未触及 Dashboard 文件的既有 CRLF/trailing-whitespace 差异，未修改该范围。
 - [x] 后续修复在远端用户暂存包完成回归：`239 passed, 1 warning`，Ruff format/check 通过（94 files），13 个 `pages/humanize/*.js` 的 `node --check` 通过；该包未替换正式插件目录。
 - [x] 远端用户暂存包按 T01-T10 分组的功能矩阵全部通过（分组存在有意重叠）：T01 `8`、T02 `91`、T03 `23`、T04 `26`、T05 `31`、T06 `25`、T07 `4`、T08 `18`、T09 `17`、T10 `14` 项。每组包含基础路径及至少三类边界/异常/并发或隔离场景；真实运行实例与已登录 Dashboard 场景仍按当前待办验收。
+- [x] 已将 Session fallback 阈值修复正式就地部署：目标文件 checksum 与本地一致；正式插件回归 `240 passed, 1 warning`、Ruff format/check 和 13 个 WebUI JS 检查均通过。受控停止旧 `6185` listener 后，经普通用户 tmux 启动新进程；首页 HTTP `200`，Humanize `memory state=ready`，无初始化或 recall 异常。
+- [x] 新进程使用真实 OpenViking workspace 的无正文探针：同一 Agent/作用域/主体/会话在阈值 `0.85` 下命中 5 条 Session L0/L1 candidate，错误 conversation hash 为 `no_match`；未读取或输出聊天正文。
 - [x] Headless Edge 验证远端 Dashboard 登录页：桌面 `1440×900`、真实移动 viewport `412×915` 均正常渲染且无水平溢出。
 - [~] 服务首页 HTTP `200`；未鉴权的插件 memory GET、未知插件路由 GET、插件 memory POST 和 Dashboard plugins GET 均返回 `401`，未发生副作用；因此尚未以真实登录态完成 T01/T07-T10 的浏览器交互、窄屏和失败态验收。
 
@@ -189,6 +191,6 @@
 
 - [x] 在远端运行完整 Python、静态 JavaScript 和格式/检查工具。
 - [x] 为 T01-T10 各记录至少三组基础/极限场景的命令、结果和缺陷。
-- [~] 在新运行实例完成一次真实对话的 Session fallback 复测，并完成语义记忆与召回复测：同会话 fallback 已补强为不受语义阈值拦截，远端暂存包回归通过；正式目录仍需有效 sudo 授权部署，且当前实例在 `18:47` 重启后未记录新的 Humanize 上下文任务。仍需产生一个可接受候选并确认 memory diff、长期记忆和 recall。历史 `dead` 任务负载已按隐私设计清空，不能重放。
+- [~] 在新运行实例完成一次真实对话的 Session fallback 复测，并完成语义记忆与召回复测：同会话 fallback 已正式部署，并以真实 workspace 的高阈值和错会话隔离探针验证；仍需一条重启后的真实入站消息确认它进入 Humanize 上下文链，再发送可接受的事实型消息确认 memory diff、长期记忆和下一轮 recall。历史 `dead` 任务负载已按隐私设计清空，不能重放。
 - [ ] 在真实浏览器验证全部 WebUI 视图、空态、失败态和窄屏布局。
 - [ ] 在已登录 Dashboard 下验证 settings、memory、jobs、recall debug、reply examples 和 prompt templates 的真实 API/交互；完成后更新 T01、T05-T10 状态。
