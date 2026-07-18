@@ -14,10 +14,10 @@ from pathlib import Path
 from typing import Any
 from xml.etree import ElementTree as ET
 
-from ..vendor.openviking_core.core.identifiers import normalize_identifier_part
 from ..vendor.openviking_core.session.memory.utils.memory_file_utils import (
     MemoryFileUtils,
 )
+from .adapter import normalize_openviking_agent_id
 from .provider import OpenVikingProviderBridge
 from .workspace import OpenVikingWorkspace
 
@@ -88,11 +88,7 @@ class OpenVikingRecallAdapter:
         if not clean_query:
             return self._empty("empty_query", started)
         try:
-            clean_agent = normalize_identifier_part(
-                str(agent_id or "default").strip() or "default", "agent_id"
-            )
-            if clean_agent is None:
-                raise ValueError("OpenViking recall requires an Agent")
+            clean_agent = normalize_openviking_agent_id(agent_id)
             filters = self._normalize_filters(scope_filters)
             bounded_limit = max(1, min(int(limit), 20))
             bounded_threshold = max(0.0, min(float(threshold), 1.0))

@@ -24,6 +24,23 @@ _DIGEST_PATTERN = re.compile(r"^[0-9a-f]{64}$")
 _SCOPE_TYPES = frozenset({"global", "private_user", "group", "group_member"})
 
 
+def normalize_openviking_agent_id(value: object) -> str:
+    """Convert an AstrBot agent label into a workspace-safe identifier.
+
+    Args:
+        value: Raw agent identifier supplied by AstrBot or the WebUI.
+
+    Returns:
+        A valid OpenViking path segment that remains stable for the same input.
+    """
+    raw = str(value or "default").strip() or "default"
+    try:
+        normalized = normalize_identifier_part(raw, "agent_id")
+    except ValueError:
+        return f"agent-{hashlib.sha256(raw.encode('utf-8')).hexdigest()}"
+    return normalized or "default"
+
+
 @dataclass(frozen=True, slots=True)
 class SessionCommitResult:
     """Result of one idempotent OpenViking session commit."""
@@ -94,12 +111,7 @@ class OpenVikingMemoryAdapter:
         scope_type = str(payload.get("scope_type") or "").strip()
         if scope_type not in _SCOPE_TYPES:
             raise ValueError("unsupported OpenViking scope type")
-        agent_id = normalize_identifier_part(
-            str(payload.get("agent_id") or "default").strip() or "default",
-            "agent_id",
-        )
-        if agent_id is None:
-            raise ValueError("OpenViking agent id is required")
+        agent_id = normalize_openviking_agent_id(payload.get("agent_id"))
 
         action = str(payload.get("action") or "").strip()
         if action not in {"Reply", "No Reply"}:
@@ -587,14 +599,11 @@ class OpenVikingMemoryAdapter:
         )
 
     def _normalize_memory_candidate(self, candidate: dict[str, Any]) -> dict[str, Any]:
-        agent_id = normalize_identifier_part(
-            str(candidate.get("agent_id") or "default").strip() or "default",
-            "agent_id",
-        )
+        agent_id = normalize_openviking_agent_id(candidate.get("agent_id"))
         memory_type = normalize_identifier_part(
             str(candidate.get("memory_type") or "").strip(), "memory_type"
         )
-        if agent_id is None or memory_type is None:
+        if memory_type is None:
             raise ValueError("OpenViking memory agent and type are required")
         scope_type = str(candidate.get("scope_type") or "").strip()
         if scope_type not in _SCOPE_TYPES:

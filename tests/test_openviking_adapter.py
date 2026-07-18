@@ -147,7 +147,9 @@ def test_no_reply_commit_archives_only_user_experience(tmp_path: Path) -> None:
     assert result.message_count == 1
 
 
-def test_session_commit_rejects_unhashed_or_path_like_identity(tmp_path: Path) -> None:
+def test_session_commit_rejects_unhashed_scope_and_hashes_unsafe_agent(
+    tmp_path: Path,
+) -> None:
     adapter = _adapter(tmp_path)
     invalid_hash = _payload()
     invalid_hash["scope_hash"] = "../raw-user"
@@ -156,8 +158,9 @@ def test_session_commit_rejects_unhashed_or_path_like_identity(tmp_path: Path) -
 
     with pytest.raises(ValueError, match="scope hash"):
         adapter.commit_turn(invalid_hash)
-    with pytest.raises(ValueError, match="agent_id"):
-        adapter.commit_turn(invalid_agent)
+    result = adapter.commit_turn(invalid_agent)
+    assert "/../agent/" not in result.session_uri
+    assert "/agent-" in result.session_uri
     assert not (tmp_path / "raw-user").exists()
 
 

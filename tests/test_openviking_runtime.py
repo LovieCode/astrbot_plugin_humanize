@@ -20,7 +20,7 @@ class _RepositoryWithoutLegacyMemory:
     """Repository stub intentionally exposing no legacy memory CRUD methods."""
 
 
-def _context() -> MessageContext:
+def _context(*, agent_id: str = "default") -> MessageContext:
     return MessageContext(
         request_id="request-a",
         scope_type="private",
@@ -34,6 +34,7 @@ def _context() -> MessageContext:
         admin_ids=(),
         conversation_id="conversation-a",
         occurred_at="2026-07-17T00:00:00+00:00",
+        agent_id=agent_id,
     )
 
 
@@ -55,7 +56,8 @@ def test_runtime_write_recall_and_management_use_only_openviking(
             openviking_management_adapter=management,
         )
         await service.initialize()
-        context = _context()
+        agent_id = "webchat default"
+        context = _context(agent_id=agent_id)
         job = await service.build_turn_job(
             context,
             action="Reply",
@@ -73,6 +75,7 @@ def test_runtime_write_recall_and_management_use_only_openviking(
         )
         listing = await service.list_memories(
             scope_token=scope_token,
+            agent_id=agent_id,
             status="active",
             page=1,
             page_size=20,
@@ -82,7 +85,7 @@ def test_runtime_write_recall_and_management_use_only_openviking(
             query="无糖乌龙茶",
             scope_token=scope_token,
             kind="memory",
-            agent_id="default",
+            agent_id=agent_id,
             memory_type="preference",
         )
 

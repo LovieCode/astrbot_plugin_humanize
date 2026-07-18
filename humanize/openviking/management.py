@@ -13,7 +13,7 @@ from typing import Any
 from ..vendor.openviking_core.session.memory.utils.memory_file_utils import (
     MemoryFileUtils,
 )
-from .adapter import OpenVikingMemoryAdapter
+from .adapter import OpenVikingMemoryAdapter, normalize_openviking_agent_id
 from .workspace import OpenVikingWorkspace, WorkspaceTransaction
 
 _DIGEST_PATTERN = re.compile(r"^[0-9a-f]{64}$")
@@ -95,6 +95,10 @@ class OpenVikingManagementAdapter:
         }
         if not expected["memory_type"]:
             expected["memory_type"] = str(filters.get("type") or "").strip()
+        if expected["agent_id"]:
+            expected["agent_id"] = normalize_openviking_agent_id(
+                expected["agent_id"]
+            )
         items = []
         for item in self._read_items():
             if any(
