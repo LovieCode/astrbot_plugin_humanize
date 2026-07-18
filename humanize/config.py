@@ -94,7 +94,16 @@ class PluginConfig:
 
     @classmethod
     def from_mapping(cls, raw: Mapping[str, Any] | None) -> PluginConfig:
-        data = raw or {}
+        data = dict(raw or {})
+        for section_name in ("general", "reply_control", "memory"):
+            section = data.get(section_name)
+            if isinstance(section, Mapping):
+                data.update(section)
+
+        reply_examples = data.get("reply_examples")
+        if isinstance(reply_examples, Mapping):
+            data.update(reply_examples)
+
         protocol_injection_mode = (
             str(data.get("protocol_injection_mode") or "user").strip().lower()
         )

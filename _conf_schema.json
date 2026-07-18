@@ -1,239 +1,337 @@
 {
-  "enabled": {
-    "description": "启用插件",
-    "type": "bool",
-    "default": true,
-    "hint": "关闭后不注入协议、不拦截回复，也不学习黑话。"
+  "general": {
+    "description": "基础设置",
+    "type": "object",
+    "hint": "首次使用只需确认启用状态、管理员信息和单条消息长度；其余设置保留默认值即可。",
+    "items": {
+      "enabled": {
+        "description": "启用插件",
+        "type": "bool",
+        "default": true,
+        "hint": "关闭后不注入协议、不拦截回复，也不学习黑话。"
+      },
+      "default_rule_enabled": {
+        "description": "注入默认 Rule",
+        "type": "bool",
+        "default": true,
+        "hint": "每轮临时注入聊天场景、管理员和表达边界。"
+      },
+      "admin_name": {
+        "description": "管理员称谓",
+        "type": "string",
+        "default": "管理员",
+        "hint": "仅用于可信 Rule 展示。"
+      },
+      "admin_qq_ids": {
+        "description": "管理员 QQ 号",
+        "type": "list",
+        "default": [],
+        "items": {"type": "string"},
+        "hint": "每行一个 QQ 号。只有这里配置的值会被写入临时 Rule。"
+      },
+      "max_message_chars": {
+        "description": "普通发言单条字数",
+        "type": "int",
+        "default": 10,
+        "minimum": 1,
+        "maximum": 200,
+        "slider": {"min": 1, "max": 200, "step": 1},
+        "hint": "普通发言每条不得超过此字数，超出时要求另起一条消息。代码和格式化文本不受此限制。"
+      }
+    }
   },
-  "default_rule_enabled": {
-    "description": "注入默认 Rule",
-    "type": "bool",
-    "default": true,
-    "hint": "每轮临时注入聊天场景、管理员和表达边界。"
+  "reply_control": {
+    "description": "回复控制与黑话",
+    "type": "object",
+    "hint": "默认配置已经适合日常聊天。关闭回复控制后，协议和黑话学习相关项不会生效。",
+    "items": {
+      "protocol_enabled": {
+        "description": "启用回复控制协议",
+        "type": "bool",
+        "default": true,
+        "hint": "要求最终文本带轻量 <Action> 标签控制头；控制头会被移除，用户只看到普通正文。"
+      },
+      "protocol_injection_mode": {
+        "description": "协议注入位置",
+        "type": "string",
+        "default": "user",
+        "options": ["user", "both"],
+        "labels": ["仅用户消息（推荐）", "用户消息 + System"],
+        "condition": {"protocol_enabled": true},
+        "hint": "日常使用选“仅用户消息”；仅在模型经常忽略协议时再加入 System。"
+      },
+      "no_reply_enabled": {
+        "description": "允许不回复",
+        "type": "bool",
+        "default": true,
+        "condition": {"protocol_enabled": true},
+        "hint": "允许 LLM 在不适合插话时主动选择不回复。"
+      },
+      "jargon_enabled": {
+        "description": "启用黑话学习",
+        "type": "bool",
+        "default": true,
+        "condition": {"protocol_enabled": true},
+        "hint": "从合法 <UnknownTerms> 标签内的 JSON 中记录候选词。"
+      },
+      "protocol_repair_retry_enabled": {
+        "description": "协议控制头修复重试",
+        "type": "bool",
+        "default": true,
+        "condition": {"protocol_enabled": true},
+        "collapsed": true,
+        "hint": "首次控制头非法时最多额外调用模型一次，只修复标签控制头；原回复正文不会交给模型重写。"
+      },
+      "protocol_log_retention_days": {
+        "description": "协议日志保留天数",
+        "type": "int",
+        "default": 7,
+        "minimum": 1,
+        "maximum": 365,
+        "slider": {"min": 1, "max": 365, "step": 1},
+        "condition": {"protocol_enabled": true},
+        "collapsed": true
+      },
+      "min_confidence_for_injection": {
+        "description": "黑话注入置信度阈值",
+        "type": "float",
+        "default": 0.75,
+        "minimum": 0.0,
+        "maximum": 1.0,
+        "slider": {"min": 0.0, "max": 1.0, "step": 0.01},
+        "condition": {"protocol_enabled": true, "jargon_enabled": true},
+        "collapsed": true
+      },
+      "max_injected_jargons": {
+        "description": "单次最多注入词条",
+        "type": "int",
+        "default": 5,
+        "minimum": 0,
+        "maximum": 50,
+        "slider": {"min": 0, "max": 50, "step": 1},
+        "condition": {"protocol_enabled": true, "jargon_enabled": true},
+        "collapsed": true
+      },
+      "max_injection_tokens": {
+        "description": "黑话注入 Token 预算",
+        "type": "int",
+        "default": 256,
+        "minimum": 0,
+        "maximum": 4096,
+        "slider": {"min": 0, "max": 4096, "step": 64},
+        "condition": {"protocol_enabled": true, "jargon_enabled": true},
+        "collapsed": true
+      },
+      "max_evidence_per_entry": {
+        "description": "单词条最大证据数",
+        "type": "int",
+        "default": 20,
+        "minimum": 1,
+        "maximum": 500,
+        "slider": {"min": 1, "max": 500, "step": 1},
+        "condition": {"protocol_enabled": true, "jargon_enabled": true},
+        "collapsed": true
+      }
+    }
   },
-  "admin_name": {
-    "description": "管理员称谓",
-    "type": "string",
-    "default": "管理员",
-    "hint": "仅用于可信 Rule 展示。"
-  },
-  "admin_qq_ids": {
-    "description": "管理员 QQ 号",
-    "type": "list",
-    "default": [],
-    "items": {"type": "string"},
-    "hint": "每行一个 QQ 号。只有这里配置的值会被写入临时 Rule。"
-  },
-  "max_message_chars": {
-    "description": "普通发言单条字数",
-    "type": "int",
-    "default": 10,
-    "minimum": 1,
-    "maximum": 200,
-    "hint": "普通发言每条不得超过此字数，超出时要求另起一条消息。代码和格式化文本不受此限制。"
-  },
-  "protocol_enabled": {
-    "description": "启用回复控制协议",
-    "type": "bool",
-    "default": true,
-    "hint": "要求最终文本带轻量 <Action> 标签控制头；控制头会被移除，用户只看到普通正文。"
-  },
-  "protocol_injection_mode": {
-    "description": "协议注入模式",
-    "type": "string",
-    "default": "user",
-    "options": ["user", "both"],
-    "hint": "user=每轮仅在用户消息末尾临时注入完整协议（推荐）；both=用户临时注入，同时在 system prompt 保留副本。"
-  },
-  "protocol_repair_retry_enabled": {
-    "description": "协议控制头修复重试",
-    "type": "bool",
-    "default": true,
-    "hint": "首次控制头非法时最多额外调用模型一次，只修复标签控制头；原回复正文不会交给模型重写。"
-  },
-  "protocol_log_retention_days": {
-    "description": "协议日志保留天数",
-    "type": "int",
-    "default": 7,
-    "minimum": 1,
-    "maximum": 365
-  },
-  "no_reply_enabled": {
-    "description": "允许 No Reply",
-    "type": "bool",
-    "default": true,
-    "hint": "允许 LLM 主动选择不回复。"
-  },
-  "jargon_enabled": {
-    "description": "启用黑话学习",
-    "type": "bool",
-    "default": true,
-    "hint": "从合法 <UnknownTerms> 标签内的 JSON 中记录候选词。"
-  },
-  "min_confidence_for_injection": {
-    "description": "黑话注入置信度阈值",
-    "type": "float",
-    "default": 0.75,
-    "minimum": 0.0,
-    "maximum": 1.0
-  },
-  "max_injected_jargons": {
-    "description": "单次最多注入词条",
-    "type": "int",
-    "default": 5,
-    "minimum": 0,
-    "maximum": 50
-  },
-  "max_injection_tokens": {
-    "description": "黑话注入 Token 预算",
-    "type": "int",
-    "default": 256,
-    "minimum": 0,
-    "maximum": 4096
-  },
-  "max_evidence_per_entry": {
-    "description": "单词条最大证据数",
-    "type": "int",
-    "default": 20,
-    "minimum": 1,
-    "maximum": 500
-  },
-  "memory_enabled": {
-    "description": "启用内置长期记忆",
-    "type": "bool",
-    "default": true,
-    "hint": "使用内置 OpenViking workspace 保存聊天记忆，humanize.db 仅保存任务、回复样例和审计；不启动独立服务、不安装本地模型。"
-  },
-  "memory_auto_extract_enabled": {
-    "description": "自动提取聊天记忆",
-    "type": "bool",
-    "default": true,
-    "hint": "仅在最终消息成功发送后创建后台任务。未配置提取 Provider 时只执行保守规则，不会偷偷调用聊天模型。"
-  },
-  "memory_extraction_provider_id": {
-    "description": "记忆提取 Chat Provider ID",
-    "type": "string",
-    "default": "",
-    "hint": "可选。留空时禁用 LLM 提取，只保留规则提取；填写 AstrBot 中已有的 Chat Provider ID，不会下载或加载本地模型。"
-  },
-  "memory_embedding_provider_id": {
-    "description": "记忆 Embedding Provider ID",
-    "type": "string",
-    "default": "",
-    "hint": "可选。填写 AstrBot 中已有的 Embedding Provider ID 后，为 OpenViking 召回和回复样例启用向量检索；不会安装本地模型。"
-  },
-  "memory_rerank_provider_id": {
-    "description": "记忆 Rerank Provider ID",
-    "type": "string",
-    "default": "",
-    "hint": "可选且默认关闭。仅在明确填写 AstrBot Rerank Provider ID 时调用，失败会保留原排序。"
-  },
-  "memory_identity_secret_env": {
-    "description": "记忆身份 HMAC 环境变量",
-    "type": "string",
-    "default": "HUMANIZE_MEMORY_SECRET",
-    "hint": "可选。未设置时插件会在数据目录生成独立密钥文件；备份 OpenViking workspace 时必须一并备份该密钥。"
-  },
-  "memory_recall_timeout_seconds": {
-    "description": "聊天召回截止时间",
-    "type": "float",
-    "default": 1.5,
-    "minimum": 0.2,
-    "maximum": 10.0,
-    "hint": "只限制显式配置的 Embedding 或 Rerank Provider；超时立即降级为 OpenViking 层级和关键词召回。"
-  },
-  "memory_auto_activate_confidence": {
-    "description": "记忆自动生效置信度",
-    "type": "float",
-    "default": 0.88,
-    "minimum": 0.5,
-    "maximum": 1.0,
-    "hint": "达到该阈值且具有当前用户原文证据的记忆可直接生效，其余保留为候选。"
-  },
-  "memory_candidate_min_confidence": {
-    "description": "记忆候选最低置信度",
-    "type": "float",
-    "default": 0.55,
-    "minimum": 0.0,
-    "maximum": 1.0
-  },
-  "memory_recall_limit": {
-    "description": "单次记忆召回条数",
-    "type": "int",
-    "default": 5,
-    "minimum": 1,
-    "maximum": 20
-  },
-  "memory_recall_score_threshold": {
-    "description": "记忆召回分数阈值",
-    "type": "float",
-    "default": 0.2,
-    "minimum": 0.0,
-    "maximum": 1.0
-  },
-  "memory_recall_max_chars": {
-    "description": "单次记忆注入字符预算",
-    "type": "int",
-    "default": 2500,
-    "minimum": 256,
-    "maximum": 20000,
-    "hint": "记忆只作为临时用户上下文注入，并保持回复协议位于最后。"
-  },
-  "memory_extract_batch_turns": {
-    "description": "记忆提取批次回合数",
-    "type": "int",
-    "default": 4,
-    "minimum": 1,
-    "maximum": 20,
-    "hint": "用于后台任务合并与费用控制，不影响最终回复发送。"
-  },
-  "memory_extract_idle_seconds": {
-    "description": "空闲提取等待秒数",
-    "type": "int",
-    "default": 180,
-    "minimum": 15,
-    "maximum": 3600
-  },
-  "memory_job_max_attempts": {
-    "description": "记忆任务最大尝试次数",
-    "type": "int",
-    "default": 5,
-    "minimum": 1,
-    "maximum": 20
-  },
-  "reply_examples_enabled": {
-    "description": "启用典型短对话样例",
-    "type": "bool",
-    "default": true,
-    "hint": "只召回经过审核且启用的样例作为临时表达参考，绝不会直接返回旧回复。"
-  },
-  "reply_examples_limit": {
-    "description": "单次最多注入样例数",
-    "type": "int",
-    "default": 3,
-    "minimum": 0,
-    "maximum": 10
-  },
-  "reply_examples_max_chars": {
-    "description": "回复样例注入字符预算",
-    "type": "int",
-    "default": 2000,
-    "minimum": 128,
-    "maximum": 20000
-  },
-  "reply_examples_min_quality": {
-    "description": "回复样例最低质量分",
-    "type": "float",
-    "default": 0.7,
-    "minimum": 0.0,
-    "maximum": 1.0
-  },
-  "reply_examples_recall_score_threshold": {
-    "description": "回复样例召回分数阈值",
-    "type": "float",
-    "default": 0.2,
-    "minimum": 0.0,
-    "maximum": 1.0,
-    "hint": "词法、向量或重排后的最终分数低于该值时不会注入样例。"
+  "memory": {
+    "description": "长期记忆",
+    "type": "object",
+    "hint": "OpenViking workspace 由插件内置管理。Provider 全部可选；未选择时仍保留不依赖本地模型的保守能力。",
+    "items": {
+      "memory_enabled": {
+        "description": "启用内置长期记忆",
+        "type": "bool",
+        "default": true,
+        "hint": "使用内置 OpenViking workspace 保存聊天记忆，humanize.db 仅保存任务、回复样例和审计；不启动独立服务、不安装本地模型。"
+      },
+      "memory_auto_extract_enabled": {
+        "description": "自动提取聊天记忆",
+        "type": "bool",
+        "default": true,
+        "condition": {"memory_enabled": true},
+        "hint": "仅在最终消息成功发送后创建后台任务。未选择提取 Provider 时只执行保守规则，不会偷偷调用聊天模型。"
+      },
+      "memory_extraction_provider_id": {
+        "description": "记忆提取 Provider",
+        "type": "string",
+        "default": "",
+        "_special": "select_provider",
+        "condition": {"memory_enabled": true, "memory_auto_extract_enabled": true},
+        "hint": "可选。选择 AstrBot 中已有的 Chat Provider；留空时只保留规则提取，不会下载或加载本地模型。"
+      },
+      "memory_embedding_provider_id": {
+        "description": "记忆向量 Provider",
+        "type": "string",
+        "default": "",
+        "_special": "select_provider:embedding",
+        "condition": {"memory_enabled": true},
+        "hint": "可选。选择已有的 Embedding Provider 后，为 OpenViking 召回和回复样例启用向量检索；不会安装本地模型。"
+      },
+      "memory_rerank_provider_id": {
+        "description": "记忆重排 Provider",
+        "type": "string",
+        "default": "",
+        "_special": "select_provider:rerank",
+        "condition": {"memory_enabled": true},
+        "collapsed": true,
+        "hint": "可选且默认关闭。选择已有的 Rerank Provider 后会参与召回排序；失败时保留原排序。"
+      },
+      "memory_identity_secret_env": {
+        "description": "记忆身份 HMAC 环境变量",
+        "type": "string",
+        "default": "HUMANIZE_MEMORY_SECRET",
+        "condition": {"memory_enabled": true},
+        "collapsed": true,
+        "hint": "可选。未设置时插件会在数据目录生成独立密钥文件；备份 OpenViking workspace 时必须一并备份该密钥。"
+      },
+      "memory_recall_timeout_seconds": {
+        "description": "聊天召回截止时间",
+        "type": "float",
+        "default": 1.5,
+        "minimum": 0.2,
+        "maximum": 10.0,
+        "slider": {"min": 0.2, "max": 10.0, "step": 0.1},
+        "condition": {"memory_enabled": true},
+        "collapsed": true,
+        "hint": "只限制显式配置的 Embedding 或 Rerank Provider；超时立即降级为 OpenViking 层级和关键词召回。"
+      },
+      "memory_auto_activate_confidence": {
+        "description": "记忆自动生效置信度",
+        "type": "float",
+        "default": 0.88,
+        "minimum": 0.5,
+        "maximum": 1.0,
+        "slider": {"min": 0.5, "max": 1.0, "step": 0.01},
+        "condition": {"memory_enabled": true},
+        "collapsed": true,
+        "hint": "达到该阈值且具有当前用户原文证据的记忆可直接生效，其余保留为候选。"
+      },
+      "memory_candidate_min_confidence": {
+        "description": "记忆候选最低置信度",
+        "type": "float",
+        "default": 0.55,
+        "minimum": 0.0,
+        "maximum": 1.0,
+        "slider": {"min": 0.0, "max": 1.0, "step": 0.01},
+        "condition": {"memory_enabled": true},
+        "collapsed": true
+      },
+      "memory_recall_limit": {
+        "description": "单次记忆召回条数",
+        "type": "int",
+        "default": 5,
+        "minimum": 1,
+        "maximum": 20,
+        "slider": {"min": 1, "max": 20, "step": 1},
+        "condition": {"memory_enabled": true},
+        "collapsed": true
+      },
+      "memory_recall_score_threshold": {
+        "description": "记忆召回分数阈值",
+        "type": "float",
+        "default": 0.2,
+        "minimum": 0.0,
+        "maximum": 1.0,
+        "slider": {"min": 0.0, "max": 1.0, "step": 0.01},
+        "condition": {"memory_enabled": true},
+        "collapsed": true
+      },
+      "memory_recall_max_chars": {
+        "description": "单次记忆注入字符预算",
+        "type": "int",
+        "default": 2500,
+        "minimum": 256,
+        "maximum": 20000,
+        "condition": {"memory_enabled": true},
+        "collapsed": true,
+        "hint": "记忆只作为临时用户上下文注入，并保持回复协议位于最后。"
+      },
+      "memory_extract_batch_turns": {
+        "description": "记忆提取批次回合数",
+        "type": "int",
+        "default": 4,
+        "minimum": 1,
+        "maximum": 20,
+        "slider": {"min": 1, "max": 20, "step": 1},
+        "condition": {"memory_enabled": true, "memory_auto_extract_enabled": true},
+        "collapsed": true,
+        "hint": "用于后台任务合并与费用控制，不影响最终回复发送。"
+      },
+      "memory_extract_idle_seconds": {
+        "description": "空闲提取等待秒数",
+        "type": "int",
+        "default": 180,
+        "minimum": 15,
+        "maximum": 3600,
+        "slider": {"min": 15, "max": 3600, "step": 15},
+        "condition": {"memory_enabled": true, "memory_auto_extract_enabled": true},
+        "collapsed": true
+      },
+      "memory_job_max_attempts": {
+        "description": "记忆任务最大尝试次数",
+        "type": "int",
+        "default": 5,
+        "minimum": 1,
+        "maximum": 20,
+        "slider": {"min": 1, "max": 20, "step": 1},
+        "condition": {"memory_enabled": true, "memory_auto_extract_enabled": true},
+        "collapsed": true
+      },
+      "reply_examples": {
+        "description": "典型短对话样例",
+        "type": "object",
+        "condition": {"memory_enabled": true},
+        "hint": "从已审核样例中召回表达风格参考，不会直接复用旧回复。",
+        "items": {
+          "reply_examples_enabled": {
+            "description": "启用典型短对话样例",
+            "type": "bool",
+            "default": true,
+            "hint": "只召回经过审核且启用的样例作为临时表达参考。"
+          },
+          "reply_examples_limit": {
+            "description": "单次最多注入样例数",
+            "type": "int",
+            "default": 3,
+            "minimum": 0,
+            "maximum": 10,
+            "slider": {"min": 0, "max": 10, "step": 1},
+            "condition": {"reply_examples_enabled": true},
+            "collapsed": true
+          },
+          "reply_examples_max_chars": {
+            "description": "回复样例注入字符预算",
+            "type": "int",
+            "default": 2000,
+            "minimum": 128,
+            "maximum": 20000,
+            "condition": {"reply_examples_enabled": true},
+            "collapsed": true
+          },
+          "reply_examples_min_quality": {
+            "description": "回复样例最低质量分",
+            "type": "float",
+            "default": 0.7,
+            "minimum": 0.0,
+            "maximum": 1.0,
+            "slider": {"min": 0.0, "max": 1.0, "step": 0.01},
+            "condition": {"reply_examples_enabled": true},
+            "collapsed": true
+          },
+          "reply_examples_recall_score_threshold": {
+            "description": "回复样例召回分数阈值",
+            "type": "float",
+            "default": 0.2,
+            "minimum": 0.0,
+            "maximum": 1.0,
+            "slider": {"min": 0.0, "max": 1.0, "step": 0.01},
+            "condition": {"reply_examples_enabled": true},
+            "collapsed": true,
+            "hint": "词法、向量或重排后的最终分数低于该值时不会注入样例。"
+          }
+        }
+      }
+    }
   }
 }
