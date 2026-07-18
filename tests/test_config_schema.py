@@ -134,3 +134,20 @@ def test_provider_ids_preserve_astrbot_path_segments() -> None:
     assert config.memory_extraction_provider_id == provider_id
     assert config.memory_embedding_provider_id == provider_id
     assert config.memory_rerank_provider_id == provider_id
+
+
+def test_provider_ids_reject_control_characters_and_allow_absent_values() -> None:
+    """Keep invalid provider identifiers from reaching runtime provider lookup."""
+    config = PluginConfig.from_mapping(
+        {
+            "memory": {
+                "memory_extraction_provider_id": "provider\ninvalid",
+                "memory_embedding_provider_id": "\x00embedding",
+                "memory_rerank_provider_id": None,
+            }
+        }
+    )
+
+    assert config.memory_extraction_provider_id == ""
+    assert config.memory_embedding_provider_id == ""
+    assert config.memory_rerank_provider_id == ""
