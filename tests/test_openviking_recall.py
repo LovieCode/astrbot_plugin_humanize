@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import json
+import re
 from pathlib import Path
 from types import SimpleNamespace
 
@@ -165,7 +166,10 @@ async def test_recall_filters_scope_agent_subject_status_and_expiry(
     assert result.item_count == 1
     assert result.candidate_count == 1
     assert result.source_refs[0].startswith("viking://agent/default/memories/")
+    assert 'type="preference"' in result.content
     assert "&lt;无糖乌龙茶&gt;&amp;清香型" in result.content
+    assert "viking://" not in result.content
+    assert re.search(r"[0-9a-f]{64}", result.content) is None
     assert "不应召回" not in result.content
 
 
@@ -307,6 +311,8 @@ async def test_recall_falls_back_to_exact_session_when_no_memory_exists(
     )
     assert 'type="session"' in result.content
     assert "User: 我喜欢无糖乌龙茶" in result.content
+    assert "viking://" not in result.content
+    assert re.search(r"[0-9a-f]{64}", result.content) is None
 
 
 @pytest.mark.asyncio

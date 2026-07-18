@@ -556,7 +556,6 @@ class OpenVikingRecallAdapter:
                 root,
                 "Memory",
                 {
-                    "id": str(row["uri"]),
                     "type": str(row["memory_type"]),
                 },
             )
@@ -573,7 +572,7 @@ class OpenVikingRecallAdapter:
             node = ET.SubElement(
                 root,
                 "Memory",
-                {"id": str(row["uri"]), "type": "truncated"},
+                {"type": "truncated"},
             )
             ET.SubElement(node, "Text").text = f"{truncated}…"
             used.append(row)
