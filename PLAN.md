@@ -169,6 +169,8 @@
 - T10：管理 API 端到端、公开错误限界、静态资源/DOM、字号一致性、已裁剪入口、multi-sense 兼容。
 - [!] 真实服务发现 10 条历史记忆任务处于 `dead`，均为 `OpenViking Session write failed`。根因是服务进程仍执行修复前的 `adapter.py`；历史任务负载已按隐私设计清空，不能重放。
 - [x] 已受控重启远端服务：先确认旧 Python 进程与 `6185` 端口退出，再启动新实例；首页恢复 HTTP `200`，最新 Humanize 初始化记录为 `memory state=ready`、`reason=local_identity_secret`，无 OpenViking 初始化错误。
+- [x] 新实例语义健康检查：含空格的 AstrBot Agent ID 已归一化为安全 `agent-<hash>`，真实 workspace `format_version=1` 且可访问。
+- [~] 重启后无正文队列监控 120 秒：基线仍为 `completed:10, dead:10`，未观测到新的真实会话，因此尚无新任务可用于验证实时写入/召回。
 - [x] Headless Edge 验证远端 Dashboard 登录页：桌面 `1440×900`、真实移动 viewport `412×915` 均正常渲染且无水平溢出。
 - [~] 服务首页 HTTP `200`，未鉴权管理 API 均返回 `401`；因此尚未以真实登录态完成 T01/T07-T10 的浏览器交互、窄屏和失败态验收。
 
