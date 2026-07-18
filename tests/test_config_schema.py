@@ -115,3 +115,22 @@ def test_grouped_schema_defaults_are_flattened_for_runtime_config(
     assert config.protocol_injection_mode == "user"
     assert config.memory_enabled is True
     assert config.memory_embedding_provider_id == ""
+
+
+def test_provider_ids_preserve_astrbot_path_segments() -> None:
+    """Keep provider IDs emitted by AstrBot's provider picker intact."""
+    provider_id = "siliconflow/deepseek-ai/DeepSeek-V4-Flash"
+
+    config = PluginConfig.from_mapping(
+        {
+            "memory": {
+                "memory_extraction_provider_id": provider_id,
+                "memory_embedding_provider_id": provider_id,
+                "memory_rerank_provider_id": provider_id,
+            }
+        }
+    )
+
+    assert config.memory_extraction_provider_id == provider_id
+    assert config.memory_embedding_provider_id == provider_id
+    assert config.memory_rerank_provider_id == provider_id

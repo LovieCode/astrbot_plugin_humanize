@@ -50,6 +50,19 @@ def _as_identifier(value: Any, default: str) -> str:
     return default
 
 
+def _as_provider_id(value: Any) -> str:
+    candidate = str(value or "").strip()
+    if (
+        candidate
+        and len(candidate) <= 200
+        and not any(
+            character.isspace() or ord(character) < 32 for character in candidate
+        )
+    ):
+        return candidate
+    return ""
+
+
 @dataclass(frozen=True, slots=True)
 class PluginConfig:
     enabled: bool = True
@@ -149,14 +162,14 @@ class PluginConfig:
             memory_auto_extract_enabled=_as_bool(
                 data.get("memory_auto_extract_enabled"), True
             ),
-            memory_extraction_provider_id=_as_identifier(
-                data.get("memory_extraction_provider_id"), ""
+            memory_extraction_provider_id=_as_provider_id(
+                data.get("memory_extraction_provider_id")
             ),
-            memory_embedding_provider_id=_as_identifier(
-                data.get("memory_embedding_provider_id"), ""
+            memory_embedding_provider_id=_as_provider_id(
+                data.get("memory_embedding_provider_id")
             ),
-            memory_rerank_provider_id=_as_identifier(
-                data.get("memory_rerank_provider_id"), ""
+            memory_rerank_provider_id=_as_provider_id(
+                data.get("memory_rerank_provider_id")
             ),
             memory_identity_secret_env=_as_identifier(
                 data.get("memory_identity_secret_env"), "HUMANIZE_MEMORY_SECRET"
