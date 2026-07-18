@@ -107,10 +107,11 @@
 
 ### 发布前
 
-1. 在本地插件目录确认待发布差异只包含本计划范围，不携带 `.git`、`.deploy.local.md`、pytest 缓存、临时文件、密钥或历史备份。
-2. 执行 `uv run pytest -q`、`uv run ruff check .`、`uv run ruff format --check .`、所有 WebUI JavaScript `node --check` 和 `git diff --check`；任一失败都停止部署。
-3. 在本地 AstrBot 的 `tmp` 目录生成带时间戳的 `tar.gz`，排除 `.git`、`.deploy.local.md`、`.pytest_cache`、`.ruff_cache`、`.pytest-tmp-*`、`__pycache__` 和 `*.pyc`。
-4. 执行 `sha256sum <发布包>` 并用 `tar -tzf <发布包>` 检查清单。发布包必须包含 OpenViking license、来源和版本说明。
+1. 显式进入本地插件仓库 `D:\Code\Python\_root\AstrBot\data\plugins\astrbot_plugin_humanize`，用 `pwd` 和 `git rev-parse --show-toplevel` 确认当前位置；不要依赖终端初始目录，Git Bash 的 login shell 可能回到 AstrBot 根目录。
+2. 在该目录确认待发布差异只包含本计划范围，不携带 `.git`、`.deploy.local.md`、pytest 缓存、临时文件、密钥或历史备份。
+3. 执行 `uv run pytest -q`、`uv run ruff check .`、`uv run ruff format --check .`、所有 WebUI JavaScript `node --check` 和 `git diff --check`；任一失败都停止部署。
+4. 在本地 AstrBot 的 `tmp` 目录生成带时间戳的 `tar.gz`，排除 `.git`、`.deploy.local.md`、`.pytest_cache`、`.ruff_cache`、`.pytest-tmp-*`、`__pycache__` 和 `*.pyc`。
+5. 执行 `sha256sum <发布包>` 并用 `tar -tzf <发布包>` 检查清单。发布包必须包含 OpenViking license、来源和版本说明。
 
 ### 远端部署
 
