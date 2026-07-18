@@ -153,9 +153,10 @@
 
 ### 远端执行记录（2026-07-18）
 
-- [x] 远端完整回归：`232 passed, 1 warning`；`ruff check .`、全部 `pages/humanize/*.js` 的 `node --check` 通过。
+- [x] 远端完整回归：`233 passed, 1 warning`；`ruff check .`、`ruff format --check .` 和全部 `pages/humanize/*.js` 的 `node --check` 通过。
 - [x] 远端格式门禁：同步 `humanize/openviking/management.py` 后，`ruff format --check .` 通过（69 个文件）。
 - [x] 远端定向矩阵：51 个基础/极限场景通过，覆盖 T01-T10；不读取聊天正文，测试全部使用临时数据库或无正文状态查询。
+- [x] 远端 Provider 边界补测：`tests/test_config_schema.py` 5 项通过，确认带 `/` 的 ID 保留，控制字符和缺失值不进入 Provider lookup。
 - T01：typed selector、带 `/` 的 Provider ID、记忆禁用身份稳定、身份初始化失败 fail-open。
 - T02：Reply 解析、嵌套控制标签拒绝、长/格式化文本、发送间隔、并发工具阶段保留。
 - T03：token 预算、记忆源异常 fail-open、并行召回、重复追踪冲突。
@@ -167,6 +168,7 @@
 - T09：模板专用审计、非法变量、批量保存/重置、旧 schema 清理、快照凭据脱敏。
 - T10：管理 API 端到端、公开错误限界、静态资源/DOM、字号一致性、已裁剪入口、multi-sense 兼容。
 - [!] 真实服务发现 10 条历史记忆任务处于 `dead`，均为 `OpenViking Session write failed`。追踪显示运行进程仍执行修复前的 `adapter.py`；磁盘代码已是修复版，必须重载 Humanize 后才能完成 T05/T06 真实会话复测。
+- [x] Headless Edge 验证远端 Dashboard 登录页：桌面 `1440×900`、真实移动 viewport `412×915` 均正常渲染且无水平溢出。
 - [~] 服务首页 HTTP `200`，未鉴权管理 API 均返回 `401`；因此尚未以真实登录态完成 T01/T07-T10 的浏览器交互、窄屏和失败态验收。
 
 ### 当前待办
