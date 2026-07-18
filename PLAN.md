@@ -103,6 +103,7 @@
 - 远端 Python：`/home/lovie/AstrBot/.venv/bin/python`。
 - 远端插件：`/home/lovie/AstrBot/data/plugins/astrbot_plugin_humanize`。
 - 远端配置：`/home/lovie/AstrBot/data/cmd_config.json`，普通 SSH 用户可能无读取权限。
+- 部署前先检查远端 `data`、插件、配置和 `plugin_data` 的属主；若普通 SSH 用户无写权限，只能在 `/home/lovie` 暂存验收，必须取得有效 sudo 授权后才能替换正式目录或重启，不得猜测 sudo 密码。
 - 本地发布包：`D:\Code\Python\_root\AstrBot\tmp\astrbot_plugin_humanize-<timestamp>.tar.gz`。
 - 远端发布包：`/home/lovie/astrbot_plugin_humanize-<timestamp>.tar.gz`。
 - 远端暂存目录：`/home/lovie/astrbot_plugin_humanize.deploying-<timestamp>`。
@@ -179,6 +180,7 @@
 - [!] 该真实会话未产生可接受的长期记忆候选：workspace 当前 `memory_files=0`、`memory_diffs=0`，后续请求的 `memory_context` 为 `no_match`。这不是触发或写入失败；需要用已选择的提取 Provider 或命中保守规则的事实型消息，继续完成语义记忆与召回验收。
 - [x] 修复 Session 连续对话召回空洞并部署：没有命中长期记忆时，只读取当前同一 Agent/作用域/主体/会话的 L0/L1 commit；语义长期记忆仍优先，L2 原文不直接注入。新增 5 个基础/隔离/损坏/优先级极限测试，本地 `238 passed, 1 warning`，远端定向 `11 passed`、Ruff 与 JavaScript 检查通过。
 - [x] 部署后服务已受控重启：新 Python 进程于 `18:47` 启动，Humanize `memory state=ready`，首页 HTTP `200`。远端完整插件回归为 `238 passed, 1 warning`，Ruff `69 files already formatted`；父仓库 `git diff --check` 的失败仅来自未触及 Dashboard 文件的既有 CRLF/trailing-whitespace 差异，未修改该范围。
+- [x] 后续修复在远端用户暂存包完成回归：`239 passed, 1 warning`，Ruff format/check 通过（94 files），13 个 `pages/humanize/*.js` 的 `node --check` 通过；该包未替换正式插件目录。
 - [x] Headless Edge 验证远端 Dashboard 登录页：桌面 `1440×900`、真实移动 viewport `412×915` 均正常渲染且无水平溢出。
 - [~] 服务首页 HTTP `200`，未鉴权管理 API 均返回 `401`；因此尚未以真实登录态完成 T01/T07-T10 的浏览器交互、窄屏和失败态验收。
 
@@ -186,6 +188,6 @@
 
 - [x] 在远端运行完整 Python、静态 JavaScript 和格式/检查工具。
 - [x] 为 T01-T10 各记录至少三组基础/极限场景的命令、结果和缺陷。
-- [~] 在新运行实例完成一次真实对话的 Session fallback 复测，并完成语义记忆与召回复测：Session append/commit/L0/L1/L2 与受控 fallback 已通过；仍需产生一个可接受候选并确认 memory diff、长期记忆和 recall。历史 `dead` 任务负载已按隐私设计清空，不能重放。
+- [~] 在新运行实例完成一次真实对话的 Session fallback 复测，并完成语义记忆与召回复测：同会话 fallback 已补强为不受语义阈值拦截，远端暂存包回归通过；正式目录仍需有效 sudo 授权部署，且当前实例在 `18:47` 重启后未记录新的 Humanize 上下文任务。仍需产生一个可接受候选并确认 memory diff、长期记忆和 recall。历史 `dead` 任务负载已按隐私设计清空，不能重放。
 - [ ] 在真实浏览器验证全部 WebUI 视图、空态、失败态和窄屏布局。
 - [ ] 在已登录 Dashboard 下验证 settings、memory、jobs、recall debug、reply examples 和 prompt templates 的真实 API/交互；完成后更新 T01、T05-T10 状态。
