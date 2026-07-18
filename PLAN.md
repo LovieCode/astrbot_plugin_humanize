@@ -157,6 +157,7 @@
 - [x] 远端格式门禁：同步 `humanize/openviking/management.py` 后，`ruff format --check .` 通过（69 个文件）。
 - [x] 远端定向矩阵：51 个基础/极限场景通过，覆盖 T01-T10；不读取聊天正文，测试全部使用临时数据库或无正文状态查询。
 - [x] 远端 Provider 边界补测：`tests/test_config_schema.py` 5 项通过，确认带 `/` 的 ID 保留，控制字符和缺失值不进入 Provider lookup。
+- [x] 修复后远端 OpenViking 专项回归：adapter、workspace、files、merge、management、provider、recall、runtime 与 vendor 共 `44 passed`；覆盖真实规则提取后的 Session 写入、Memory 写入、分层召回、作用域/Agent/过期过滤及 Provider 降级。
 - T01：typed selector、带 `/` 的 Provider ID、记忆禁用身份稳定、身份初始化失败 fail-open。
 - T02：Reply 解析、嵌套控制标签拒绝、长/格式化文本、发送间隔、并发工具阶段保留。
 - T03：token 预算、记忆源异常 fail-open、并行召回、重复追踪冲突。
