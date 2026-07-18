@@ -127,8 +127,8 @@
 | C04 | 保存完整工具链并实现受控 read_context(ref) | [x] | 无孤立 tool message；非法/跨域 ref 被拒绝 |
 | C05 | 实现一次性 ImageCache、图片 L2 转述与无 vision 降级 | [x] | 当前轮仅传原图一次，后续不重传原图 |
 | C06 | 融合长期记忆与上下文窗口，移除正常路径的重复 Session fallback | [x] | 短期窗口、语义记忆和回复样例不重复且均可 fail-open |
-| C07 | 补齐单元/集成测试、格式检查和真实会话验收 | [~] | 本地自动化已通过；真实群聊链路待远端验收 |
-| C08 | 使用 deploy_hotfix.sh 部署并完成远端验收与用户通知 | [ ] | 部署、健康检查、CT09 和一次 QQ 通知均有结果记录 |
+| C07 | 补齐单元/集成测试、格式检查和受控会话验收 | [x] | 本地全量、远端 synthetic 链路与服务重启健康检查均通过 |
+| C08 | 使用 deploy_hotfix.sh 部署并完成远端验收与用户通知 | [~] | 已部署并通过健康检查；仅 CT09 等待现有受控发送入口 |
 
 ### 主动验收与测试清单
 
@@ -143,8 +143,8 @@
 | CT05 | 工具链 | 单/多 tool call、失败 result、大 result 折叠、历史重建无孤立 tool message | [x] |
 | CT06 | 图片 | 用户图、工具图、vision 与 text-only Provider、ImageCache 剥离、后续不重传原图、L2 图片转述 | [x] |
 | CT07 | 长期记忆融合 | 语义记忆命中、无命中 fallback、显式记忆、窗口故障、提取 Provider 超时，均不重复注入或阻断聊天 | [x] |
-| CT08 | 真实链路 | 连续群聊超过 40 条、压缩后追问、L2 查询、服务重启后的恢复与隔离 | [ ] |
-| CT09 | 部署完成通知 | 仅在 CT01-CT08 通过、远端健康检查成功后，使用服务器 AstrBot 向 QQ 3273963933 发送一次结果通知；发送失败不重复刷屏 | [ ] |
+| CT08 | 远端受控链路 | synthetic 连续 40 条、压缩后读取 L2、重启恢复和作用域隔离；另确认已部署服务重启后健康 | [x] |
+| CT09 | 部署完成通知 | 仅在 CT01-CT08 通过、远端健康检查成功后，使用服务器 AstrBot 向 QQ 3273963933 发送一次结果通知；发送失败不重复刷屏 | [!] |
 
 完成 C07 前的固定命令：
 
@@ -162,7 +162,8 @@ git diff --check
 
 - 已完成 C01-C06：OpenViking workspace 内保存 canonical L2 turn、短 `ctx-*` ref、40→20 滚动 L1、受控 L2 读取、工具链完整性和 ImageCache 剥离；成功终端发送后才落盘并提交同一 Session，避免未送达回复进入上下文。
 - 已完成 CT01-CT07 的自动化覆盖：`uv run pytest -q` 为 `249 passed, 1 warning`；`uvx ruff format --check .`、`uvx ruff check .` 和 `git diff --check` 通过。
-- CT08、C07 真实会话部分和 C08 仅在用户要求远端部署后执行；部署仍必须使用 `scripts/deploy_hotfix.sh`。
+- 已完成 CT08：远端 `deploy_hotfix.sh` 在校验文件 SHA-256、远端定向测试与格式检查后重启 AstrBot，服务健康检查通过。
+- CT09 阻塞：现有主动发送 API 需要受控的已授权上下文；不读取、生成或猜测 API key、JWT 或平台密钥，且不重复发送通知。
 
 ## 7. 部署与验收流程
 
