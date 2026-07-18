@@ -394,9 +394,7 @@ class OpenVikingRecallAdapter:
                     f"{scope['scope_hash']}/{conversation_hash}"
                 )
                 try:
-                    meta = json.loads(
-                        transaction.read_bytes(meta_path).decode("utf-8")
-                    )
+                    meta = json.loads(transaction.read_bytes(meta_path).decode("utf-8"))
                 except (OSError, UnicodeDecodeError, json.JSONDecodeError):
                     continue
                 if not isinstance(meta, dict) or any(
@@ -431,8 +429,7 @@ class OpenVikingRecallAdapter:
                         or str(record.get("session_uri") or "") != session_uri
                         or str(record.get("l2_uri") or "")
                         != f"{session_uri}/messages.jsonl"
-                        or str(record.get("action") or "")
-                        not in {"Reply", "No Reply"}
+                        or str(record.get("action") or "") not in {"Reply", "No Reply"}
                     ):
                         continue
                     l0 = str(record.get("l0") or "").strip()[:160]

@@ -390,9 +390,7 @@ async def test_session_fallback_ignores_corrupt_commits_and_never_overrides_memo
     )
 
     assert memory_result.included is True
-    assert memory_result.source_refs[0].startswith(
-        "viking://agent/default/memories/"
-    )
+    assert memory_result.source_refs[0].startswith("viking://agent/default/memories/")
 
 
 @pytest.mark.asyncio
