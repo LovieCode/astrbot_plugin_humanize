@@ -22,6 +22,7 @@ from .workspace import OpenVikingWorkspace
 
 _DIGEST_PATTERN = re.compile(r"^[0-9a-f]{64}$")
 _SCOPE_TYPES = frozenset({"global", "private_user", "group", "group_member"})
+_CONTEXT_REF_PATTERN = re.compile(r"^ctx-[A-Z2-7]{8}$")
 
 
 def normalize_openviking_agent_id(value: object) -> str:
@@ -129,6 +130,9 @@ class OpenVikingMemoryAdapter:
             raise ValueError("Reply turn requires an assistant message")
         if action == "No Reply" and assistant_messages:
             raise ValueError("No Reply turn cannot contain assistant messages")
+        context_ref = str(payload.get("context_ref") or "").strip()
+        if context_ref and not _CONTEXT_REF_PATTERN.fullmatch(context_ref):
+            raise ValueError("invalid OpenViking context reference")
 
         occurred_at = str(payload.get("occurred_at") or "").strip()
         try:
@@ -150,32 +154,63 @@ class OpenVikingMemoryAdapter:
         meta_path = session_directory / ".meta.json"
         commits_directory = session_directory / "commits"
         commit_path = commits_directory / f"{commit_id}.json"
+        canonical_l2_path = session_directory / "context_l2" / f"{context_ref}.json"
 
-        messages = [
-            Message(
-                id=f"{commit_id}-user",
-                role="user",
-                parts=[TextPart(text=user_text)],
-                peer_id=subject_hash or None,
-                created_at=occurred_at,
+        messages = []
+        if not context_ref:
+            messages = [
+                Message(
+                    id=f"{commit_id}-user",
+                    role="user",
+                    parts=[TextPart(text=user_text)],
+                    peer_id=subject_hash or None,
+                    created_at=occurred_at,
+                )
+            ]
+            messages.extend(
+                Message(
+                    id=f"{commit_id}-assistant-{index}",
+                    role="assistant",
+                    parts=[TextPart(text=text)],
+                    created_at=occurred_at,
+                )
+                for index, text in enumerate(assistant_messages, start=1)
             )
-        ]
-        messages.extend(
-            Message(
-                id=f"{commit_id}-assistant-{index}",
-                role="assistant",
-                parts=[TextPart(text=text)],
-                created_at=occurred_at,
-            )
-            for index, text in enumerate(assistant_messages, start=1)
-        )
         desired_message_ids = tuple(message.id for message in messages)
 
         with self._workspace.transaction() as transaction:
             duplicate = transaction.is_file(commit_path)
             existing_messages: list[dict[str, Any]] = []
             existing_ids: set[str] = set()
-            if transaction.is_file(messages_path):
+            canonical_message_count = 0
+            l0 = " ".join(user_text.split())[:160]
+            l1 = ""
+            l2_uri = f"{session_uri}/messages.jsonl"
+            if context_ref:
+                if not transaction.is_file(canonical_l2_path):
+                    raise ValueError(
+                        "OpenViking canonical context record is unavailable"
+                    )
+                try:
+                    canonical = json.loads(
+                        transaction.read_bytes(canonical_l2_path).decode("utf-8")
+                    )
+                except json.JSONDecodeError as exc:
+                    raise RuntimeError(
+                        "OpenViking canonical context record is corrupt"
+                    ) from exc
+                if (
+                    not isinstance(canonical, dict)
+                    or str(canonical.get("turn_ref") or "") != commit_id
+                    or str(canonical.get("context_ref") or "") != context_ref
+                    or str(canonical.get("action") or "") != action
+                    or not isinstance(canonical.get("messages"), list)
+                ):
+                    raise RuntimeError("OpenViking canonical context record is invalid")
+                canonical_message_count = len(canonical["messages"])
+                l0 = str(canonical.get("l0") or l0).strip()[:160]
+                l2_uri = f"{session_uri}/context_l2/{context_ref}.json"
+            elif transaction.is_file(messages_path):
                 raw_messages = transaction.read_bytes(messages_path).decode("utf-8")
                 for line in raw_messages.splitlines():
                     if not line.strip():
@@ -193,32 +228,33 @@ class OpenVikingMemoryAdapter:
                     existing_messages.append(record)
                     existing_ids.add(record["id"])
 
-            for message in messages:
-                if message.id not in existing_ids:
-                    existing_messages.append(message.to_dict())
-                    existing_ids.add(message.id)
-            serialized_messages = "".join(
-                f"{json.dumps(record, ensure_ascii=False, sort_keys=True)}\n"
-                for record in existing_messages
-            )
-            transaction.atomic_write(messages_path, serialized_messages)
-
-            l0 = " ".join(user_text.split())[:160]
-            l1_parts = [f"User: {user_text}"]
-            l1_parts.extend(f"Assistant: {text}" for text in assistant_messages)
-            l1 = "\n".join(l1_parts)[:1_000]
+            if not context_ref:
+                for message in messages:
+                    if message.id not in existing_ids:
+                        existing_messages.append(message.to_dict())
+                        existing_ids.add(message.id)
+                serialized_messages = "".join(
+                    f"{json.dumps(record, ensure_ascii=False, sort_keys=True)}\n"
+                    for record in existing_messages
+                )
+                transaction.atomic_write(messages_path, serialized_messages)
+                l1_parts = [f"User: {user_text}"]
+                l1_parts.extend(f"Assistant: {text}" for text in assistant_messages)
+                l1 = "\n".join(l1_parts)[:1_000]
             commit_payload = {
                 "action": action,
                 "commit_id": commit_id,
                 "created_at": occurred_at,
                 "l0": l0,
                 "l1": l1,
-                "l2_uri": f"{session_uri}/messages.jsonl",
+                "l2_uri": l2_uri,
                 "message_ids": list(desired_message_ids),
                 "session_uri": session_uri,
                 "source_complete": bool(payload.get("source_complete", True)),
                 "summary_source": "deterministic_fallback",
             }
+            if context_ref:
+                commit_payload["context_ref"] = context_ref
             if duplicate:
                 try:
                     existing_commit = json.loads(
@@ -238,6 +274,7 @@ class OpenVikingMemoryAdapter:
                 transaction.list_files(commits_directory, suffix=".json")
             )
             created_at = occurred_at
+            message_count = len(existing_messages)
             if transaction.is_file(meta_path):
                 try:
                     old_meta = json.loads(
@@ -250,13 +287,17 @@ class OpenVikingMemoryAdapter:
                 if not isinstance(old_meta, dict):
                     raise RuntimeError("OpenViking session metadata is invalid")
                 created_at = str(old_meta.get("created_at") or occurred_at)
+                if context_ref:
+                    message_count = max(0, int(old_meta.get("message_count") or 0))
+            if context_ref and not duplicate:
+                message_count += canonical_message_count
             meta_payload = {
                 "agent_id": agent_id,
                 "commit_count": commit_count,
                 "conversation_hash": conversation_hash,
                 "created_at": created_at,
                 "last_commit_id": commit_id,
-                "message_count": len(existing_messages),
+                "message_count": message_count,
                 "scope_hash": scope_hash,
                 "scope_type": scope_type,
                 "session_uri": session_uri,
@@ -273,7 +314,7 @@ class OpenVikingMemoryAdapter:
             session_uri=session_uri,
             message_ids=desired_message_ids,
             duplicate=duplicate,
-            message_count=len(existing_messages),
+            message_count=message_count,
             commit_count=commit_count,
         )
 

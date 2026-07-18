@@ -1,3 +1,11 @@
-from .composer import ContextComposer
+"""Context composition and bounded chat-window services."""
 
-__all__ = ["ContextComposer"]
+from .composer import ContextComposer
+from .window import ContextWindowAppend, ContextWindowLoad, ContextWindowService
+
+__all__ = [
+    "ContextComposer",
+    "ContextWindowAppend",
+    "ContextWindowLoad",
+    "ContextWindowService",
+]

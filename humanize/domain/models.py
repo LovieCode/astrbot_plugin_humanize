@@ -36,6 +36,16 @@ class UnknownTerm:
 
 
 @dataclass(frozen=True, slots=True)
+class ImageCache:
+    """Describe one bounded same-turn image transcription cache."""
+
+    index: int
+    description: str
+    ocr: str = ""
+    objects: tuple[str, ...] = ()
+
+
+@dataclass(frozen=True, slots=True)
 class KnownSense:
     """Represent one scoped meaning that may be injected for a known term."""
 
@@ -68,6 +78,7 @@ class ProtocolDecision:
     action: Action
     messages: tuple[str, ...]
     unknown_terms: tuple[UnknownTerm, ...]
+    image_cache: tuple[ImageCache, ...] = ()
 
 
 @dataclass(frozen=True, slots=True)
@@ -141,5 +152,6 @@ class FinalOutcome:
     action: Action | None = None
     messages: tuple[str, ...] = ()
     unknown_terms: tuple[UnknownTerm, ...] = ()
+    image_cache: tuple[ImageCache, ...] = ()
     error_code: str = ""
     error_detail: str = ""

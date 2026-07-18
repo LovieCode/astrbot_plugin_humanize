@@ -4,6 +4,7 @@ from dataclasses import dataclass
 
 from .config import PluginConfig
 from .context.composer import ContextComposer
+from .context.window import ContextWindowService
 from .jargon.matcher import JargonMatcher
 from .memory import ChatMemoryService
 from .openviking import (
@@ -27,6 +28,7 @@ class Container:
     repository: SQLiteRepository
     envelope: EnvelopeBuilder
     memory: ChatMemoryService
+    context_window: ContextWindowService
     service: HumanizeService
     provider_catalog: ProviderCatalog
     web_api: WebApi
@@ -63,6 +65,7 @@ class Container:
             openviking_recall_adapter=openviking_recall,
             openviking_management_adapter=openviking_management,
         )
+        context_window = ContextWindowService(openviking_workspace, memory)
         envelope = EnvelopeBuilder(config)
         matcher = JargonMatcher()
         composer = ContextComposer(
@@ -87,6 +90,7 @@ class Container:
             repository=repository,
             envelope=envelope,
             memory=memory,
+            context_window=context_window,
             service=service,
             provider_catalog=provider_catalog,
             web_api=WebApi(

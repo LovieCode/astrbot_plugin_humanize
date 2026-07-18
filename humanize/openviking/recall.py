@@ -25,6 +25,7 @@ from .workspace import OpenVikingWorkspace
 logger = logging.getLogger("astrbot")
 
 _DIGEST_PATTERN = re.compile(r"^[0-9a-f]{64}$")
+_CONTEXT_REF_PATTERN = re.compile(r"^ctx-[A-Z2-7]{8}$")
 _SCOPE_TYPES = {"global", "private_user", "group", "group_member"}
 _SESSION_FALLBACK_SCORE = 0.2
 
@@ -71,6 +72,7 @@ class OpenVikingRecallAdapter:
         max_chars: int,
         memory_type: str = "",
         conversation_hash: str = "",
+        include_session_fallback: bool = True,
     ) -> OpenVikingRecallResult:
         """Recall active memories after final identity and expiry filtering.
 
@@ -81,6 +83,9 @@ class OpenVikingRecallAdapter:
             conversation_hash: Current HMAC-derived conversation identifier. When no
                 durable memory matches, recent commits from this exact conversation
                 may provide a bounded continuity fallback.
+            include_session_fallback: Whether same-session L0/L1 continuity records
+                may be considered. The Humanize context window disables this on its
+                normal path to prevent duplicate short-term history injection.
             limit: Maximum number of rendered memories.
             threshold: Minimum final relevance score.
             max_chars: Maximum rendered XML characters.
@@ -107,7 +112,7 @@ class OpenVikingRecallAdapter:
                     for row in rows
                     if str(row.get("memory_type") or "") == clean_memory_type
                 ]
-            else:
+            elif include_session_fallback:
                 rows.extend(
                     await asyncio.to_thread(
                         self._read_session_candidates,
@@ -436,11 +441,17 @@ class OpenVikingRecallAdapter:
                         not isinstance(record, dict)
                         or str(record.get("commit_id") or "") != commit_id
                         or str(record.get("session_uri") or "") != session_uri
-                        or str(record.get("l2_uri") or "")
-                        != f"{session_uri}/messages.jsonl"
                         or str(record.get("action") or "") not in {"Reply", "No Reply"}
                     ):
                         continue
+                    l2_uri = str(record.get("l2_uri") or "")
+                    context_ref = str(record.get("context_ref") or "")
+                    if l2_uri != f"{session_uri}/messages.jsonl":
+                        if (
+                            not _CONTEXT_REF_PATTERN.fullmatch(context_ref)
+                            or l2_uri != f"{session_uri}/context_l2/{context_ref}.json"
+                        ):
+                            continue
                     l0 = str(record.get("l0") or "").strip()[:160]
                     l1 = str(record.get("l1") or "").strip()[:1_000]
                     content = l1 or l0

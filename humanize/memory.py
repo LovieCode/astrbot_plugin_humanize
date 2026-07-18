@@ -35,6 +35,7 @@ _IDENTITY_VERSION = "humanize-memory-v1"
 _ALLOWED_MEMORY_TYPES = {"profile", "preference", "entity", "event"}
 _ALLOWED_SCOPE_TYPES = {"global", "private_user", "group", "group_member"}
 _TOKEN_PATTERN = re.compile(r"^[A-Za-z0-9_-]+\.[A-Za-z0-9_-]+$")
+_CONTEXT_REF_PATTERN = re.compile(r"^ctx-[A-Z2-7]{8}$")
 
 
 @dataclass(frozen=True, slots=True)
@@ -275,11 +276,19 @@ class ChatMemoryService:
             conversation_hash=conversation_hash,
         )
 
-    async def recall_memories(self, context: MessageContext) -> RecallResult:
+    async def recall_memories(
+        self,
+        context: MessageContext,
+        *,
+        include_session_fallback: bool = True,
+    ) -> RecallResult:
         """Recall scoped active memories for the current user message.
 
         Args:
             context: Current message metadata and unwrapped user text.
+            include_session_fallback: Whether same-session L0/L1 continuity may be
+                used when no semantic memory matches. The managed context window
+                disables it on its healthy path to prevent duplicate history.
 
         Returns:
             A safe temporary-user fragment. Failures produce an omitted result.
@@ -304,6 +313,7 @@ class ChatMemoryService:
                 limit=self._config.memory_recall_limit,
                 threshold=self._config.memory_recall_score_threshold,
                 max_chars=self._config.memory_recall_max_chars,
+                include_session_fallback=include_session_fallback,
             )
             self._last_recall_at = self._now()
             self._last_recall_duration_ms = result.duration_ms
@@ -450,6 +460,8 @@ class ChatMemoryService:
         action: str,
         messages: tuple[str, ...],
         provider_id: str = "",
+        context_ref: str = "",
+        require_auto_extract: bool = True,
     ) -> dict[str, Any] | None:
         """Build an anonymized durable extraction payload after final dispatch.
 
@@ -458,6 +470,11 @@ class ChatMemoryService:
             action: Final ``Reply`` or ``No Reply`` action.
             messages: Text that was actually delivered to the platform.
             provider_id: Chat Provider ID captured before the background handoff.
+            context_ref: Optional opaque L2 reference created by the managed
+                context window for this exact canonical turn.
+            require_auto_extract: Whether the configured automatic extraction gate
+                must be enabled. Session commits pass ``False`` because they are
+                required independently of semantic-memory extraction.
 
         Returns:
             A job payload without raw account, group, or conversation identifiers.
@@ -467,21 +484,16 @@ class ChatMemoryService:
         """
         if (
             not self._config.memory_enabled
-            or not self._config.memory_auto_extract_enabled
+            or (require_auto_extract and not self._config.memory_auto_extract_enabled)
             or self._state != "ready"
         ):
             return None
         identity = self.identity_for(context)
-        source_message_id = str(context.message_id or "").strip()
-        if not source_message_id:
-            raise ValueError("memory extraction requires a platform message id")
+        turn_ref = self.turn_ref_for(context)
         agent_id = str(context.agent_id or "default").strip() or "default"
-        return {
+        payload = {
             "job_type": "extract_turn",
-            "idempotency_key": self._digest(
-                "job:extract_turn",
-                f"{agent_id}\x00{identity.primary_scope_hash}\x00{source_message_id}",
-            ),
+            "idempotency_key": turn_ref,
             "request_id": context.request_id,
             "agent_id": agent_id,
             "scope_type": identity.primary_scope_type,
@@ -495,6 +507,79 @@ class ChatMemoryService:
             "occurred_at": context.occurred_at or self._now(),
             "source_complete": bool(context.source_complete),
         }
+        clean_context_ref = str(context_ref or "").strip()
+        if clean_context_ref:
+            if not _CONTEXT_REF_PATTERN.fullmatch(clean_context_ref):
+                raise ValueError("invalid context reference")
+            payload["context_ref"] = clean_context_ref
+        return payload
+
+    async def commit_context_turn(
+        self,
+        context: MessageContext,
+        *,
+        action: str,
+        messages: tuple[str, ...],
+        context_ref: str,
+    ) -> bool:
+        """Commit an already-persisted canonical turn to its OpenViking Session.
+
+        Args:
+            context: Trusted message metadata for the completed turn.
+            action: Validated terminal action.
+            messages: User-visible final messages for the turn.
+            context_ref: Existing opaque L2 reference for the canonical body.
+
+        Returns:
+            ``True`` when the embedded Session commit succeeded or was idempotent.
+            ``False`` when OpenViking is unavailable so chat can continue.
+        """
+        if not self._config.memory_enabled or not self._openviking_ready:
+            return False
+        if self._openviking is None:
+            return False
+        payload = await self.build_turn_job(
+            context,
+            action=action,
+            messages=messages,
+            context_ref=context_ref,
+            require_auto_extract=False,
+        )
+        if payload is None:
+            return False
+        try:
+            await asyncio.to_thread(self._openviking.commit_turn, payload)
+        except Exception as exc:
+            self._openviking_last_error = type(exc).__name__
+            logger.warning(
+                "[Humanize] canonical OpenViking Session commit degraded: %s",
+                type(exc).__name__,
+            )
+            return False
+        self._openviking_last_error = ""
+        return True
+
+    def turn_ref_for(self, context: MessageContext) -> str:
+        """Return the stable anonymized idempotency key for one source turn.
+
+        Args:
+            context: Trusted current-message metadata.
+
+        Returns:
+            A full internal HMAC digest. It is never injected into a prompt.
+
+        Raises:
+            ValueError: If the platform message identifier is unavailable.
+        """
+        identity = self.identity_for(context)
+        source_message_id = str(context.message_id or "").strip()
+        if not source_message_id:
+            raise ValueError("memory extraction requires a platform message id")
+        agent_id = str(context.agent_id or "default").strip() or "default"
+        return self._digest(
+            "job:extract_turn",
+            f"{agent_id}\x00{identity.primary_scope_hash}\x00{source_message_id}",
+        )
 
     async def get_status(self, *, probe: bool = False) -> dict[str, Any]:
         """Return local runtime state without making paid Provider calls.

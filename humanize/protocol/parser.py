@@ -7,7 +7,7 @@ from typing import Any
 
 from ..config import PluginConfig
 from ..domain.errors import ProtocolValidationError
-from ..domain.models import Action, ProtocolDecision, UnknownTerm
+from ..domain.models import Action, ImageCache, ProtocolDecision, UnknownTerm
 
 _RESPONSE_PATTERN = re.compile(
     r"\A"
@@ -25,7 +25,8 @@ _LEGACY_ACTION_PATTERN = re.compile(r"action\s*:\s*(?P<value>.*)", re.IGNORECASE
 _REPLY_BLOCK_PATTERN = re.compile(r"\A<Reply>(?P<inner>[\s\S]*)</Reply>\Z")
 _MESSAGE_PATTERN = re.compile(r"<Message>(?P<body>[\s\S]*?)</Message>")
 _PROTOCOL_BODY_MARKER_PATTERN = re.compile(
-    r"<\s*/?\s*(?:Action|UnknownTerms|Reply|Message)\b", re.IGNORECASE
+    r"<\s*/?\s*(?:Action|UnknownTerms|ImageCache|Reply|Message)\b",
+    re.IGNORECASE,
 )
 _STRUCTURED_REPLY_LINE_PATTERN = re.compile(
     r"^\s*(?:"
@@ -86,7 +87,7 @@ class ProtocolParser:
                 "invalid_unknown_terms_json", str(exc)
             ) from exc
         unknown_terms = self._parse_unknown_terms(unknown_terms_payload)
-        reply_text = match.group("body") or ""
+        image_cache, reply_text = self._extract_image_cache(match.group("body") or "")
         messages = self._parse_reply_body(reply_text)
 
         if action is Action.REPLY and not messages:
@@ -108,7 +109,85 @@ class ProtocolParser:
             action=action,
             messages=messages if action is Action.REPLY else (),
             unknown_terms=unknown_terms,
+            image_cache=image_cache,
         )
+
+    def _extract_image_cache(
+        self, reply_body: str
+    ) -> tuple[tuple[ImageCache, ...], str]:
+        """Remove the optional same-turn image cache line from the visible body.
+
+        Args:
+            reply_body: Text following the required Action and UnknownTerms lines.
+
+        Returns:
+            Parsed bounded image cache and the remaining visible reply body. Invalid
+            cache data is discarded instead of blocking a valid user-visible reply.
+        """
+        if not reply_body.startswith("<ImageCache>"):
+            return (), reply_body
+        line_match = re.fullmatch(
+            r"(?P<line>[^\r\n]*)(?:\r\n|\r|\n|$)(?P<remaining>[\s\S]*)",
+            reply_body,
+        )
+        if line_match is None:
+            return (), ""
+        first_line = line_match.group("line")
+        remaining = line_match.group("remaining")
+        if not first_line.endswith("</ImageCache>"):
+            return (), remaining
+        payload = first_line[len("<ImageCache>") : -len("</ImageCache>")].strip()
+        try:
+            raw_items = json.loads(payload)
+        except json.JSONDecodeError:
+            return (), remaining
+        if not isinstance(raw_items, list) or len(raw_items) > 16:
+            return (), remaining
+        result: list[ImageCache] = []
+        seen: set[int] = set()
+        for item in raw_items:
+            if not isinstance(item, dict) or set(item) - {
+                "index",
+                "description",
+                "ocr",
+                "objects",
+            }:
+                return (), remaining
+            try:
+                index = int(item.get("index"))
+            except (TypeError, ValueError):
+                return (), remaining
+            description = item.get("description", "")
+            ocr = item.get("ocr", "")
+            objects = item.get("objects", [])
+            if (
+                index <= 0
+                or index > 16
+                or index in seen
+                or not isinstance(description, str)
+                or not isinstance(ocr, str)
+                or not isinstance(objects, list)
+                or len(objects) > 16
+                or not all(isinstance(value, str) for value in objects)
+            ):
+                return (), remaining
+            clean_description = description.strip()[:600]
+            clean_ocr = ocr.strip()[:600]
+            clean_objects = tuple(
+                value.strip()[:80] for value in objects if value.strip()
+            )
+            if not (clean_description or clean_ocr or clean_objects):
+                return (), remaining
+            seen.add(index)
+            result.append(
+                ImageCache(
+                    index=index,
+                    description=clean_description,
+                    ocr=clean_ocr,
+                    objects=clean_objects,
+                )
+            )
+        return tuple(result), remaining
 
     def _parse_reply_body(self, reply_body: str) -> tuple[str, ...]:
         """Parse one plain body or a Reply block with Message children.

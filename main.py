@@ -52,6 +52,14 @@ _RAW_OUTPUT_KEY = "_humanize_raw_output"
 _VALIDATED_OUTPUT_KEY = "_humanize_validated_output"
 _ASSISTANT_MESSAGE_KEY = "_humanize_assistant_message"
 _HISTORY_SYNC_KEY = "_humanize_history_sync_required"
+_CONTEXT_WINDOW_ACTIVE_KEY = "_humanize_context_window_active"
+_CONTEXT_WINDOW_TOKEN_BUDGET_KEY = "_humanize_context_window_token_budget"
+_CONTEXT_WINDOW_IMAGE_COUNT_KEY = "_humanize_context_window_image_count"
+_CONTEXT_TURN_REF_KEY = "_humanize_context_turn_ref"
+_CONTEXT_WINDOW_PENDING_MESSAGES_KEY = "_humanize_context_window_pending_messages"
+_CONTEXT_WINDOW_PENDING_ACTION_KEY = "_humanize_context_window_pending_action"
+_CONTEXT_READ_CALLS_KEY = "_humanize_context_read_calls"
+_IMAGE_CACHE_KEY = "_humanize_image_cache"
 _TOOL_HISTORY_KEY = "_humanize_tool_history_replacements"
 _SEND_GATE_KEY = "_humanize_send_gate_installed"
 _SEND_GATE_ERROR_KEY = "_humanize_send_gate_error"
@@ -85,7 +93,7 @@ _DECORATION_FINALIZER_PRIORITY = -1_000_001
 _FINALIZER_PRIORITY = -100_000
 _NO_REPLY_SENTINEL = " "
 _CONTROL_TAG_PATTERN = re.compile(
-    r"(?:<|&lt;)\s*/?\s*(?:Action|UnknownTerms|Reply|Message)"
+    r"(?:<|&lt;)\s*/?\s*(?:Action|UnknownTerms|ImageCache|Reply|Message)"
     r"(?=\s|/?>|&gt;)",
     re.IGNORECASE,
 )
@@ -131,6 +139,10 @@ class HumanizePlugin(Star):
                 setattr(self._container.memory, "_config", memory_config)
                 setattr(self._container.memory, "_state", "disabled")
                 setattr(self._container.memory, "_reason", "disabled")
+        try:
+            self._container.context_window.initialize()
+        except Exception:
+            logger.exception("[Humanize] context window initialization failed")
         self._prompt_cache_tracker = PromptCacheTracker(self._container.repository)
         stored_templates = await self._container.repository.get_prompt_templates()
         self._container.envelope.set_templates(stored_templates["templates"])
@@ -199,10 +211,13 @@ class HumanizePlugin(Star):
                 message_context,
                 conversation_id=conversation_id,
             )
+        provider_settings: dict[str, Any] = {}
         try:
-            provider_settings = self.context.get_config(
+            candidate_settings = self.context.get_config(
                 umo=event.unified_msg_origin
             ).get("provider_settings", {})
+            if isinstance(candidate_settings, dict):
+                provider_settings = candidate_settings
             (
                 persona_id,
                 _,
@@ -226,8 +241,32 @@ class HumanizePlugin(Star):
             message_context = replace(message_context, agent_id=agent_id)
         except Exception:
             logger.exception("[Humanize] failed to resolve the effective persona")
+
+        context_window_active = False
+        context_window_token_budget = self._context_window_token_budget(
+            provider_settings
+        )
         try:
-            prepared = await self._container.service.prepare_request(message_context)
+            context_window = await self._container.context_window.load(
+                message_context,
+                token_budget=context_window_token_budget,
+            )
+            req.contexts = list(context_window.contexts)
+            req.conversation = None
+            context_window_active = True
+        except Exception:
+            logger.exception(
+                "[Humanize] context window load degraded to native history"
+            )
+        try:
+            prepared = await (
+                self._container.service.prepare_request(
+                    message_context,
+                    include_session_fallback=False,
+                )
+                if context_window_active
+                else self._container.service.prepare_request(message_context)
+            )
         except Exception as exc:
             logger.error(
                 "[Humanize] request preparation failed: %s", exc, exc_info=True
@@ -434,7 +473,21 @@ class HumanizePlugin(Star):
         event.set_extra(_RAW_OUTPUT_KEY, "")
         event.set_extra(_VALIDATED_OUTPUT_KEY, "")
         event.set_extra(_ASSISTANT_MESSAGE_KEY, None)
-        event.set_extra(_HISTORY_SYNC_KEY, req.conversation is not None)
+        event.set_extra(
+            _HISTORY_SYNC_KEY,
+            not context_window_active and req.conversation is not None,
+        )
+        event.set_extra(_CONTEXT_WINDOW_ACTIVE_KEY, context_window_active)
+        event.set_extra(
+            _CONTEXT_WINDOW_TOKEN_BUDGET_KEY,
+            context_window_token_budget,
+        )
+        event.set_extra(_CONTEXT_WINDOW_IMAGE_COUNT_KEY, len(req.image_urls or []))
+        event.set_extra(_CONTEXT_TURN_REF_KEY, "")
+        event.set_extra(_CONTEXT_WINDOW_PENDING_MESSAGES_KEY, ())
+        event.set_extra(_CONTEXT_WINDOW_PENDING_ACTION_KEY, "")
+        event.set_extra(_CONTEXT_READ_CALLS_KEY, 0)
+        event.set_extra(_IMAGE_CACHE_KEY, ())
         event.set_extra(_TOOL_HISTORY_KEY, {})
         event.set_extra(_REPAIR_PENDING_KEY, False)
         event.set_extra(_REPAIR_BODY_KEY, "")
@@ -476,6 +529,41 @@ class HumanizePlugin(Star):
     ) -> None:
         if event.get_extra(_STATE_KEY) == EventState.TOOL_RUNNING.value:
             event.set_extra(_STATE_KEY, EventState.REQUESTED.value)
+
+    @filter.llm_tool(name="humanize_read_context")
+    async def humanize_read_context(self, event: AstrMessageEvent, ref: str) -> str:
+        """Read one folded Humanize context record when the current chat needs details.
+
+        Args:
+            ref(string): Short context reference from the current conversation, such
+                as ctx-7F3K9M2Q.
+
+        Returns:
+            Bounded untrusted historical data, or a safe unavailable notice.
+        """
+        if (
+            not self._is_active
+            or self._container is None
+            or not event.get_extra(_CONTEXT_WINDOW_ACTIVE_KEY, False)
+        ):
+            return "Humanize context history is unavailable for this request."
+        context = event.get_extra(_CONTEXT_KEY)
+        if not isinstance(context, MessageContext):
+            return "Humanize context history is unavailable for this request."
+        calls = int(event.get_extra(_CONTEXT_READ_CALLS_KEY, 0) or 0)
+        if calls >= 3:
+            return "Context detail limit reached for this request."
+        event.set_extra(_CONTEXT_READ_CALLS_KEY, calls + 1)
+        try:
+            content = await self._container.context_window.read_context(context, ref)
+        except ValueError:
+            return "The context reference is invalid or outside this conversation."
+        except Exception:
+            logger.exception("[Humanize] context detail read failed")
+            return "Context detail is temporarily unavailable."
+        if not content:
+            return "The context reference is unavailable in this conversation."
+        return content
 
     @filter.on_llm_response(priority=_FIREWALL_PRIORITY)
     async def enforce_response_protocol(
@@ -568,6 +656,7 @@ class HumanizePlugin(Star):
 
         if outcome.action is Action.NO_REPLY:
             event.set_extra(_VALIDATED_OUTPUT_KEY, raw_output)
+            event.set_extra(_IMAGE_CACHE_KEY, outcome.image_cache)
             event.set_extra(_FINAL_LOG_PENDING_KEY, True)
             event.set_extra(_STATE_KEY, EventState.NO_REPLY.value)
             event.set_extra(_MESSAGES_KEY, ())
@@ -576,6 +665,7 @@ class HumanizePlugin(Star):
 
         history_text = "\n".join(outcome.messages)
         event.set_extra(_VALIDATED_OUTPUT_KEY, raw_output)
+        event.set_extra(_IMAGE_CACHE_KEY, outcome.image_cache)
         event.set_extra(_FINAL_LOG_PENDING_KEY, True)
         self._set_response_text(response, history_text)
         event.set_extra(_MESSAGES_KEY, outcome.messages)
@@ -614,6 +704,38 @@ class HumanizePlugin(Star):
             EventState.FINAL_BLOCKED.value,
             EventState.NO_REPLY.value,
         }:
+            return
+
+        if event.get_extra(_CONTEXT_WINDOW_ACTIVE_KEY, False):
+            if state in {EventState.FINAL_VALID.value, EventState.NO_REPLY.value}:
+                messages = getattr(run_context, "messages", ())
+                if isinstance(messages, list):
+                    user_index = max(
+                        (
+                            index
+                            for index, message in enumerate(messages)
+                            if getattr(message, "role", None) == "user"
+                        ),
+                        default=-1,
+                    )
+                    if user_index >= 0:
+                        self._sanitize_tool_assistant_messages(
+                            run_context,
+                            user_index=user_index,
+                            replacements=event.get_extra(_TOOL_HISTORY_KEY, {}),
+                        )
+                event.set_extra(
+                    _CONTEXT_WINDOW_PENDING_MESSAGES_KEY,
+                    tuple(messages) if isinstance(messages, list) else (),
+                )
+                event.set_extra(
+                    _CONTEXT_WINDOW_PENDING_ACTION_KEY,
+                    (
+                        Action.NO_REPLY.value
+                        if state == EventState.NO_REPLY.value
+                        else Action.REPLY.value
+                    ),
+                )
             return
 
         if not event.get_extra(_HISTORY_SYNC_KEY, False):
@@ -687,6 +809,55 @@ class HumanizePlugin(Star):
         ):
             return
         self._set_assistant_message_text(assistant, response.completion_text)
+
+    async def _persist_context_window(self, event: AstrMessageEvent) -> None:
+        """Persist the validated run only after terminal dispatch succeeded.
+
+        Args:
+            event: Active event carrying the scoped request metadata.
+        """
+        if self._container is None:
+            return
+        if event.get_extra(_CONTEXT_TURN_REF_KEY, ""):
+            return
+        context = event.get_extra(_CONTEXT_KEY)
+        if not isinstance(context, MessageContext):
+            return
+        action = str(event.get_extra(_CONTEXT_WINDOW_PENDING_ACTION_KEY, ""))
+        messages = event.get_extra(_CONTEXT_WINDOW_PENDING_MESSAGES_KEY, ())
+        if action not in {Action.REPLY.value, Action.NO_REPLY.value}:
+            return
+        if not isinstance(messages, tuple):
+            messages = ()
+        try:
+            result = await self._container.context_window.append(
+                context,
+                action=action,
+                run_messages=messages,
+                final_messages=tuple(event.get_extra(_MESSAGES_KEY, ())),
+                image_cache=tuple(event.get_extra(_IMAGE_CACHE_KEY, ())),
+                image_count=int(
+                    event.get_extra(_CONTEXT_WINDOW_IMAGE_COUNT_KEY, 0) or 0
+                ),
+                token_budget=int(
+                    event.get_extra(_CONTEXT_WINDOW_TOKEN_BUDGET_KEY, 6_000) or 6_000
+                ),
+            )
+            event.set_extra(_CONTEXT_TURN_REF_KEY, result.context_ref)
+            committer = getattr(
+                getattr(self._container, "memory", None),
+                "commit_context_turn",
+                None,
+            )
+            if callable(committer):
+                await committer(
+                    context,
+                    action=action,
+                    messages=tuple(event.get_extra(_MESSAGES_KEY, ())),
+                    context_ref=result.context_ref,
+                )
+        except Exception:
+            logger.exception("[Humanize] context window persistence failed")
 
     @filter.on_decorating_result(priority=_DISPATCH_PRIORITY)
     async def dispatch_response(self, event: AstrMessageEvent) -> None:
@@ -1047,6 +1218,7 @@ class HumanizePlugin(Star):
             return
         event.set_extra(_ERROR_KEY, "")
         event.set_extra(_VALIDATED_OUTPUT_KEY, repaired_raw)
+        event.set_extra(_IMAGE_CACHE_KEY, outcome.image_cache)
         event.set_extra(_FINAL_LOG_PENDING_KEY, True)
         if outcome.action is Action.NO_REPLY:
             event.set_extra(_STATE_KEY, EventState.NO_REPLY.value)
@@ -1213,6 +1385,8 @@ class HumanizePlugin(Star):
             return True
         if self._container is None:
             return False
+        if event.get_extra(_CONTEXT_WINDOW_ACTIVE_KEY, False):
+            await self._persist_context_window(event)
         context = event.get_extra(_CONTEXT_KEY)
         recorder = getattr(self._container.service, "record_protocol_success", None)
         if not isinstance(context, MessageContext) or not callable(recorder):
@@ -1228,18 +1402,22 @@ class HumanizePlugin(Star):
             self._response_snapshot_for_record(event)
         )
         try:
-            persisted = await recorder(
-                context,
-                action=action,
-                raw_output=str(event.get_extra(_VALIDATED_OUTPUT_KEY, "")),
-                messages=tuple(event.get_extra(_DISPATCHED_MESSAGES_KEY, ())),
-                response_snapshot=response_snapshot,
-                response_snapshot_complete=response_snapshot_complete,
-                model=str(event.get_extra(_MODEL_KEY, "")),
-                provider_id=str(event.get_extra(_PROVIDER_ID_KEY, "")),
-                duration_ms=duration_ms,
-                stage="final",
-            )
+            record_kwargs: dict[str, Any] = {
+                "action": action,
+                "raw_output": str(event.get_extra(_VALIDATED_OUTPUT_KEY, "")),
+                "messages": tuple(event.get_extra(_DISPATCHED_MESSAGES_KEY, ())),
+                "response_snapshot": response_snapshot,
+                "response_snapshot_complete": response_snapshot_complete,
+                "model": str(event.get_extra(_MODEL_KEY, "")),
+                "provider_id": str(event.get_extra(_PROVIDER_ID_KEY, "")),
+                "duration_ms": duration_ms,
+                "stage": "final",
+            }
+            if event.get_extra(_CONTEXT_WINDOW_ACTIVE_KEY, False):
+                record_kwargs["context_ref"] = str(
+                    event.get_extra(_CONTEXT_TURN_REF_KEY, "")
+                )
+            persisted = await recorder(context, **record_kwargs)
         except Exception:
             logger.exception("[Humanize] failed to persist final protocol success")
             return False
@@ -1319,6 +1497,24 @@ class HumanizePlugin(Star):
             and self._plugin_config.enabled
             and self._plugin_config.protocol_enabled
         )
+
+    @staticmethod
+    def _context_window_token_budget(provider_settings: dict[str, Any]) -> int:
+        """Reserve a bounded portion of the active Provider context for history.
+
+        Args:
+            provider_settings: Current AstrBot provider settings for this event.
+
+        Returns:
+            Approximate token budget used by the managed context window.
+        """
+        try:
+            configured = int(provider_settings.get("max_context_length", 0) or 0)
+        except (AttributeError, TypeError, ValueError):
+            configured = 0
+        if configured <= 0:
+            return 6_000
+        return max(512, min(8_000, configured // 4))
 
     def _build_message_context(
         self,

@@ -66,15 +66,21 @@ class EnvelopeBuilder:
         parts: list[str] = []
         if self._config.default_rule_enabled:
             parts.append(self._build_rule(context))
-        parts.append(
-            self._templates.render(
-                "protocol",
-                {
-                    "version": self._config.protocol_version,
-                    "max_chars": self._config.max_message_chars,
-                },
-            )
+        protocol = self._templates.render(
+            "protocol",
+            {
+                "version": self._config.protocol_version,
+                "max_chars": self._config.max_message_chars,
+            },
         )
+        parts.append(protocol)
+        if "<imagecache>" not in protocol.casefold():
+            parts.append(
+                "当当前消息含有你实际看见的图片时，可在 UnknownTerms 后、正文前"
+                "增加一行 `<ImageCache>[...]</ImageCache>`：数组对象只能使用 "
+                "index、description、ocr、objects 四个字段，内容只做简短转述；"
+                "这是内部缓存，不是给用户的正文。没有图片时不要输出该行。"
+            )
         return "\n\n".join(parts)
 
     def build_protocol_repair_request(

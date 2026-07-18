@@ -45,11 +45,18 @@ class ContextComposer:
         self._token_counter = token_counter or EstimateTokenCounter()
         self._memory = memory
 
-    async def compose(self, context: MessageContext) -> PreparedRequest:
+    async def compose(
+        self,
+        context: MessageContext,
+        *,
+        include_session_fallback: bool = True,
+    ) -> PreparedRequest:
         """Compose the current message, response protocol, and known terms.
 
         Args:
             context: Trusted metadata and the current untrusted user message.
+            include_session_fallback: Whether OpenViking may inject its bounded
+                Session continuity fallback when semantic memory is absent.
 
         Returns:
             A backward-compatible prepared request with an ordered section trace.
@@ -103,8 +110,16 @@ class ContextComposer:
         memory_recall = RecallResult(False, "", (), 0, "not_initialized", 0)
         example_recall = RecallResult(False, "", (), 0, "not_initialized", 0)
         if self._memory is not None:
+            memory_recall_call = (
+                self._memory.recall_memories(context)
+                if include_session_fallback
+                else self._memory.recall_memories(
+                    context,
+                    include_session_fallback=False,
+                )
+            )
             memory_result, example_result = await asyncio.gather(
-                self._memory.recall_memories(context),
+                memory_recall_call,
                 self._memory.recall_examples(context, agent_id=context.agent_id),
                 return_exceptions=True,
             )

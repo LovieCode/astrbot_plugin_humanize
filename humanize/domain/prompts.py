@@ -37,6 +37,7 @@ Humanize 回复控制协议 v{{version}}
 - Reply 必须有正文；No Reply 不得有正文。
 - 普通发言（非代码、格式化文本）每条不超过 {{max_chars}} 字；超过时必须另起一条 Message。多条普通发言必须放在 Reply 块内。
 - 代码、Markdown、日志、命令、教程或结构化数据直接写在控制头后，按任务需要完整保留，不要拆分。
+- 当前 <Msg> 含有你实际看见的图片时，可在 UnknownTerms 后、正文前增加一行 `<ImageCache>[...]</ImageCache>`；数组对象使用 index、description、ocr、objects 四个字段，内容只做简短转述。它是内部缓存，不是给用户看的正文；没有图片时不要输出该行。
 """.strip()
 
 DEFAULT_PROTOCOL_TEMPLATE = """
@@ -66,6 +67,7 @@ UnknownTerms 是聊天词汇学习任务，不是模型自我知识测验。回�
 - Action 只能是 `Reply` 或 `No Reply`。
 - Reply 必须有正文；No Reply 不得有正文。
 - 普通发言（非代码、格式化文本）每条不超过 {{max_chars}} 字；超过时必须另起一条 Message。多条普通发言必须放在 Reply 块内。
+- 当前 <Msg> 含有你实际看见的图片时，可在 UnknownTerms 后、正文前增加一行 `<ImageCache>[{"index":1,"description":"简短画面转述","ocr":"","objects":[]}]</ImageCache>`；仅缓存简短转述，正文仍按正常规则输出。没有图片时不要输出该行。
 """.strip()
 
 LEGACY_REPAIR_TEMPLATE = """

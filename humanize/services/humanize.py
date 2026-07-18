@@ -51,8 +51,26 @@ class HumanizeService:
             memory=memory,
         )
 
-    async def prepare_request(self, context: MessageContext) -> PreparedRequest:
-        return await self._composer.compose(context)
+    async def prepare_request(
+        self,
+        context: MessageContext,
+        *,
+        include_session_fallback: bool = True,
+    ) -> PreparedRequest:
+        """Prepare temporary context for one request.
+
+        Args:
+            context: Trusted current-message metadata.
+            include_session_fallback: Whether memory recall may include OpenViking
+                Session continuity when no semantic memory matches.
+
+        Returns:
+            Fully composed provider request sections.
+        """
+        return await self._composer.compose(
+            context,
+            include_session_fallback=include_session_fallback,
+        )
 
     async def record_context_trace(
         self,
@@ -171,6 +189,7 @@ class HumanizeService:
             action=decision.action,
             messages=messages,
             unknown_terms=unknown_terms,
+            image_cache=decision.image_cache,
         )
 
     async def record_protocol_success(
@@ -184,6 +203,7 @@ class HumanizeService:
         response_snapshot_complete: bool = False,
         model: str,
         provider_id: str = "",
+        context_ref: str = "",
         duration_ms: int,
         stage: str = "final",
     ) -> bool:
@@ -198,6 +218,8 @@ class HumanizeService:
             response_snapshot_complete: Whether snapshot serialization was lossless.
             model: Provider model identifier.
             provider_id: Provider instance identifier captured for provenance.
+            context_ref: Optional opaque L2 reference for the canonical managed
+                context turn associated with this final response.
             duration_ms: Non-negative request duration in milliseconds.
             stage: Protocol stage, either final or tool.
 
@@ -216,6 +238,7 @@ class HumanizeService:
             response_snapshot_complete=response_snapshot_complete,
             model=model,
             provider_id=provider_id,
+            context_ref=context_ref,
             duration_ms=duration_ms,
             stage=stage,
         )
@@ -294,17 +317,23 @@ class HumanizeService:
             ``True`` only when either the atomic or protocol-only write succeeds.
         """
         provider_id = str(kwargs.pop("provider_id", ""))
+        context_ref = str(kwargs.pop("context_ref", ""))
         if (
             self._memory is not None
             and bool(kwargs.get("success", False))
             and kwargs.get("stage", "final") == "final"
         ):
             try:
+                turn_job_kwargs: dict[str, Any] = {
+                    "action": str(kwargs.get("action", "")),
+                    "messages": tuple(kwargs.get("messages", ())),
+                    "provider_id": provider_id,
+                }
+                if context_ref:
+                    turn_job_kwargs["context_ref"] = context_ref
                 memory_job = await self._memory.build_turn_job(
                     context,
-                    action=str(kwargs.get("action", "")),
-                    messages=tuple(kwargs.get("messages", ())),
-                    provider_id=provider_id,
+                    **turn_job_kwargs,
                 )
             except Exception:
                 logger.exception("[Humanize] failed to build the memory turn job")

@@ -121,13 +121,13 @@
 
 | 阶段 | 工作项 | 状态 | 完成条件 |
 | --- | --- | --- | --- |
-| C01 | 定义 canonical turn、窗口索引、短 context_ref 映射和 OpenViking workspace 原子读写格式 | [ ] | 同一轮可幂等写入，短 ID 不泄露内部标识 |
-| C02 | 接管 req.contexts，关闭原生 history 回写，并调整现有 history 同步逻辑 | [ ] | 同群连续对话无双重注入，跨群/会话/人格隔离 |
-| C03 | 实现 40→20、最近 10 条完整、token 预算和滚动 L1/L2 压缩 | [ ] | 不拆完整轮次；压缩不阻塞回复且可失败降级 |
-| C04 | 保存完整工具链并实现受控 read_context(ref) | [ ] | 无孤立 tool message；非法/跨域 ref 被拒绝 |
-| C05 | 实现一次性 ImageCache、图片 L2 转述与无 vision 降级 | [ ] | 当前轮仅传原图一次，后续不重传原图 |
-| C06 | 融合长期记忆与上下文窗口，移除正常路径的重复 Session fallback | [ ] | 短期窗口、语义记忆和回复样例不重复且均可 fail-open |
-| C07 | 补齐单元/集成测试、格式检查和真实会话验收 | [ ] | 下列测试全部通过并记录结果 |
+| C01 | 定义 canonical turn、窗口索引、短 context_ref 映射和 OpenViking workspace 原子读写格式 | [x] | 同一轮可幂等写入，短 ID 不泄露内部标识 |
+| C02 | 接管 req.contexts，关闭原生 history 回写，并调整现有 history 同步逻辑 | [x] | 同群连续对话无双重注入，跨群/会话/人格隔离 |
+| C03 | 实现 40→20、最近 10 条完整、token 预算和滚动 L1/L2 压缩 | [x] | 不拆完整轮次；压缩不阻塞回复且可失败降级 |
+| C04 | 保存完整工具链并实现受控 read_context(ref) | [x] | 无孤立 tool message；非法/跨域 ref 被拒绝 |
+| C05 | 实现一次性 ImageCache、图片 L2 转述与无 vision 降级 | [x] | 当前轮仅传原图一次，后续不重传原图 |
+| C06 | 融合长期记忆与上下文窗口，移除正常路径的重复 Session fallback | [x] | 短期窗口、语义记忆和回复样例不重复且均可 fail-open |
+| C07 | 补齐单元/集成测试、格式检查和真实会话验收 | [~] | 本地自动化已通过；真实群聊链路待远端验收 |
 | C08 | 使用 deploy_hotfix.sh 部署并完成远端验收与用户通知 | [ ] | 部署、健康检查、CT09 和一次 QQ 通知均有结果记录 |
 
 ### 主动验收与测试清单
@@ -136,13 +136,13 @@
 
 | 编号 | 测试范围 | 必测场景 | 状态 |
 | --- | --- | --- | --- |
-| CT01 | 窗口计数与幂等 | 39/40/41 条、40→20、重试、重启恢复、完整轮次边界 | [ ] |
-| CT02 | token 与压缩 | 未满 40 的长文本/大工具结果超预算、当前消息保留、压缩 Provider 失败降级、滚动总结不累积 | [ ] |
-| CT03 | AstrBot 接管 | req.contexts 只含插件窗口、原 history 不回写、原有协议/系统提示词/当前附件仍有效 | [ ] |
-| CT04 | 隔离与 ref | 跨群、跨 conversation、跨 Agent、伪造/过长/过期 ref、短 ID 碰撞重试 | [ ] |
-| CT05 | 工具链 | 单/多 tool call、失败 result、大 result 折叠、历史重建无孤立 tool message | [ ] |
-| CT06 | 图片 | 用户图、工具图、vision 与 text-only Provider、ImageCache 剥离、后续不重传原图、L2 图片转述 | [ ] |
-| CT07 | 长期记忆融合 | 语义记忆命中、无命中 fallback、显式记忆、窗口故障、提取 Provider 超时，均不重复注入或阻断聊天 | [ ] |
+| CT01 | 窗口计数与幂等 | 39/40/41 条、40→20、重试、重启恢复、完整轮次边界 | [x] |
+| CT02 | token 与压缩 | 未满 40 的长文本/大工具结果超预算、当前消息保留、压缩 Provider 失败降级、滚动总结不累积 | [x] |
+| CT03 | AstrBot 接管 | req.contexts 只含插件窗口、原 history 不回写、原有协议/系统提示词/当前附件仍有效 | [x] |
+| CT04 | 隔离与 ref | 跨群、跨 conversation、跨 Agent、伪造/过长/过期 ref、短 ID 碰撞重试 | [x] |
+| CT05 | 工具链 | 单/多 tool call、失败 result、大 result 折叠、历史重建无孤立 tool message | [x] |
+| CT06 | 图片 | 用户图、工具图、vision 与 text-only Provider、ImageCache 剥离、后续不重传原图、L2 图片转述 | [x] |
+| CT07 | 长期记忆融合 | 语义记忆命中、无命中 fallback、显式记忆、窗口故障、提取 Provider 超时，均不重复注入或阻断聊天 | [x] |
 | CT08 | 真实链路 | 连续群聊超过 40 条、压缩后追问、L2 查询、服务重启后的恢复与隔离 | [ ] |
 | CT09 | 部署完成通知 | 仅在 CT01-CT08 通过、远端健康检查成功后，使用服务器 AstrBot 向 QQ 3273963933 发送一次结果通知；发送失败不重复刷屏 | [ ] |
 
@@ -157,6 +157,12 @@ git diff --check
 ~~~
 
 若改动协议、配置或 WebUI，再补对应 parser/config/Web API 测试和 node --check pages/humanize/*.js。用户明确要求部署时，先按第 7 节的 deploy_hotfix.sh --dry-run 流程执行；不得用未测试的上下文变更直接覆盖远端。
+
+### 本地实现记录（2026-07-19）
+
+- 已完成 C01-C06：OpenViking workspace 内保存 canonical L2 turn、短 `ctx-*` ref、40→20 滚动 L1、受控 L2 读取、工具链完整性和 ImageCache 剥离；成功终端发送后才落盘并提交同一 Session，避免未送达回复进入上下文。
+- 已完成 CT01-CT07 的自动化覆盖：`uv run pytest -q` 为 `249 passed, 1 warning`；`uvx ruff format --check .`、`uvx ruff check .` 和 `git diff --check` 通过。
+- CT08、C07 真实会话部分和 C08 仅在用户要求远端部署后执行；部署仍必须使用 `scripts/deploy_hotfix.sh`。
 
 ## 7. 部署与验收流程
 
@@ -250,7 +256,7 @@ bash scripts/deploy_hotfix.sh \
 | T08 | 回复样例 | 创建、审核、召回 | 空/超限轮次 | 作用域或状态排除 | 低分和 Provider 降级 | 样例管理和调试 | [~] |
 | T09 | 提示词、存储与审计 | 模板保存/恢复 | 非法变量 | 大文本和并发写 | SQLite schema 升级 | 模板、统计、导出 | [~] |
 | T10 | 管理 API 与 WebUI | 全部视图加载 | 空数据/加载失败 | 长文本和窄屏 | 快速切页与竞态 | 浏览器交互、静态检查 | [~] |
-| T11 | 群聊上下文窗口 | 40→20、最近 10 条、L1/L2 | token 超预算 | 工具/图片折叠 | scope/ref 隔离与重启恢复 | L2 查询与状态追踪 | [ ] |
+| T11 | 群聊上下文窗口 | 40→20、最近 10 条、L1/L2 | token 超预算 | 工具/图片折叠 | scope/ref 隔离与重启恢复 | L2 查询与状态追踪 | [~] |
 
 ### 远端执行记录（2026-07-18）
 
