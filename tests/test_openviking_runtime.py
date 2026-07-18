@@ -20,7 +20,9 @@ class _RepositoryWithoutLegacyMemory:
     """Repository stub intentionally exposing no legacy memory CRUD methods."""
 
 
-def _context(*, agent_id: str = "default") -> MessageContext:
+def _context(
+    *, agent_id: str = "default", user_text: str = "我喜欢无糖乌龙茶"
+) -> MessageContext:
     return MessageContext(
         request_id="request-a",
         scope_type="private",
@@ -28,7 +30,7 @@ def _context(*, agent_id: str = "default") -> MessageContext:
         message_id="message-a",
         sender_id="user-a",
         sender_name="测试用户",
-        user_text="我喜欢无糖乌龙茶",
+        user_text=user_text,
         chat_scene="QQ 私聊",
         admin_name="管理员",
         admin_ids=(),
@@ -130,5 +132,42 @@ def test_runtime_openviking_failure_is_fail_open(
         assert status["state"] == "ready"
         assert status["openviking_state"] == "error"
         assert status["openviking_error"] == "RuntimeError"
+
+    asyncio.run(scenario())
+
+
+def test_runtime_recalls_recent_session_without_semantic_candidate(
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    async def scenario() -> None:
+        config = PluginConfig()
+        monkeypatch.setenv(config.memory_identity_secret_env, "s" * 32)
+        workspace = OpenVikingWorkspace(tmp_path / "plugin-data")
+        memory = OpenVikingMemoryAdapter(workspace)
+        service = ChatMemoryService(
+            config,
+            _RepositoryWithoutLegacyMemory(),  # type: ignore[arg-type]
+            openviking_adapter=memory,
+            openviking_recall_adapter=OpenVikingRecallAdapter(workspace),
+            openviking_management_adapter=OpenVikingManagementAdapter(
+                memory, workspace
+            ),
+        )
+        await service.initialize()
+        first = _context(user_text="今天在整理远端部署进度")
+        job = await service.build_turn_job(
+            first,
+            action="Reply",
+            messages=("我在。",),
+        )
+        assert job is not None
+
+        await service._extract_turn_batch([job])
+        recalled = await service.recall_memories(_context(user_text="继续吧"))
+
+        assert recalled.included is True
+        assert recalled.source_refs[0].startswith("viking://agent/default/sessions/")
+        assert "今天在整理远端部署进度" in recalled.content
 
     asyncio.run(scenario())

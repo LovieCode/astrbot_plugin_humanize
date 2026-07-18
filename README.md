@@ -97,6 +97,8 @@ OpenViking workspace 只保存 HMAC 派生的作用域，不保存原始 QQ、�
 
 聊天记忆由 OpenViking 执行分层与关键词召回，并在返回后再次校验 Agent、作用域、主体、状态和有效期。
 
+当没有命中可用的长期记忆时，插件会仅从**当前同一会话**的 OpenViking commit 读取受限 L0/L1 摘要作为连续对话兜底；仍会校验 Agent、作用域、主体和会话 HMAC，且不会把 L2 原文消息直接注入。已命中的长期记忆始终优先于该兜底，因此未配置提取 Provider 的普通对话也能在同一会话内保持上下文连续。
+
 配置 `memory_embedding_provider_id` 后，OpenViking 可通过 AstrBot Provider Bridge 使用向量召回，回复样例也会启用 SQLite 持久化向量。query embedding 只在当前请求内共享，不会跨请求缓存；不创建额外 FAISS 文件。
 
 向量候选和 Rerank 输入都有固定上限。后台 embedding 补齐只处理当前有效数据，并带有成功节流、失败退避、Provider、模型、维度和 generation 校验，避免空闲轮询产生连续付费调用。

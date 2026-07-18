@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import json
 from pathlib import Path
 
 import pytest
@@ -271,3 +272,164 @@ async def test_recall_rejects_invalid_scope_filter(tmp_path: Path) -> None:
 
     assert result.included is False
     assert result.reason == "source_error"
+
+
+@pytest.mark.asyncio
+async def test_recall_falls_back_to_exact_session_when_no_memory_exists(
+    tmp_path: Path,
+) -> None:
+    adapter, workspace = _adapter(tmp_path)
+    commit = adapter.commit_turn(_payload())
+
+    result = await OpenVikingRecallAdapter(workspace).recall(
+        query="下一步怎么安排",
+        agent_id="default",
+        scope_filters=(
+            {
+                "scope_type": "private_user",
+                "scope_hash": "b" * 64,
+                "subject_hash": "c" * 64,
+            },
+        ),
+        conversation_hash="d" * 64,
+        limit=5,
+        threshold=0.2,
+        max_chars=2_500,
+    )
+
+    assert result.included is True
+    assert result.item_count == 1
+    assert result.candidate_count == 1
+    assert result.source_refs == (
+        "viking://agent/default/sessions/private_user/"
+        f"{'b' * 64}/{'d' * 64}/commits/{commit.commit_id}",
+    )
+    assert 'type="session"' in result.content
+    assert "User: 我喜欢无糖乌龙茶" in result.content
+
+
+@pytest.mark.asyncio
+async def test_session_fallback_rechecks_conversation_and_subject(
+    tmp_path: Path,
+) -> None:
+    adapter, workspace = _adapter(tmp_path)
+    adapter.commit_turn(_payload())
+    recall = OpenVikingRecallAdapter(workspace)
+
+    for conversation_hash, subject_hash in (("e" * 64, "c" * 64), ("d" * 64, "f" * 64)):
+        result = await recall.recall(
+            query="继续聊",
+            agent_id="default",
+            scope_filters=(
+                {
+                    "scope_type": "private_user",
+                    "scope_hash": "b" * 64,
+                    "subject_hash": subject_hash,
+                },
+            ),
+            conversation_hash=conversation_hash,
+            limit=5,
+            threshold=0.2,
+            max_chars=2_500,
+        )
+
+        assert result.included is False
+        assert result.reason == "no_match"
+
+
+@pytest.mark.asyncio
+async def test_session_fallback_ignores_corrupt_commits_and_never_overrides_memory(
+    tmp_path: Path,
+) -> None:
+    adapter, workspace = _adapter(tmp_path)
+    commit = adapter.commit_turn(_payload())
+    commit_path = next((workspace.root / "sessions").rglob(f"{commit.commit_id}.json"))
+    record = json.loads(commit_path.read_text(encoding="utf-8"))
+    record["action"] = "unexpected"
+    commit_path.write_text(json.dumps(record), encoding="utf-8")
+
+    recall = OpenVikingRecallAdapter(workspace)
+    filters = (
+        {
+            "scope_type": "private_user",
+            "scope_hash": "b" * 64,
+            "subject_hash": "c" * 64,
+        },
+    )
+    corrupt_result = await recall.recall(
+        query="继续聊",
+        agent_id="default",
+        scope_filters=filters,
+        conversation_hash="d" * 64,
+        limit=5,
+        threshold=0.2,
+        max_chars=2_500,
+    )
+
+    assert corrupt_result.included is False
+    assert corrupt_result.reason == "no_match"
+
+    clean_commit = adapter.commit_turn(_payload(commit="e", conversation_hash="e"))
+    adapter.upsert_memory(
+        _candidate(
+            memory_key="preference:tea",
+            content="用户喜欢无糖乌龙茶",
+            conversation_hash="e",
+        ),
+        evidence=[],
+        source_commit_ids=(clean_commit.commit_id,),
+    )
+    memory_result = await recall.recall(
+        query="茶偏好",
+        agent_id="default",
+        scope_filters=filters,
+        conversation_hash="e" * 64,
+        limit=5,
+        threshold=0.2,
+        max_chars=2_500,
+    )
+
+    assert memory_result.included is True
+    assert memory_result.source_refs[0].startswith(
+        "viking://agent/default/memories/"
+    )
+
+
+@pytest.mark.asyncio
+async def test_session_fallback_survives_unrelated_durable_memory(
+    tmp_path: Path,
+) -> None:
+    adapter, workspace = _adapter(tmp_path)
+    session_commit = adapter.commit_turn(_payload())
+    other_commit = adapter.commit_turn(_payload(commit="e", conversation_hash="e"))
+    adapter.upsert_memory(
+        _candidate(
+            memory_key="preference:coffee",
+            content="用户喜欢咖啡",
+            conversation_hash="e",
+        ),
+        evidence=[],
+        source_commit_ids=(other_commit.commit_id,),
+    )
+
+    result = await OpenVikingRecallAdapter(workspace).recall(
+        query="继续聊",
+        agent_id="default",
+        scope_filters=(
+            {
+                "scope_type": "private_user",
+                "scope_hash": "b" * 64,
+                "subject_hash": "c" * 64,
+            },
+        ),
+        conversation_hash="d" * 64,
+        limit=5,
+        threshold=0.2,
+        max_chars=2_500,
+    )
+
+    assert result.included is True
+    assert result.source_refs == (
+        "viking://agent/default/sessions/private_user/"
+        f"{'b' * 64}/{'d' * 64}/commits/{session_commit.commit_id}",
+    )

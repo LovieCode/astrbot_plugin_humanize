@@ -4,6 +4,7 @@ from __future__ import annotations
 
 import asyncio
 import hashlib
+import json
 import logging
 import math
 import re
@@ -25,6 +26,7 @@ logger = logging.getLogger("astrbot")
 
 _DIGEST_PATTERN = re.compile(r"^[0-9a-f]{64}$")
 _SCOPE_TYPES = {"global", "private_user", "group", "group_member"}
+_SESSION_FALLBACK_SCORE = 0.2
 
 
 @dataclass(frozen=True, slots=True)
@@ -68,6 +70,7 @@ class OpenVikingRecallAdapter:
         threshold: float,
         max_chars: int,
         memory_type: str = "",
+        conversation_hash: str = "",
     ) -> OpenVikingRecallResult:
         """Recall active memories after final identity and expiry filtering.
 
@@ -75,6 +78,9 @@ class OpenVikingRecallAdapter:
             query: Current unwrapped user text.
             agent_id: Stable AstrBot Agent identifier.
             scope_filters: Allowed HMAC-derived scope descriptors.
+            conversation_hash: Current HMAC-derived conversation identifier. When no
+                durable memory matches, recent commits from this exact conversation
+                may provide a bounded continuity fallback.
             limit: Maximum number of rendered memories.
             threshold: Minimum final relevance score.
             max_chars: Maximum rendered XML characters.
@@ -101,6 +107,15 @@ class OpenVikingRecallAdapter:
                     for row in rows
                     if str(row.get("memory_type") or "") == clean_memory_type
                 ]
+            else:
+                rows.extend(
+                    await asyncio.to_thread(
+                        self._read_session_candidates,
+                        clean_agent,
+                        filters,
+                        str(conversation_hash or "").lower(),
+                    )
+                )
             candidate_count = len(rows)
             if not rows:
                 return self._empty("no_match", started, candidate_count=0)
@@ -111,11 +126,17 @@ class OpenVikingRecallAdapter:
                     self._lexical_score(clean_query, str(row["overview"])) * 0.95,
                     self._lexical_score(clean_query, str(row["content"])) * 0.9,
                 )
-                row["score"] = float(row["lexical_score"])
+                row["score"] = max(
+                    float(row["lexical_score"]),
+                    _SESSION_FALLBACK_SCORE
+                    if row.get("source_kind") == "session"
+                    else 0.0,
+                )
             candidate_limit = max(bounded_limit * 4, 20)
             rows.sort(
                 key=lambda item: (
                     float(item["score"]),
+                    int(item.get("source_kind") != "session"),
                     str(item["updated_at"]),
                     str(item["uri"]),
                 ),
@@ -151,6 +172,7 @@ class OpenVikingRecallAdapter:
             rows.sort(
                 key=lambda item: (
                     float(item["score"]),
+                    int(item.get("source_kind") != "session"),
                     str(item["updated_at"]),
                     str(item["uri"]),
                 ),
@@ -194,6 +216,10 @@ class OpenVikingRecallAdapter:
                 selected.append(row)
                 if len(selected) >= bounded_limit:
                     break
+            if any(row.get("source_kind") != "session" for row in selected):
+                selected = [
+                    row for row in selected if row.get("source_kind") != "session"
+                ]
             content, used = self._render(selected, bounded_chars)
             duration_ms = max(0, int((time.perf_counter() - started) * 1_000))
             return OpenVikingRecallResult(
@@ -327,6 +353,103 @@ class OpenVikingRecallAdapter:
                                 else str(updated_at or "")
                             ),
                             "uri": uri,
+                        }
+                    )
+        return rows
+
+    def _read_session_candidates(
+        self,
+        agent_id: str,
+        scope_filters: tuple[dict[str, str], ...],
+        conversation_hash: str,
+    ) -> list[dict[str, Any]]:
+        """Read bounded L0/L1 continuity records from one exact conversation.
+
+        Args:
+            agent_id: Normalized Agent identifier.
+            scope_filters: Validated exact scope descriptors.
+            conversation_hash: HMAC-derived current conversation identifier.
+
+        Returns:
+            Valid session commit rows, or an empty list when the workspace does not
+            contain a matching conversation.
+        """
+        if not _DIGEST_PATTERN.fullmatch(conversation_hash):
+            return []
+        rows: list[dict[str, Any]] = []
+        with self._workspace.transaction() as transaction:
+            for scope in scope_filters:
+                session_directory = (
+                    Path("sessions")
+                    / agent_id
+                    / scope["scope_type"]
+                    / scope["scope_hash"]
+                    / conversation_hash
+                )
+                meta_path = session_directory / ".meta.json"
+                if not transaction.is_file(meta_path):
+                    continue
+                session_uri = (
+                    f"viking://agent/{agent_id}/sessions/{scope['scope_type']}/"
+                    f"{scope['scope_hash']}/{conversation_hash}"
+                )
+                try:
+                    meta = json.loads(
+                        transaction.read_bytes(meta_path).decode("utf-8")
+                    )
+                except (OSError, UnicodeDecodeError, json.JSONDecodeError):
+                    continue
+                if not isinstance(meta, dict) or any(
+                    str(meta.get(key) or "") != expected
+                    for key, expected in (
+                        ("agent_id", agent_id),
+                        ("scope_type", scope["scope_type"]),
+                        ("scope_hash", scope["scope_hash"]),
+                        ("subject_hash", scope["subject_hash"]),
+                        ("conversation_hash", conversation_hash),
+                        ("session_uri", session_uri),
+                    )
+                ):
+                    continue
+                for path in transaction.list_files(
+                    session_directory / "commits", suffix=".json"
+                )[:100]:
+                    commit_id = path.stem
+                    if not _DIGEST_PATTERN.fullmatch(commit_id):
+                        continue
+                    try:
+                        record = json.loads(
+                            transaction.read_bytes(
+                                path.relative_to(self._workspace.root)
+                            ).decode("utf-8")
+                        )
+                    except (OSError, UnicodeDecodeError, json.JSONDecodeError):
+                        continue
+                    if (
+                        not isinstance(record, dict)
+                        or str(record.get("commit_id") or "") != commit_id
+                        or str(record.get("session_uri") or "") != session_uri
+                        or str(record.get("l2_uri") or "")
+                        != f"{session_uri}/messages.jsonl"
+                        or str(record.get("action") or "")
+                        not in {"Reply", "No Reply"}
+                    ):
+                        continue
+                    l0 = str(record.get("l0") or "").strip()[:160]
+                    l1 = str(record.get("l1") or "").strip()[:1_000]
+                    content = l1 or l0
+                    if not content:
+                        continue
+                    rows.append(
+                        {
+                            "abstract": l0 or content[:160],
+                            "content": content,
+                            "memory_key": "recent_conversation",
+                            "memory_type": "session",
+                            "overview": l1 or content[:600],
+                            "source_kind": "session",
+                            "updated_at": str(record.get("created_at") or ""),
+                            "uri": f"{session_uri}/commits/{commit_id}",
                         }
                     )
         return rows

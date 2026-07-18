@@ -300,6 +300,7 @@ class ChatMemoryService:
                 query=query,
                 agent_id=context.agent_id,
                 scope_filters=identity.scopes,
+                conversation_hash=identity.conversation_hash,
                 limit=self._config.memory_recall_limit,
                 threshold=self._config.memory_recall_score_threshold,
                 max_chars=self._config.memory_recall_max_chars,
