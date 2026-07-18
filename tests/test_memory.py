@@ -793,7 +793,7 @@ def test_zero_score_reply_example_is_not_injected_even_with_zero_threshold() -> 
     asyncio.run(scenario())
 
 
-def test_llm_extraction_uses_provider_timeout_not_recall_budget(monkeypatch) -> None:
+def test_llm_extraction_uses_its_bounded_background_budget(monkeypatch) -> None:
     class Extractor:
         timeout = 120
 
@@ -836,7 +836,7 @@ def test_llm_extraction_uses_provider_timeout_not_recall_budget(monkeypatch) -> 
         )
 
         assert await service._llm_candidates_batch([{"user_text": "测试"}]) == []
-        assert observed_timeouts == [120.0]
+        assert observed_timeouts == [15.0]
 
     asyncio.run(scenario())
 
