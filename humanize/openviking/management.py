@@ -96,9 +96,7 @@ class OpenVikingManagementAdapter:
         if not expected["memory_type"]:
             expected["memory_type"] = str(filters.get("type") or "").strip()
         if expected["agent_id"]:
-            expected["agent_id"] = normalize_openviking_agent_id(
-                expected["agent_id"]
-            )
+            expected["agent_id"] = normalize_openviking_agent_id(expected["agent_id"])
         items = []
         for item in self._read_items():
             if any(
