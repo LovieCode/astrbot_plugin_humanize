@@ -198,6 +198,26 @@ def test_context_refs_are_opaque_scoped_and_retry_collisions(
     asyncio.run(scenario())
 
 
+def test_window_clear_removes_active_entries_and_refs(tmp_path: Path) -> None:
+    async def scenario() -> None:
+        window, _, _ = await _window(tmp_path)
+        context = _context(1)
+        appended = await window.append(
+            context,
+            action="Reply",
+            run_messages=_messages(context, "reply"),
+            final_messages=("reply",),
+        )
+
+        assert await window.clear(context) == 1
+        loaded = await window.load(context)
+        assert loaded.entry_count == 0
+        assert loaded.contexts == ()
+        assert await window.read_context(context, appended.context_ref) == ""
+
+    asyncio.run(scenario())
+
+
 def test_tool_chains_and_images_are_safe_in_hot_and_cold_context(
     tmp_path: Path,
 ) -> None:
@@ -364,6 +384,113 @@ def test_image_cache_protocol_is_hidden_from_visible_reply() -> None:
 
     assert decision.messages == ("你好",)
     assert decision.image_cache[0].description == "橘猫"
+
+
+def test_clear_command_resets_native_and_managed_context(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    class Result:
+        def __init__(self, text: str) -> None:
+            self.chain = [SimpleNamespace(text=text)]
+
+    class Event:
+        def __init__(self) -> None:
+            self.unified_msg_origin = "group-1"
+            self.message_obj = SimpleNamespace(
+                timestamp=0,
+                message_id="clear-1",
+                message=(),
+            )
+            self.created_at = 0
+            self.result: Result | None = None
+            self.stopped = False
+
+        def get_message_str(self) -> str:
+            return "/clear"
+
+        def get_sender_name(self) -> str:
+            return "小明"
+
+        def get_sender_id(self) -> str:
+            return "user-1"
+
+        def get_platform_name(self) -> str:
+            return "aiocqhttp"
+
+        def is_private_chat(self) -> bool:
+            return False
+
+        def plain_result(self, text: str) -> Result:
+            return Result(text)
+
+        def set_result(self, result: Result) -> None:
+            self.result = result
+
+        def get_result(self) -> Result | None:
+            return self.result
+
+        def stop_event(self) -> None:
+            self.stopped = True
+
+    class Window:
+        cleared_context: MessageContext | None = None
+
+        async def clear(self, context: MessageContext) -> int:
+            self.cleared_context = context
+            return 2
+
+    class ConversationManager:
+        @staticmethod
+        async def get_curr_conversation_id(umo: str) -> str:
+            assert umo == "group-1"
+            return "conversation-1"
+
+        @staticmethod
+        async def get_conversation(umo: str, conversation_id: str):
+            assert (umo, conversation_id) == ("group-1", "conversation-1")
+            return SimpleNamespace(persona_id="default")
+
+    class PersonaManager:
+        @staticmethod
+        async def resolve_selected_persona(**kwargs):
+            assert kwargs["conversation_persona_id"] == "default"
+            return "default", None, None, False
+
+    class AppContext:
+        conversation_manager = ConversationManager()
+        persona_manager = PersonaManager()
+
+        @staticmethod
+        def get_config(**kwargs):
+            assert kwargs["umo"] == "group-1"
+            return {"provider_settings": {}}
+
+    class NativeCommands:
+        def __init__(self, context) -> None:
+            assert isinstance(context, AppContext)
+
+        async def reset(self, event: Event) -> None:
+            event.set_result(event.plain_result("✅ Conversation reset successfully."))
+
+    async def scenario() -> None:
+        window = Window()
+        plugin = HumanizePlugin(AppContext(), {})
+        plugin._container = SimpleNamespace(context_window=window)
+        event = Event()
+
+        await plugin.clear_managed_context(event)
+
+        assert event.stopped is True
+        assert window.cleared_context is not None
+        assert window.cleared_context.conversation_id == "conversation-1"
+        assert window.cleared_context.agent_id == "default"
+        assert event.result is not None
+        assert event.result.chain[0].text.endswith("Humanize context cleared.")
+
+    monkeypatch.setattr(
+        "astrbot_plugin_humanize.main.ConversationCommands", NativeCommands
+    )
+    asyncio.run(scenario())
 
 
 def test_request_takeover_replaces_native_history_and_disables_session_fallback() -> (

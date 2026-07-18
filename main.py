@@ -14,6 +14,9 @@ from astrbot.api.event import AstrMessageEvent, MessageChain, filter
 from astrbot.api.message_components import Plain
 from astrbot.api.provider import LLMResponse, ProviderRequest
 from astrbot.api.star import Context, Star
+from astrbot.builtin_stars.builtin_commands.commands.conversation import (
+    ConversationCommands,
+)
 from astrbot.core.agent.message import TextPart
 
 from .humanize.config import PluginConfig
@@ -178,6 +181,56 @@ class HumanizePlugin(Star):
         if self._is_active:
             event.set_extra("enable_streaming", False)
             self._install_send_gate(event)
+
+    @filter.command("clear", alias={"reset"}, priority=_FIREWALL_PRIORITY)
+    async def clear_managed_context(self, event: AstrMessageEvent) -> None:
+        """Reset native and Humanize short-term context for this conversation.
+
+        Args:
+            event: The command event for ``/clear`` or ``/reset``.
+        """
+        if not self._is_active or self._container is None:
+            return
+        try:
+            managed_context = await self._managed_context_for_reset(event)
+            await ConversationCommands(self.context).reset(event)
+        except Exception:
+            logger.exception("[Humanize] native conversation reset failed")
+            event.set_result(event.plain_result("😕 Conversation reset failed."))
+            event.stop_event()
+            return
+
+        result = event.get_result()
+        succeeded = bool(
+            result
+            and any(
+                getattr(component, "text", "") == "✅ Conversation reset successfully."
+                for component in result.chain
+            )
+        )
+        if not succeeded:
+            event.stop_event()
+            return
+
+        try:
+            await self._container.context_window.clear(managed_context)
+        except Exception:
+            logger.exception("[Humanize] managed context reset failed")
+            event.set_result(
+                event.plain_result(
+                    "✅ Conversation reset successfully.\n"
+                    "⚠️ Humanize context reset failed; it will retry on the next reset."
+                )
+            )
+            event.stop_event()
+            return
+
+        event.set_result(
+            event.plain_result(
+                "✅ Conversation reset successfully.\n✅ Humanize context cleared."
+            )
+        )
+        event.stop_event()
 
     @filter.on_llm_request(priority=_FINALIZER_PRIORITY)
     async def on_llm_request(
@@ -1562,6 +1615,68 @@ class HumanizePlugin(Star):
             attachment_refs=tuple(attachment_refs),
             source_complete=source_complete,
         )
+
+    async def _managed_context_for_reset(
+        self, event: AstrMessageEvent
+    ) -> MessageContext:
+        """Resolve the same scoped identity that the managed window uses.
+
+        Args:
+            event: Current command event.
+
+        Returns:
+            Trusted current conversation metadata with the effective Agent ID.
+        """
+        raw_user = str(event.get_message_str() or "")
+        message_context = self._build_message_context(event, raw_user)
+        conversation_persona_id: str | None = None
+        try:
+            conversation_id = (
+                await self.context.conversation_manager.get_curr_conversation_id(
+                    event.unified_msg_origin
+                )
+            )
+            if conversation_id:
+                conversation = await self.context.conversation_manager.get_conversation(
+                    event.unified_msg_origin,
+                    conversation_id,
+                )
+                conversation_persona_id = getattr(conversation, "persona_id", None)
+                message_context = replace(
+                    message_context,
+                    conversation_id=str(conversation_id),
+                )
+        except Exception:
+            logger.exception("[Humanize] failed to resolve reset conversation")
+
+        try:
+            provider_settings = self.context.get_config(
+                umo=event.unified_msg_origin
+            ).get("provider_settings", {})
+            if not isinstance(provider_settings, dict):
+                provider_settings = {}
+            (
+                persona_id,
+                _,
+                _,
+                use_webchat_default,
+            ) = await self.context.persona_manager.resolve_selected_persona(
+                umo=event.unified_msg_origin,
+                conversation_persona_id=conversation_persona_id,
+                platform_name=event.get_platform_name(),
+                provider_settings=provider_settings,
+            )
+            message_context = replace(
+                message_context,
+                agent_id=(
+                    "_chatui_default_"
+                    if use_webchat_default
+                    else str(persona_id or "default")
+                ),
+            )
+        except Exception:
+            logger.exception("[Humanize] failed to resolve reset persona")
+        return message_context
 
     @staticmethod
     def _message_id(event: AstrMessageEvent, user_text: str) -> str:

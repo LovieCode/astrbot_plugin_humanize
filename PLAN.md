@@ -138,7 +138,7 @@
 | --- | --- | --- | --- |
 | CT01 | 窗口计数与幂等 | 39/40/41 条、40→20、重试、重启恢复、完整轮次边界 | [x] |
 | CT02 | token 与压缩 | 未满 40 的长文本/大工具结果超预算、当前消息保留、压缩 Provider 失败降级、滚动总结不累积 | [x] |
-| CT03 | AstrBot 接管 | req.contexts 只含插件窗口、原 history 不回写、原有协议/系统提示词/当前附件仍有效 | [x] |
+| CT03 | AstrBot 接管 | req.contexts 只含插件窗口、原 history 不回写、`/clear`/`/reset` 同时重置当前作用域的原生与托管短期上下文、原有协议/系统提示词/当前附件仍有效 | [x] |
 | CT04 | 隔离与 ref | 跨群、跨 conversation、跨 Agent、伪造/过长/过期 ref、短 ID 碰撞重试 | [x] |
 | CT05 | 工具链 | 单/多 tool call、失败 result、大 result 折叠、历史重建无孤立 tool message | [x] |
 | CT06 | 图片 | 用户图、工具图、vision 与 text-only Provider、ImageCache 剥离、后续不重传原图、L2 图片转述 | [x] |
@@ -161,9 +161,10 @@ git diff --check
 ### 本地实现记录（2026-07-19）
 
 - 已完成 C01-C06：OpenViking workspace 内保存 canonical L2 turn、短 `ctx-*` ref、40→20 滚动 L1、受控 L2 读取、工具链完整性和 ImageCache 剥离；成功终端发送后才落盘并提交同一 Session，避免未送达回复进入上下文。
-- 已完成 CT01-CT07 的自动化覆盖：`uv run pytest -q` 为 `249 passed, 1 warning`；`uvx ruff format --check .`、`uvx ruff check .` 和 `git diff --check` 通过。
+- 已完成 CT01-CT07 的自动化覆盖：`uv run pytest -q` 为 `251 passed, 1 warning`；`uvx ruff format --check .`、`uvx ruff check .` 和 `git diff --check` 通过。
 - 已完成 CT08：远端 `deploy_hotfix.sh` 在校验文件 SHA-256、远端定向测试与格式检查后重启 AstrBot，服务健康检查通过。
 - CT09 阻塞：现有主动发送 API 需要受控的已授权上下文；不读取、生成或猜测 API key、JWT 或平台密钥，且不重复发送通知。
+- `/clear` 不是 AstrBot 内置指令，已由 Humanize 接管为 `/reset` 的别名：先复用原生权限与会话重置，再清空当前作用域/人格的托管短期窗口；长期语义记忆不随该命令删除。
 
 ## 7. 部署与验收流程
 

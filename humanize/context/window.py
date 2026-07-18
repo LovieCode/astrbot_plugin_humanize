@@ -179,6 +179,26 @@ class ContextWindowService:
         except TimeoutError:
             return ""
 
+    async def clear(self, context: MessageContext) -> int:
+        """Clear the active short-term window for one scoped conversation.
+
+        The canonical L2 files are intentionally left unlinked for forensic
+        consistency. With the index, summaries, and short references reset, they
+        cannot be injected or read through the managed context interface.
+
+        Args:
+            context: Trusted metadata for the conversation being reset.
+
+        Returns:
+            Number of active logical entries removed from the window.
+
+        Raises:
+            RuntimeError: If the workspace was not initialized.
+        """
+        if not self._ready:
+            raise RuntimeError("context window is not initialized")
+        return await asyncio.to_thread(self._clear_sync, context)
+
     def _load_sync(
         self,
         context: MessageContext,
@@ -329,6 +349,23 @@ class ContextWindowService:
                 lines.append(f"{role}: {content}")
             rendered = "\n".join(lines)
             return self._clip(rendered, max_chars)
+
+    def _clear_sync(self, context: MessageContext) -> int:
+        identity, agent_id, session_directory = self._session_info(context)
+        state_path = session_directory / "context_window.json"
+        with self._workspace.transaction() as transaction:
+            state = self._read_state(
+                transaction,
+                state_path,
+                identity,
+                agent_id,
+            )
+            entry_count = len(state["entries"])
+            state["entries"] = []
+            state["refs"] = {}
+            state["summary"] = {"text": ""}
+            transaction.atomic_write(state_path, self._serialize(state))
+            return entry_count
 
     def _session_info(
         self, context: MessageContext
