@@ -136,6 +136,57 @@ def test_runtime_openviking_failure_is_fail_open(
     asyncio.run(scenario())
 
 
+def test_runtime_keeps_rule_memories_when_llm_extraction_fails(
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    class FailingExtractor:
+        async def text_chat(self, **kwargs: Any) -> None:
+            del kwargs
+            raise TimeoutError
+
+    class ProviderContext:
+        def get_provider_by_id(self, provider_id: str) -> object | None:
+            return FailingExtractor() if provider_id == "extractor" else None
+
+    class Repository(_RepositoryWithoutLegacyMemory):
+        async def get_prompt_templates(self) -> dict[str, dict[str, str]]:
+            return {"templates": {}}
+
+    async def scenario() -> None:
+        config = PluginConfig.from_mapping(
+            {"memory_extraction_provider_id": "extractor"}
+        )
+        monkeypatch.setenv(config.memory_identity_secret_env, "s" * 32)
+        workspace = OpenVikingWorkspace(tmp_path / "plugin-data")
+        memory = OpenVikingMemoryAdapter(workspace)
+        service = ChatMemoryService(
+            config,
+            Repository(),  # type: ignore[arg-type]
+            ProviderContext(),
+            openviking_adapter=memory,
+            openviking_recall_adapter=OpenVikingRecallAdapter(workspace),
+            openviking_management_adapter=OpenVikingManagementAdapter(
+                memory, workspace
+            ),
+        )
+        await service.initialize()
+        job = await service.build_turn_job(
+            _context(), action="Reply", messages=("记住了",)
+        )
+
+        assert job is not None
+        await service._extract_turn_batch([job])
+        recalled = await service.recall_memories(_context(user_text="无糖乌龙茶"))
+
+        assert service._last_error == "TimeoutError"
+        assert recalled.included is True
+        assert recalled.source_refs[0].startswith("viking://agent/default/memories/")
+        assert list((workspace.root / "memory_diffs").glob("*.json"))
+
+    asyncio.run(scenario())
+
+
 def test_runtime_recalls_recent_session_without_semantic_candidate(
     tmp_path: Path,
     monkeypatch: pytest.MonkeyPatch,

@@ -1186,7 +1186,14 @@ class ChatMemoryService:
                 candidate["_source_index"] = source_index
                 candidates.append(candidate)
         if self._config.memory_extraction_provider_id:
-            candidates.extend(await self._llm_candidates_batch(valid_payloads))
+            try:
+                candidates.extend(await self._llm_candidates_batch(valid_payloads))
+            except Exception as exc:
+                self._last_error = type(exc).__name__
+                logger.warning(
+                    "[Humanize] LLM memory extraction degraded: %s",
+                    type(exc).__name__,
+                )
 
         deduplicated: dict[tuple[str, ...], dict[str, Any]] = {}
         for raw_candidate in candidates:
