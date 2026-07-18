@@ -91,6 +91,24 @@
 
 ## 6. 部署与验收流程
 
+### 默认：脚本化定向热修
+
+未涉及依赖、配置 schema、API、迁移、vendor、许可证、前端构建或跨模块契约，且用户明确要求部署时，使用唯一入口：
+
+```bash
+bash scripts/deploy_hotfix.sh --dry-run \
+  --pytest tests/test_openviking_recall.py -- \
+  humanize/openviking/recall.py tests/test_openviking_recall.py
+
+bash scripts/deploy_hotfix.sh \
+  --pytest tests/test_openviking_recall.py -- \
+  humanize/openviking/recall.py tests/test_openviking_recall.py
+```
+
+脚本从本地 `.deploy.local.md` 读取目标、端口和密码；只接受已提交的明确文件，自动执行本地/远端定向检查、SHA-256 校验、必要时的一次重启和 HTTP 健康检查。禁止将这些步骤重新拆成手工 SSH、SCP、sudo、tmux 或临时发布包命令。脚本异常时先修脚本并通过 `bash -n scripts/deploy_hotfix.sh` 与 `--dry-run` 验证；除非用户明确要求紧急人工处置，不得绕过。
+
+以下整包流程仅用于完整发布条件成立或用户明确要求完整发布，不适用于普通热修。
+
 ### 固定环境
 
 - 默认 Shell：`D:\software\Code\Git\bin\bash.exe`。
@@ -109,7 +127,7 @@
 - 远端发布包：`/home/lovie/astrbot_plugin_humanize-<timestamp>.tar.gz`。
 - 远端暂存目录：`/home/lovie/astrbot_plugin_humanize.deploying-<timestamp>`。
 
-### 发布前
+### 完整发布前
 
 1. 显式进入本地插件仓库 `D:\Code\Python\_root\AstrBot\data\plugins\astrbot_plugin_humanize`，用 `pwd` 和 `git rev-parse --show-toplevel` 确认当前位置；不要依赖终端初始目录，Git Bash 的 login shell 可能回到 AstrBot 根目录。
 2. 在该目录确认待发布差异只包含本计划范围，不携带 `.git`、`.deploy.local.md`、pytest 缓存、临时文件、密钥或历史备份。
@@ -117,7 +135,7 @@
 4. 在本地 AstrBot 的 `tmp` 目录生成带时间戳的 `tar.gz`，排除 `.git`、`.deploy.local.md`、`.pytest_cache`、`.ruff_cache`、`.pytest-tmp-*`、`__pycache__` 和 `*.pyc`。
 5. 执行 `sha256sum <发布包>` 并用 `tar -tzf <发布包>` 检查清单。发布包必须包含 OpenViking license、来源和版本说明。
 
-### 远端部署
+### 完整发布的远端部署
 
 1. 使用 `scp -P 2222 <本地发布包> lovie@192.168.3.74:/home/lovie/` 上传，然后通过 SSH 执行 `sha256sum /home/lovie/<发布包>`，结果必须与本地一致。
 2. 将发布包解压到 `/home/lovie/astrbot_plugin_humanize.deploying-<timestamp>`，不得直接在 `data/plugins` 中解压。
@@ -126,7 +144,7 @@
 5. 先向当前 `lovie` tmux pane 发送受控停止信号并确认 `6185` 已退出；再创建普通用户 session `astrbot-service-<commit>`，在其中通过 sudo 启动 `/home/lovie/AstrBot/.venv/bin/python main.py`。不得使用 `sudo tmux`，不得把密码写入命令、here-doc、日志或发布包。
 6. 打开 `http://192.168.3.74:6185`，在插件管理中重载 Humanize。也可以使用带鉴权的 reload API，但不得读取或记录无权限访问的 `cmd_config.json`、JWT secret 或 token。
 
-### 远端验收
+### 完整发布的远端验收
 
 1. 在 `/home/lovie/AstrBot/data/plugins/astrbot_plugin_humanize` 执行 `/home/lovie/AstrBot/.venv/bin/python -m pytest -q`、Ruff、Ruff format check 和所有 WebUI JavaScript `node --check`。
 2. 检查加载日志：Humanize 无导入异常，OpenViking memory 状态为 `ready`；未配置 Provider 时允许按设计降级，但不得阻断基础聊天。
@@ -134,7 +152,7 @@
 4. 在真实会话完成一次记忆写入和召回，确认 `Session append -> commit -> memory diff -> L0/L1/L2 -> recall` 可用且重试不重复写入；若不适合发送真实消息，使用独立的临时 synthetic workspace、固定假身份和假消息完成同一链路，结束后只删除该临时 workspace。
 5. 打开 WebUI 检查长期记忆、召回调试、后台任务和回复样例；确认已裁剪入口、脚本、API 文案和死样式不存在。
 
-### 收尾
+### 完整发布收尾
 
 1. 只删除本次时间戳对应的远端发布包、暂存目录、`.replacing` 目录、临时鉴权脚本和本地发布包；不得扩大路径或删除用户已有备份。
 2. 再次确认 `/home/lovie/AstrBot/data/plugins/astrbot_plugin_humanize` 存在，`http://127.0.0.1:6185/` 在远端返回 HTTP `200`，Humanize 可加载；完成这些检查后才视为部署成功。

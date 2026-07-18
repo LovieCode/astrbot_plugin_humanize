@@ -1,0 +1,328 @@
+#!/usr/bin/env bash
+set -euo pipefail
+
+usage() {
+    cat <<'EOF'
+Usage:
+  bash scripts/deploy_hotfix.sh [options] -- <tracked-file> [<tracked-file> ...]
+
+Options:
+  --pytest <path>       Relevant pytest path. Repeat for multiple paths.
+  --restart             Always restart AstrBot after remote checks pass.
+  --no-restart          Never restart AstrBot.
+  --remote-root <path>  Remote AstrBot root. Default: /home/<ssh-user>/AstrBot.
+  --dry-run             Validate the manifest and print the selected operation only.
+  -h, --help            Show this help.
+
+The script reads target, port, and password from .deploy.local.md. It deploys only
+the listed committed files, verifies checksums, runs local and remote targeted
+checks, and performs one controlled restart only when required.
+EOF
+}
+
+die() {
+    printf 'error: %s\n' "$*" >&2
+    exit 1
+}
+
+require_command() {
+    command -v "$1" >/dev/null 2>&1 || die "required command not found: $1"
+}
+
+script_dir="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
+plugin_root="$(cd "$script_dir/.." && pwd)"
+cd "$plugin_root"
+
+tests=()
+files=()
+restart_mode="auto"
+dry_run=false
+remote_root=""
+
+while (( $# )); do
+    case "$1" in
+        --pytest)
+            (( $# >= 2 )) || die "--pytest requires a path"
+            tests+=("$2")
+            shift 2
+            ;;
+        --restart)
+            restart_mode="always"
+            shift
+            ;;
+        --no-restart)
+            restart_mode="never"
+            shift
+            ;;
+        --remote-root)
+            (( $# >= 2 )) || die "--remote-root requires a path"
+            remote_root="$2"
+            shift 2
+            ;;
+        --dry-run)
+            dry_run=true
+            shift
+            ;;
+        -h|--help)
+            usage
+            exit 0
+            ;;
+        --)
+            shift
+            files=("$@")
+            break
+            ;;
+        *)
+            die "unknown option: $1"
+            ;;
+    esac
+done
+
+(( ${#files[@]} > 0 )) || die "at least one tracked file is required after --"
+(( ${#tests[@]} > 0 )) || die "at least one --pytest path is required"
+
+validate_relative_path() {
+    local path="$1"
+    [[ "$path" =~ ^[A-Za-z0-9._/-]+$ ]] || die "unsafe path: $path"
+    [[ "$path" != /* && "$path" != *..* ]] || die "unsafe path: $path"
+}
+
+for file in "${files[@]}"; do
+    validate_relative_path "$file"
+    [[ -f "$file" ]] || die "file not found: $file"
+    git ls-files --error-unmatch -- "$file" >/dev/null
+    git diff --quiet -- "$file" || die "file must be committed before deployment: $file"
+    git diff --cached --quiet -- "$file" || die "file must be committed before deployment: $file"
+done
+
+for test_path in "${tests[@]}"; do
+    validate_relative_path "$test_path"
+    [[ -f "$test_path" ]] || die "pytest path not found: $test_path"
+    git ls-files --error-unmatch -- "$test_path" >/dev/null
+    git diff --quiet -- "$test_path" || die "test must be committed: $test_path"
+    git diff --cached --quiet -- "$test_path" || die "test must be committed: $test_path"
+    test_is_deployed=false
+    for file in "${files[@]}"; do
+        [[ "$file" == "$test_path" ]] && test_is_deployed=true && break
+    done
+    "$test_is_deployed" || die "pytest path must also be listed for deployment: $test_path"
+done
+
+needs_restart=false
+for file in "${files[@]}"; do
+    [[ "$file" == *.py && "$file" != tests/* ]] && needs_restart=true
+done
+case "$restart_mode" in
+    always) needs_restart=true ;;
+    never) needs_restart=false ;;
+esac
+
+config_file="${HUMANIZE_DEPLOY_CONFIG:-$plugin_root/.deploy.local.md}"
+[[ -f "$config_file" ]] || die "deployment config not found: $config_file"
+
+read_config_value() {
+    local key="$1"
+    awk -v key="$key" '
+        $0 ~ "^- " key ":" {
+            value = $0
+            sub("^- " key ":[[:space:]]*", "", value)
+            sub(/\r$/, "", value)
+            gsub(/^[[:space:]]+|[[:space:]]+$/, "", value)
+            gsub(/^[`"*]+|[`"*]+$/, "", value)
+            print value
+            exit
+        }
+    ' "$config_file"
+}
+
+target="$(read_config_value "Target")"
+port="$(read_config_value "SSH port")"
+password="$(read_config_value "Password")"
+[[ "$target" =~ ^[A-Za-z0-9._-]+@[A-Za-z0-9._:-]+$ ]] || die "invalid Target in deployment config"
+[[ "$port" =~ ^[0-9]{1,5}$ ]] || die "invalid SSH port in deployment config"
+[[ -n "$password" ]] || die "empty deployment password"
+
+remote_user="${target%@*}"
+remote_root="${remote_root:-${HUMANIZE_REMOTE_ASTRBOT_ROOT:-/home/$remote_user/AstrBot}}"
+[[ "$remote_root" =~ ^/[A-Za-z0-9._/-]+$ && "$remote_root" != *..* ]] || die "unsafe remote root"
+plugin_name="$(basename "$plugin_root")"
+remote_plugin="$remote_root/data/plugins/$plugin_name"
+remote_python="$remote_root/.venv/bin/python"
+remote_ruff="$remote_root/.venv/bin/ruff"
+revision="$(git rev-parse --short HEAD)"
+stamp="$(date +%Y%m%d-%H%M%S)"
+remote_stage="/home/$remote_user/.humanize-hotfix-$revision-$stamp"
+
+if "$dry_run"; then
+    printf 'dry-run: target=%s port=%s restart=%s\n' "$target" "$port" "$needs_restart"
+    printf 'dry-run: files=%s\n' "${files[*]}"
+    printf 'dry-run: pytest=%s\n' "${tests[*]}"
+    exit 0
+fi
+
+for command_name in awk git mktemp scp sha256sum ssh uv; do
+    require_command "$command_name"
+done
+
+manifest="$(mktemp -t humanize-hotfix-manifest.XXXXXX)"
+askpass="$(mktemp -t humanize-askpass.XXXXXX)"
+remote_body="$(mktemp -t humanize-remote.XXXXXX)"
+cleanup_local() {
+    rm -f -- "$manifest" "$askpass" "$remote_body"
+}
+trap cleanup_local EXIT
+
+for file in "${files[@]}"; do
+    printf '%s  %s\n' "$(sha256sum "$file" | awk '{print $1}')" "$file" >> "$manifest"
+done
+
+cat > "$askpass" <<'ASKPASS'
+#!/usr/bin/env bash
+set -euo pipefail
+awk '
+    /^- Password:/ {
+        value = $0
+        sub(/^- Password:[[:space:]]*/, "", value)
+        sub(/\r$/, "", value)
+        gsub(/^[[:space:]]+|[[:space:]]+$/, "", value)
+        gsub(/^[`"*]+|[`"*]+$/, "", value)
+        print value
+        exit
+    }
+' "${HUMANIZE_DEPLOY_CONFIG:?}"
+ASKPASS
+chmod 700 "$askpass"
+
+export HUMANIZE_DEPLOY_CONFIG="$config_file"
+export SSH_ASKPASS="$askpass"
+export SSH_ASKPASS_REQUIRE=force
+export DISPLAY="${DISPLAY:-humanize-deploy}"
+
+ssh_options=(
+    -o BatchMode=no
+    -o ConnectTimeout=15
+    -o StrictHostKeyChecking=accept-new
+    -p "$port"
+)
+
+ssh_no_stdin() {
+    ssh "${ssh_options[@]}" "$target" "$@" < /dev/null
+}
+
+scp_no_stdin() {
+    scp -P "$port" -o BatchMode=no -o ConnectTimeout=15 -o StrictHostKeyChecking=accept-new "$@" < /dev/null
+}
+
+printf 'Running local targeted checks...\n'
+uv run pytest -q "${tests[@]}"
+uvx ruff format --check "${files[@]}"
+uvx ruff check "${files[@]}"
+git diff --check
+
+printf 'Staging selected files remotely...\n'
+ssh_no_stdin "mkdir -p -- '$remote_stage'"
+for file in "${files[@]}"; do
+    remote_directory="$(dirname "$file")"
+    ssh_no_stdin "mkdir -p -- '$remote_stage/$remote_directory'"
+    scp_no_stdin "$file" "$target:$remote_stage/$file"
+done
+scp_no_stdin "$manifest" "$target:$remote_stage/manifest.sha256"
+
+{
+    printf 'remote_stage=%q\n' "$remote_stage"
+    printf 'remote_plugin=%q\n' "$remote_plugin"
+    printf 'remote_python=%q\n' "$remote_python"
+    printf 'remote_ruff=%q\n' "$remote_ruff"
+    printf 'remote_user=%q\n' "$remote_user"
+    printf 'remote_root=%q\n' "$remote_root"
+    printf 'revision=%q\n' "$revision"
+    printf 'stamp=%q\n' "$stamp"
+    printf 'needs_restart=%q\n' "$needs_restart"
+    printf 'files=(\n'
+    for file in "${files[@]}"; do
+        printf '    %q\n' "$file"
+    done
+    printf ')\n'
+    printf 'tests=(\n'
+    for test_path in "${tests[@]}"; do
+        printf '    %q\n' "$test_path"
+    done
+    printf ')\n'
+    cat <<'REMOTE'
+set -euo pipefail
+
+die() {
+    printf 'error: %s\n' "$*" >&2
+    exit 1
+}
+
+sudo_run() {
+    printf '%s\n' "$deploy_password" | sudo -S -p '' "$@"
+}
+
+cleanup_stage() {
+    [[ "$remote_stage" == "/home/$remote_user/.humanize-hotfix-"* ]] || return
+    rm -rf -- "$remote_stage"
+}
+trap cleanup_stage EXIT
+
+cd "$remote_stage"
+sha256sum -c manifest.sha256
+
+for file in "${files[@]}"; do
+    sudo_run install -m 0644 -- "$remote_stage/$file" "$remote_plugin/$file"
+done
+
+for file in "${files[@]}"; do
+    expected="$(awk -v path="$file" '$2 == path {print $1}' manifest.sha256)"
+    actual="$(sha256sum "$remote_plugin/$file" | awk '{print $1}')"
+    [[ "$actual" == "$expected" ]] || die "installed checksum mismatch: $file"
+done
+
+cd "$remote_plugin"
+sudo_run "$remote_python" -m pytest -q "${tests[@]}"
+sudo_run "$remote_ruff" format --check "${files[@]}"
+sudo_run "$remote_ruff" check "${files[@]}"
+
+if "$needs_restart"; then
+    old_session="$(tmux list-sessions -F '#{session_name}' 2>/dev/null | awk '/^astrbot-service-/{value=$0} END {print value}')"
+    [[ -n "$old_session" ]] || die "active AstrBot tmux session not found"
+    tmux send-keys -t "$old_session:0.0" C-c
+    stopped=false
+    for _ in $(seq 1 20); do
+        if ! curl -sS -o /dev/null --max-time 2 http://127.0.0.1:6185/; then
+            stopped=true
+            break
+        fi
+        sleep 1
+    done
+    "$stopped" || die "previous service did not stop cleanly"
+
+    new_session="astrbot-service-$revision"
+    if tmux has-session -t "$new_session" 2>/dev/null; then
+        new_session="$new_session-$stamp"
+    fi
+    tmux new-session -d -s "$new_session" "cd $remote_root && exec sudo -k -S -p '' $remote_python main.py"
+    sleep 1
+    tmux send-keys -t "$new_session:0.0" -l "$deploy_password"
+    tmux send-keys -t "$new_session:0.0" Enter
+
+    status=""
+    for _ in $(seq 1 20); do
+        status="$(curl -sS -o /dev/null -w '%{http_code}' --max-time 8 http://127.0.0.1:6185/ || true)"
+        [[ "$status" == "200" ]] && break
+        sleep 1
+    done
+    [[ "$status" == "200" ]] || die "service did not become healthy after restart"
+fi
+
+printf 'deployment=ok\n'
+REMOTE
+} > "$remote_body"
+
+printf 'Installing, validating, and%s restarting remotely...\n' "$("$needs_restart" && printf '' || printf ' not')"
+{
+    printf 'IFS= read -r deploy_password\n'
+    printf '%s\n' "$password"
+    cat "$remote_body"
+} | ssh "${ssh_options[@]}" "$target" /bin/bash -s
