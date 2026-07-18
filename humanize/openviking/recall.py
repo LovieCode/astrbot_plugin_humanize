@@ -128,9 +128,11 @@ class OpenVikingRecallAdapter:
                 )
                 row["score"] = max(
                     float(row["lexical_score"]),
-                    _SESSION_FALLBACK_SCORE
-                    if row.get("source_kind") == "session"
-                    else 0.0,
+                    (
+                        max(_SESSION_FALLBACK_SCORE, bounded_threshold)
+                        if row.get("source_kind") == "session"
+                        else 0.0
+                    ),
                 )
             candidate_limit = max(bounded_limit * 4, 20)
             rows.sort(
@@ -192,7 +194,14 @@ class OpenVikingRecallAdapter:
                     for result in reranked:
                         row = rows[result.index]
                         row["rerank_score"] = result.score
-                        row["score"] = result.score
+                        row["score"] = max(
+                            result.score,
+                            (
+                                bounded_threshold
+                                if row.get("source_kind") == "session"
+                                else 0.0
+                            ),
+                        )
                         reordered.append(row)
                     rows = reordered
                 except Exception as exc:

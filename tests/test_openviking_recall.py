@@ -309,6 +309,34 @@ async def test_recall_falls_back_to_exact_session_when_no_memory_exists(
 
 
 @pytest.mark.asyncio
+async def test_session_fallback_ignores_semantic_recall_threshold(
+    tmp_path: Path,
+) -> None:
+    adapter, workspace = _adapter(tmp_path)
+    adapter.commit_turn(_payload())
+
+    result = await OpenVikingRecallAdapter(workspace).recall(
+        query="下一步怎么安排",
+        agent_id="default",
+        scope_filters=(
+            {
+                "scope_type": "private_user",
+                "scope_hash": "b" * 64,
+                "subject_hash": "c" * 64,
+            },
+        ),
+        conversation_hash="d" * 64,
+        limit=5,
+        threshold=0.85,
+        max_chars=2_500,
+    )
+
+    assert result.included is True
+    assert result.item_count == 1
+    assert result.reason == "matched"
+
+
+@pytest.mark.asyncio
 async def test_session_fallback_rechecks_conversation_and_subject(
     tmp_path: Path,
 ) -> None:
