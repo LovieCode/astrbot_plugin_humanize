@@ -2840,7 +2840,7 @@ class SQLiteRepository:
                 for item in job.get("assistant_messages", delivered)
                 if str(item)
             ][:20],
-            "action": normalized_action,
+            "action": "No Reply" if normalized_action == "no_reply" else "Reply",
             "chat_provider_id": clean_provider_id,
             "occurred_at": str(job.get("occurred_at") or context.occurred_at or now)[
                 :80

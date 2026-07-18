@@ -391,6 +391,7 @@ def test_protocol_success_and_memory_job_are_atomic_and_idempotent(
         assert jobs[0]["job_key"] != "extract_turn:dispatch-once"
         assert len(jobs[0]["job_key"].removeprefix("extract_turn:")) == 64
         assert jobs[0]["job_type"] == "extract_turn"
+        assert payload["action"] == "Reply"
         assert payload["assistant_messages"] == ["收到", "会记住"]
         assert payload["chat_provider_id"] == "chat-provider-a"
         assert payload["request_id"] == "dispatch-once"
