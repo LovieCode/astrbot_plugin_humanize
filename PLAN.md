@@ -70,7 +70,7 @@
 
 ### 进行中
 
-- 在远端新运行实例中完成一条可接受候选的语义记忆写入与下一轮召回；当前仅验证到 Session/L0/L1/L2，未产生长期记忆文件。
+- 修复或替换已配置的长期记忆提取 Provider。它在后台预算内未返回；确定性规则仍会写入 OpenViking，Provider 仅负责补充非结构化语义记忆，失败不得阻断 Session、Memory 或 recall。
 - 在合法 Dashboard 登录态下完成各页面的真实浏览器交互、空态、失败态和窄屏验收；不绕过认证或读取 JWT/config secret。
 
 ### 已完成
@@ -103,6 +103,7 @@
 - 远端 Python：`/home/lovie/AstrBot/.venv/bin/python`。
 - 远端插件：`/home/lovie/AstrBot/data/plugins/astrbot_plugin_humanize`。
 - 远端配置：`/home/lovie/AstrBot/data/cmd_config.json`，普通 SSH 用户可能无读取权限。
+- 远端 `cmd_config.json` 由 root 持有时，AstrBot Python 进程必须以 sudo 身份运行；tmux server 和会话仍由 `lovie` 持有，禁止创建 root tmux server。
 - 部署前先检查远端 `data`、插件、配置和 `plugin_data` 的属主；若普通 SSH 用户无写权限，只能在 `/home/lovie` 暂存验收，必须取得有效 sudo 授权后才能替换正式目录或重启，不得猜测 sudo 密码。
 - 本地发布包：`D:\Code\Python\_root\AstrBot\tmp\astrbot_plugin_humanize-<timestamp>.tar.gz`。
 - 远端发布包：`/home/lovie/astrbot_plugin_humanize-<timestamp>.tar.gz`。
@@ -121,15 +122,16 @@
 1. 使用 `scp -P 2222 <本地发布包> lovie@192.168.3.74:/home/lovie/` 上传，然后通过 SSH 执行 `sha256sum /home/lovie/<发布包>`，结果必须与本地一致。
 2. 将发布包解压到 `/home/lovie/astrbot_plugin_humanize.deploying-<timestamp>`，不得直接在 `data/plugins` 中解压。
 3. 在暂存目录确认 `main.py`、`humanize/openviking/management.py`、vendor 白名单、license 和 `pages/humanize` 完整；确认旧 migration、SQLite memory、Control 冻结页面、安装器和独立服务不存在。
-4. 将正式插件短暂移动为同级 `.replacing` 目录，再把已验收的暂存目录移动到 `/home/lovie/AstrBot/data/plugins/astrbot_plugin_humanize`。`.replacing` 只用于本次替换，验收后立即删除，不保留部署备份。
-5. 打开 `http://192.168.3.74:6185`，在插件管理中重载 Humanize。也可以使用带鉴权的 reload API，但不得读取或记录无权限访问的 `cmd_config.json`、JWT secret 或 token。
+4. 整包发布时将正式插件短暂移动为同级 `.replacing`，再把已验收的暂存目录移动到 `/home/lovie/AstrBot/data/plugins/astrbot_plugin_humanize`；`.replacing` 仅用于本次替换，验收后立即删除。小型热修复可只上传明确改动的文件，逐个校验 SHA-256 后用 `sudo install -m 0644` 原位替换，禁止扩大覆盖范围。
+5. 先向当前 `lovie` tmux pane 发送受控停止信号并确认 `6185` 已退出；再创建普通用户 session `astrbot-service-<commit>`，在其中通过 sudo 启动 `/home/lovie/AstrBot/.venv/bin/python main.py`。不得使用 `sudo tmux`，不得把密码写入命令、here-doc、日志或发布包。
+6. 打开 `http://192.168.3.74:6185`，在插件管理中重载 Humanize。也可以使用带鉴权的 reload API，但不得读取或记录无权限访问的 `cmd_config.json`、JWT secret 或 token。
 
 ### 远端验收
 
 1. 在 `/home/lovie/AstrBot/data/plugins/astrbot_plugin_humanize` 执行 `/home/lovie/AstrBot/.venv/bin/python -m pytest -q`、Ruff、Ruff format check 和所有 WebUI JavaScript `node --check`。
 2. 检查加载日志：Humanize 无导入异常，OpenViking memory 状态为 `ready`；未配置 Provider 时允许按设计降级，但不得阻断基础聊天。
 3. 确认 AstrBot 服务端口正常、首页返回 HTTP `200`、未鉴权管理 API 拒绝访问、插件 reload 返回成功。
-4. 在真实会话完成一次记忆写入和召回，确认 `Session append -> commit -> memory diff -> L0/L1/L2 -> recall` 可用且重试不重复写入。
+4. 在真实会话完成一次记忆写入和召回，确认 `Session append -> commit -> memory diff -> L0/L1/L2 -> recall` 可用且重试不重复写入；若不适合发送真实消息，使用独立的临时 synthetic workspace、固定假身份和假消息完成同一链路，结束后只删除该临时 workspace。
 5. 打开 WebUI 检查长期记忆、召回调试、后台任务和回复样例；确认已裁剪入口、脚本、API 文案和死样式不存在。
 
 ### 收尾
@@ -186,11 +188,13 @@
 - [x] 新进程使用真实 OpenViking workspace 的无正文探针：同一 Agent/作用域/主体/会话在阈值 `0.85` 下命中 5 条 Session L0/L1 candidate，错误 conversation hash 为 `no_match`；未读取或输出聊天正文。
 - [x] Headless Edge 验证远端 Dashboard 登录页：桌面 `1440×900`、真实移动 viewport `412×915` 均正常渲染且无水平溢出。
 - [~] 服务首页 HTTP `200`；未鉴权的插件 memory GET、未知插件路由 GET、插件 memory POST 和 Dashboard plugins GET 均返回 `401`，未发生副作用；因此尚未以真实登录态完成 T01/T07-T10 的浏览器交互、窄屏和失败态验收。
+- [x] 部署 `0aa28d4`：将提取 Provider 超时降级为非阻断路径，保留 15 秒后台预算；本地 `242 passed, 1 warning`，远端 pytest、Ruff、Ruff format 和 13 个 WebUI JavaScript 检查通过，服务首页 `200` 且 OpenViking `ready`。
+- [x] 隔离 synthetic 验收：真实配置的提取 Provider 在 15 秒预算内未返回，但假消息仍完成 `1` 个 Session commit、`2` 个 memory diff、`2` 个 memory file，并以 `matched` 召回 `1` 条；临时 workspace 已删除，未读写真实会话内容。
 
 ### 当前待办
 
 - [x] 在远端运行完整 Python、静态 JavaScript 和格式/检查工具。
 - [x] 为 T01-T10 各记录至少三组基础/极限场景的命令、结果和缺陷。
-- [~] 在新运行实例完成一次真实对话的 Session fallback 复测，并完成语义记忆与召回复测：同会话 fallback 已正式部署，并以真实 workspace 的高阈值和错会话隔离探针验证；仍需一条重启后的真实入站消息确认它进入 Humanize 上下文链，再发送可接受的事实型消息确认 memory diff、长期记忆和下一轮 recall。历史 `dead` 任务负载已按隐私设计清空，不能重放。
+- [~] 长期记忆链路已由隔离 synthetic 数据验收；继续处理已配置提取 Provider 的超时，使非规则的语义记忆也能生成。历史 `dead` 任务负载已按隐私设计清空，不能重放。
 - [ ] 在真实浏览器验证全部 WebUI 视图、空态、失败态和窄屏布局。
 - [ ] 在已登录 Dashboard 下验证 settings、memory、jobs、recall debug、reply examples 和 prompt templates 的真实 API/交互；完成后更新 T01、T05-T10 状态。
