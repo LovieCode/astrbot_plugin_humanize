@@ -181,6 +181,7 @@
 - [x] 修复 Session 连续对话召回空洞并部署：没有命中长期记忆时，只读取当前同一 Agent/作用域/主体/会话的 L0/L1 commit；语义长期记忆仍优先，L2 原文不直接注入。新增 5 个基础/隔离/损坏/优先级极限测试，本地 `238 passed, 1 warning`，远端定向 `11 passed`、Ruff 与 JavaScript 检查通过。
 - [x] 部署后服务已受控重启：新 Python 进程于 `18:47` 启动，Humanize `memory state=ready`，首页 HTTP `200`。远端完整插件回归为 `238 passed, 1 warning`，Ruff `69 files already formatted`；父仓库 `git diff --check` 的失败仅来自未触及 Dashboard 文件的既有 CRLF/trailing-whitespace 差异，未修改该范围。
 - [x] 后续修复在远端用户暂存包完成回归：`239 passed, 1 warning`，Ruff format/check 通过（94 files），13 个 `pages/humanize/*.js` 的 `node --check` 通过；该包未替换正式插件目录。
+- [x] 远端用户暂存包按 T01-T10 分组的功能矩阵全部通过（分组存在有意重叠）：T01 `8`、T02 `91`、T03 `23`、T04 `26`、T05 `31`、T06 `25`、T07 `4`、T08 `18`、T09 `17`、T10 `14` 项。每组包含基础路径及至少三类边界/异常/并发或隔离场景；真实运行实例与已登录 Dashboard 场景仍按当前待办验收。
 - [x] Headless Edge 验证远端 Dashboard 登录页：桌面 `1440×900`、真实移动 viewport `412×915` 均正常渲染且无水平溢出。
 - [~] 服务首页 HTTP `200`，未鉴权管理 API 均返回 `401`；因此尚未以真实登录态完成 T01/T07-T10 的浏览器交互、窄屏和失败态验收。
 
