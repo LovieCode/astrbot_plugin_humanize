@@ -144,8 +144,8 @@
 | T02 | 回复协议与实际发送 | Reply/No Reply | 破损控制头修复 | 多消息/超长正文 | 工具阶段与并发发送 | 协议记录视图 | [~] |
 | T03 | 上下文编排与追踪 | 注入和记录 | token 预算截断 | 注入/重复前缀 | 快照缺失和重试 | 上下文追踪视图 | [~] |
 | T04 | 黑话词库 | 识别、证据和注入 | 多义/别名冲突 | 无效 UnknownTerms | 作用域和并发变更 | 词库增改删导出 | [~] |
-| T05 | OpenViking workspace | Session commit | 非法 Agent/路径 | 中断或损坏恢复 | 幂等和并发 commit | 运行状态接口 | [!] |
-| T06 | 长期记忆与后台任务 | 提取、写入、召回 | 空/过期任务 | Provider 超时或失效 | scope/Agent 隔离 | 记忆、任务、召回调试 | [!] |
+| T05 | OpenViking workspace | Session commit | 非法 Agent/路径 | 中断或损坏恢复 | 幂等和并发 commit | 运行状态接口 | [~] |
+| T06 | 长期记忆与后台任务 | 提取、写入、召回 | 空/过期任务 | Provider 超时或失效 | scope/Agent 隔离 | 记忆、任务、召回调试 | [~] |
 | T07 | 记忆管理 | 创建、修改、停用 | 非法 ID/动作 | revision 冲突 | 删除后召回边界 | 记忆详情和操作弹窗 | [~] |
 | T08 | 回复样例 | 创建、审核、召回 | 空/超限轮次 | 作用域或状态排除 | 低分和 Provider 降级 | 样例管理和调试 | [~] |
 | T09 | 提示词、存储与审计 | 模板保存/恢复 | 非法变量 | 大文本和并发写 | SQLite schema 升级 | 模板、统计、导出 | [~] |
@@ -167,7 +167,8 @@
 - T08：样例 CRUD/召回、零分边界、条件/排除过滤、Agent 隔离。
 - T09：模板专用审计、非法变量、批量保存/重置、旧 schema 清理、快照凭据脱敏。
 - T10：管理 API 端到端、公开错误限界、静态资源/DOM、字号一致性、已裁剪入口、multi-sense 兼容。
-- [!] 真实服务发现 10 条历史记忆任务处于 `dead`，均为 `OpenViking Session write failed`。追踪显示运行进程仍执行修复前的 `adapter.py`；磁盘代码已是修复版，必须重载 Humanize 后才能完成 T05/T06 真实会话复测。
+- [!] 真实服务发现 10 条历史记忆任务处于 `dead`，均为 `OpenViking Session write failed`。根因是服务进程仍执行修复前的 `adapter.py`；历史任务负载已按隐私设计清空，不能重放。
+- [x] 已受控重启远端服务：先确认旧 Python 进程与 `6185` 端口退出，再启动新实例；首页恢复 HTTP `200`，最新 Humanize 初始化记录为 `memory state=ready`、`reason=local_identity_secret`，无 OpenViking 初始化错误。
 - [x] Headless Edge 验证远端 Dashboard 登录页：桌面 `1440×900`、真实移动 viewport `412×915` 均正常渲染且无水平溢出。
 - [~] 服务首页 HTTP `200`，未鉴权管理 API 均返回 `401`；因此尚未以真实登录态完成 T01/T07-T10 的浏览器交互、窄屏和失败态验收。
 
@@ -175,6 +176,6 @@
 
 - [x] 在远端运行完整 Python、静态 JavaScript 和格式/检查工具。
 - [x] 为 T01-T10 各记录至少三组基础/极限场景的命令、结果和缺陷。
-- [!] 重载远端 Humanize，发送新的真实会话并复测 `Session append -> commit -> memory diff -> L0/L1/L2 -> recall`；历史 `dead` 任务负载已按隐私设计清空，不能重放。
+- [~] 在新运行实例完成新的真实会话，复测 `Session append -> commit -> memory diff -> L0/L1/L2 -> recall`；历史 `dead` 任务负载已按隐私设计清空，不能重放。
 - [ ] 在真实浏览器验证全部 WebUI 视图、空态、失败态和窄屏布局。
 - [ ] 在已登录 Dashboard 下验证 settings、memory、jobs、recall debug、reply examples 和 prompt templates 的真实 API/交互；完成后更新 T01、T05-T10 状态。
