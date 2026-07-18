@@ -2,6 +2,7 @@ from __future__ import annotations
 
 import json
 from pathlib import Path
+from types import SimpleNamespace
 
 import pytest
 from humanize.openviking import (
@@ -316,6 +317,52 @@ async def test_session_fallback_ignores_semantic_recall_threshold(
     adapter.commit_turn(_payload())
 
     result = await OpenVikingRecallAdapter(workspace).recall(
+        query="下一步怎么安排",
+        agent_id="default",
+        scope_filters=(
+            {
+                "scope_type": "private_user",
+                "scope_hash": "b" * 64,
+                "subject_hash": "c" * 64,
+            },
+        ),
+        conversation_hash="d" * 64,
+        limit=5,
+        threshold=0.85,
+        max_chars=2_500,
+    )
+
+    assert result.included is True
+    assert result.item_count == 1
+    assert result.reason == "matched"
+
+
+@pytest.mark.asyncio
+async def test_session_fallback_keeps_threshold_floor_after_rerank(
+    tmp_path: Path,
+) -> None:
+    class LowScoreRerank:
+        embedding_enabled = False
+        rerank_enabled = True
+
+        async def rerank(
+            self,
+            query: str,
+            documents: tuple[str, ...],
+        ) -> tuple[SimpleNamespace, ...]:
+            del query
+            return tuple(
+                SimpleNamespace(index=index, score=0.01)
+                for index, _ in enumerate(documents)
+            )
+
+    adapter, workspace = _adapter(tmp_path)
+    adapter.commit_turn(_payload())
+
+    result = await OpenVikingRecallAdapter(
+        workspace,
+        LowScoreRerank(),  # type: ignore[arg-type]
+    ).recall(
         query="下一步怎么安排",
         agent_id="default",
         scope_filters=(
