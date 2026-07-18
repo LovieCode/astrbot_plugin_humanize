@@ -35,6 +35,8 @@ _IDENTITY_VERSION = "humanize-memory-v1"
 _ALLOWED_MEMORY_TYPES = {"profile", "preference", "entity", "event"}
 _ALLOWED_SCOPE_TYPES = {"global", "private_user", "group", "group_member"}
 _TOKEN_PATTERN = re.compile(r"^[A-Za-z0-9_-]+\.[A-Za-z0-9_-]+$")
+_DEFAULT_EXTRACTION_TIMEOUT_SECONDS = 120.0
+_MAX_EXTRACTION_TIMEOUT_SECONDS = 300.0
 
 
 @dataclass(frozen=True, slots=True)
@@ -1384,6 +1386,15 @@ class ChatMemoryService:
                 ET.SubElement(
                     replies, "Message"
                 ).text = f"[回合 {index + 1}] {str(message)[:8_000]}"
+        extraction_timeout = _DEFAULT_EXTRACTION_TIMEOUT_SECONDS
+        with contextlib.suppress(TypeError, ValueError):
+            extraction_timeout = max(
+                5.0,
+                min(
+                    _MAX_EXTRACTION_TIMEOUT_SECONDS,
+                    float(getattr(provider, "timeout", extraction_timeout)),
+                ),
+            )
         response = await asyncio.wait_for(
             provider.text_chat(
                 prompt=ET.tostring(
@@ -1399,7 +1410,7 @@ class ChatMemoryService:
                 extra_user_content_parts=[],
                 request_max_retries=1,
             ),
-            timeout=max(5.0, self._config.memory_recall_timeout_seconds * 10),
+            timeout=extraction_timeout,
         )
         if (
             getattr(response, "role", "") != "assistant"

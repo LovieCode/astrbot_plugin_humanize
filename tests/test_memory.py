@@ -6,6 +6,7 @@ import sqlite3
 from pathlib import Path
 from types import SimpleNamespace
 
+import humanize.memory as memory_module
 import pytest
 from humanize.config import PluginConfig
 from humanize.context.composer import ContextComposer
@@ -788,6 +789,54 @@ def test_zero_score_reply_example_is_not_injected_even_with_zero_threshold() -> 
         assert "无关回复" not in result.content
         assert debug["included"] is False
         assert debug["items"] == []
+
+    asyncio.run(scenario())
+
+
+def test_llm_extraction_uses_provider_timeout_not_recall_budget(monkeypatch) -> None:
+    class Extractor:
+        timeout = 120
+
+        async def text_chat(self, **kwargs):
+            del kwargs
+            return SimpleNamespace(
+                role="assistant",
+                tools_call_name=None,
+                tools_call_args=None,
+                completion_text="[]",
+            )
+
+    class ProviderContext:
+        def get_provider_by_id(self, provider_id: str):
+            assert provider_id == "extractor"
+            return Extractor()
+
+    class Repository:
+        async def get_prompt_templates(self):
+            return {"templates": {}}
+
+    async def scenario() -> None:
+        observed_timeouts: list[float] = []
+        original_wait_for = asyncio.wait_for
+
+        async def capture_timeout(awaitable, timeout):
+            observed_timeouts.append(float(timeout))
+            return await original_wait_for(awaitable, timeout)
+
+        monkeypatch.setattr(memory_module.asyncio, "wait_for", capture_timeout)
+        service = ChatMemoryService(
+            PluginConfig.from_mapping(
+                {
+                    "memory_extraction_provider_id": "extractor",
+                    "memory_recall_timeout_seconds": 1.5,
+                }
+            ),
+            Repository(),  # type: ignore[arg-type]
+            ProviderContext(),
+        )
+
+        assert await service._llm_candidates_batch([{"user_text": "测试"}]) == []
+        assert observed_timeouts == [120.0]
 
     asyncio.run(scenario())
 
