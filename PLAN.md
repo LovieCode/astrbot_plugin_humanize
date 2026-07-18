@@ -79,6 +79,7 @@
 - 内置 Message、Session、Memory、merge、Memory Link 和 L0/L1/L2 最小内核。
 - 实现 workspace 原子写、跨实例锁、损坏恢复和重试幂等。
 - 实现 AstrBot Provider Bridge、分层召回和读取后二次过滤。
+- 当没有命中长期记忆时，从同一 Agent、作用域、主体和会话的 OpenViking L0/L1 commit 提供受限连续对话兜底；长期记忆命中时保持优先，L2 原文不直接注入。
 - 实现 OpenViking 管理适配器、稳定记忆 ID、无正文审计和 Web API 接口。
 - 聊天记忆读写和管理切换为 OpenViking 单一路径，故障时 fail-open。
 - 删除旧数据迁移、shadow、cutover 和 SQLite recall fallback 过渡层。
@@ -176,6 +177,8 @@
 - [~] 重启后无正文队列监控 120 秒：基线仍为 `completed:10, dead:10`，未观测到新的真实会话，因此尚无新任务可用于验证实时写入/召回。
 - [x] 重启后真实会话链路：新任务 `#21` 于 `18:07` 入队，在单条空闲批处理约 180 秒后于 `18:10` 完成；无错误，OpenViking Session 的 L0/L1/L2 文件和 commit 已写入。全程仅查询任务和文件计数，未读取聊天正文。
 - [!] 该真实会话未产生可接受的长期记忆候选：workspace 当前 `memory_files=0`、`memory_diffs=0`，后续请求的 `memory_context` 为 `no_match`。这不是触发或写入失败；需要用已选择的提取 Provider 或命中保守规则的事实型消息，继续完成语义记忆与召回验收。
+- [x] 修复 Session 连续对话召回空洞并部署：没有命中长期记忆时，只读取当前同一 Agent/作用域/主体/会话的 L0/L1 commit；语义长期记忆仍优先，L2 原文不直接注入。新增 5 个基础/隔离/损坏/优先级极限测试，本地 `238 passed, 1 warning`，远端定向 `11 passed`、Ruff 与 JavaScript 检查通过。
+- [x] 部署后服务已受控重启：新 Python 进程于 `18:47` 启动，Humanize `memory state=ready`，首页 HTTP `200`。远端完整插件回归为 `238 passed, 1 warning`，Ruff `69 files already formatted`；父仓库 `git diff --check` 的失败仅来自未触及 Dashboard 文件的既有 CRLF/trailing-whitespace 差异，未修改该范围。
 - [x] Headless Edge 验证远端 Dashboard 登录页：桌面 `1440×900`、真实移动 viewport `412×915` 均正常渲染且无水平溢出。
 - [~] 服务首页 HTTP `200`，未鉴权管理 API 均返回 `401`；因此尚未以真实登录态完成 T01/T07-T10 的浏览器交互、窄屏和失败态验收。
 
@@ -183,6 +186,6 @@
 
 - [x] 在远端运行完整 Python、静态 JavaScript 和格式/检查工具。
 - [x] 为 T01-T10 各记录至少三组基础/极限场景的命令、结果和缺陷。
-- [~] 在新运行实例完成语义记忆与召回复测：Session append/commit/L0/L1/L2 已通过；仍需产生一个可接受候选并确认 memory diff、长期记忆和 recall。历史 `dead` 任务负载已按隐私设计清空，不能重放。
+- [~] 在新运行实例完成一次真实对话的 Session fallback 复测，并完成语义记忆与召回复测：Session append/commit/L0/L1/L2 与受控 fallback 已通过；仍需产生一个可接受候选并确认 memory diff、长期记忆和 recall。历史 `dead` 任务负载已按隐私设计清空，不能重放。
 - [ ] 在真实浏览器验证全部 WebUI 视图、空态、失败态和窄屏布局。
 - [ ] 在已登录 Dashboard 下验证 settings、memory、jobs、recall debug、reply examples 和 prompt templates 的真实 API/交互；完成后更新 T01、T05-T10 状态。
