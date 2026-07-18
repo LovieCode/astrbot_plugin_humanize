@@ -57,6 +57,7 @@ class PluginConfig:
     admin_name: str = "管理员"
     admin_qq_ids: tuple[str, ...] = ()
     max_message_chars: int = 10
+    message_interval_seconds: float = 0.8
     protocol_enabled: bool = True
     protocol_injection_mode: str = "user"
     protocol_version: int = 1
@@ -115,6 +116,9 @@ class PluginConfig:
             admin_name=str(data.get("admin_name") or "管理员").strip() or "管理员",
             admin_qq_ids=_as_string_list(data.get("admin_qq_ids")),
             max_message_chars=_as_int(data.get("max_message_chars"), 10, 1, 200),
+            message_interval_seconds=_as_float(
+                data.get("message_interval_seconds"), 0.8, 0.0, 10.0
+            ),
             protocol_enabled=_as_bool(data.get("protocol_enabled"), True),
             protocol_injection_mode=protocol_injection_mode,
             protocol_version=_as_int(data.get("protocol_version"), 1, 1, 99),
@@ -211,6 +215,7 @@ class PluginConfig:
             "admin_name": self.admin_name,
             "admin_qq_ids": list(self.admin_qq_ids),
             "max_message_chars": self.max_message_chars,
+            "message_interval_seconds": self.message_interval_seconds,
             "protocol_enabled": self.protocol_enabled,
             "protocol_injection_mode": self.protocol_injection_mode,
             "protocol_version": self.protocol_version,

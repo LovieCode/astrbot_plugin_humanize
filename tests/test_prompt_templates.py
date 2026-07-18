@@ -9,7 +9,13 @@ from typing import Any
 import pytest
 from humanize.config import PluginConfig
 from humanize.domain.models import MessageContext
-from humanize.domain.prompts import PromptTemplates
+from humanize.domain.prompts import (
+    DEFAULT_PROTOCOL_TEMPLATE,
+    DEFAULT_REPAIR_TEMPLATE,
+    LEGACY_PROTOCOL_TEMPLATE,
+    LEGACY_REPAIR_TEMPLATE,
+    PromptTemplates,
+)
 from humanize.protocol.envelope import EnvelopeBuilder
 from humanize.repositories.sqlite import _SCHEMA_VERSION, SQLiteRepository
 from humanize.web.routes import WebApi
@@ -147,6 +153,63 @@ def test_envelope_renders_only_declared_double_brace_variables() -> None:
     assert templates.render("reply_examples", {"examples": "<Example />"}) == (
         "<ReplyExamples><Example /></ReplyExamples>"
     )
+
+
+def test_default_protocol_template_distinguishes_message_tags_and_unknown_terms() -> None:
+    assert "换行只是同一条消息的内容，不是消息边界" in DEFAULT_PROTOCOL_TEMPLATE
+    assert "不是模型自我知识测验" in DEFAULT_PROTOCOL_TEMPLATE
+    assert "不要因为自己能够解释一个词就默认写 []" in DEFAULT_PROTOCOL_TEMPLATE
+    assert "不是模型自我知识测验" in DEFAULT_REPAIR_TEMPLATE
+    assert "不要把 [] 当作默认答案" in DEFAULT_REPAIR_TEMPLATE
+
+
+def test_migration_updates_only_unmodified_legacy_protocol_templates(
+    tmp_path: Path,
+) -> None:
+    async def scenario() -> None:
+        db_path = tmp_path / "humanize.db"
+        repository = SQLiteRepository(db_path)
+        await repository.initialize()
+
+        with sqlite3.connect(db_path) as connection:
+            connection.execute(
+                "UPDATE humanize_prompt_templates "
+                "SET protocol_content = ?, repair_content = ?",
+                (LEGACY_PROTOCOL_TEMPLATE, LEGACY_REPAIR_TEMPLATE),
+            )
+            connection.execute("PRAGMA user_version = 21")
+            connection.commit()
+
+        upgraded = SQLiteRepository(db_path)
+        await upgraded.initialize()
+        assert (await upgraded.get_prompt_templates())["templates"][
+            "protocol"
+        ] == DEFAULT_PROTOCOL_TEMPLATE
+        assert (await upgraded.get_prompt_templates())["templates"][
+            "repair"
+        ] == DEFAULT_REPAIR_TEMPLATE
+
+        custom_protocol = "自定义协议 {{version}}/{{max_chars}}"
+        custom_repair = "自定义修复 {{version}}/{{required_action}}"
+        with sqlite3.connect(db_path) as connection:
+            connection.execute(
+                "UPDATE humanize_prompt_templates "
+                "SET protocol_content = ?, repair_content = ?",
+                (custom_protocol, custom_repair),
+            )
+            connection.execute("PRAGMA user_version = 21")
+            connection.commit()
+
+        preserved = SQLiteRepository(db_path)
+        await preserved.initialize()
+        assert (await preserved.get_prompt_templates())["templates"][
+            "protocol"
+        ] == custom_protocol
+        assert (await preserved.get_prompt_templates())["templates"]["repair"] == (
+            custom_repair
+        )
+
+    asyncio.run(scenario())
 
 
 def test_prompt_template_validation_rejects_unsafe_placeholders() -> None:

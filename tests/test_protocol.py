@@ -114,6 +114,32 @@ def test_reply_block_preserves_multiple_message_children() -> None:
     assert decision.messages == ("第一条", "第二条")
 
 
+def test_plain_short_lines_recover_as_multiple_messages() -> None:
+    decision = ProtocolParser(PluginConfig(max_message_chars=5)).parse(
+        _response(body="第一条\n第二条")
+    )
+
+    assert decision.messages == ("第一条", "第二条")
+
+
+@pytest.mark.parametrize(
+    "body",
+    [
+        "第一条\n\n第二段",
+        "- 第一条\n- 第二条",
+        "```text\n第一条\n第二条\n```",
+        "超过五个字符\n第二条",
+        '{"第一条": 1}\n{"第二条": 2}',
+    ],
+)
+def test_plain_formatted_or_long_lines_stay_one_message(body: str) -> None:
+    decision = ProtocolParser(PluginConfig(max_message_chars=5)).parse(
+        _response(body=body)
+    )
+
+    assert decision.messages == (body,)
+
+
 @pytest.mark.parametrize("newline", ["\n", "\r\n", "\r"])
 def test_reply_block_ignores_outer_framing_blank_line(newline: str) -> None:
     raw = (

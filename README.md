@@ -48,7 +48,7 @@
 {"word":"黑话","guess":"当前上下文中的含义","confidence":0.86,"reason":"简短依据"}
 ```
 
-普通发言默认每条不超过 10 个可见字符，超过时使用多个 `Message`。代码、Markdown、日志、命令、教程和结构化数据不受该日常分条规则限制。
+普通发言默认每条不超过 10 个可见字符，超过时使用多个 `Message`。连续的短纯文本行漏写标签时，插件会按同样规则兼容拆分；代码、Markdown、日志、命令、教程和结构化数据不受该日常分条规则限制。
 
 ## Context Composer
 
@@ -115,6 +115,7 @@ OpenViking workspace 只保存 HMAC 派生的作用域，不保存原始 QQ、�
 | --- | --- | --- |
 | `protocol_injection_mode` | `user` | `user` 仅临时用户注入；`both` 同时保留 system 副本 |
 | `max_message_chars` | `10` | 普通发言单条字符限制 |
+| `message_interval_seconds` | `0.8` | 同次多条消息的相邻发送间隔；`0` 表示不等待 |
 | `memory_enabled` | `true` | 启用内置长期记忆 |
 | `memory_auto_extract_enabled` | `true` | 发送成功后创建后台提取任务 |
 | `memory_extraction_provider_id` | 空 | 可选 Chat Provider；空值只做规则提取 |

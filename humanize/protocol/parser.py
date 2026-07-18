@@ -27,6 +27,13 @@ _MESSAGE_PATTERN = re.compile(r"<Message>(?P<body>[\s\S]*?)</Message>")
 _PROTOCOL_BODY_MARKER_PATTERN = re.compile(
     r"<\s*/?\s*(?:Action|UnknownTerms|Reply|Message)\b", re.IGNORECASE
 )
+_STRUCTURED_REPLY_LINE_PATTERN = re.compile(
+    r"^\s*(?:"
+    r"#{1,6}(?:\s|$)|[-+*]\s+|>\s?|(?:\d+|[A-Za-z])[.)]\s+|\||"
+    r"\[[A-Za-z][A-Za-z0-9 _-]{1,}\]|(?:\d{4}-\d{2}-\d{2}|\d{1,2}:\d{2}(?::\d{2})?)\b|"
+    r"(?:https?://|www\.)"
+    r")"
+)
 
 
 class ProtocolParser:
@@ -103,8 +110,7 @@ class ProtocolParser:
             unknown_terms=unknown_terms,
         )
 
-    @staticmethod
-    def _parse_reply_body(reply_body: str) -> tuple[str, ...]:
+    def _parse_reply_body(self, reply_body: str) -> tuple[str, ...]:
         """Parse one plain body or a Reply block with Message children.
 
         Args:
@@ -124,7 +130,7 @@ class ProtocolParser:
                     "invalid_reply_block",
                     "Protocol control tags must not appear in a plain reply body",
                 )
-            return (reply_body,) if reply_body.strip() else ()
+            return self._parse_plain_reply_body(reply_body)
 
         inner = block.group("inner")
         messages: list[str] = []
@@ -151,6 +157,38 @@ class ProtocolParser:
                 "invalid_reply_block", "Reply may contain only Message tags"
             )
         return tuple(messages)
+
+    def _parse_plain_reply_body(self, reply_body: str) -> tuple[str, ...]:
+        """Preserve formatted text and recover short untagged chat messages.
+
+        A model occasionally uses a newline as a message boundary even though the
+        protocol requires ``Reply/Message`` tags. Only consecutive short lines
+        without recognizable formatting are safe to recover as separate outbound
+        messages. Everything else stays intact as one message.
+
+        Args:
+            reply_body: Plain text following the control header.
+
+        Returns:
+            One preserved body or recovered short chat messages.
+        """
+        if not reply_body.strip():
+            return ()
+        lines = reply_body.splitlines()
+        if len(lines) < 2 or any(not line.strip() for line in lines):
+            return (reply_body,)
+        messages = tuple(line.strip() for line in lines)
+        if (
+            any(len(message) > self._config.max_message_chars for message in messages)
+            or any("```" in line or "~~~" in line for line in lines)
+            or any(
+                line.lstrip().startswith(("{", "[", "<"))
+                or _STRUCTURED_REPLY_LINE_PATTERN.match(line)
+                for line in lines
+            )
+        ):
+            return (reply_body,)
+        return messages
 
     @staticmethod
     def extract_repair_body(raw_output: str) -> str | None:

@@ -33,6 +33,7 @@
         { key: "admin_name", label: "管理员称呼", kind: "text" },
         { key: "admin_qq_ids", label: "管理员 QQ 列表", kind: "list" },
         { key: "max_message_chars", label: "单条消息字数上限", kind: "int" },
+        { key: "message_interval_seconds", label: "多条消息间隔", kind: "duration" },
       ],
     },
     {

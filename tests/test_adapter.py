@@ -4,6 +4,7 @@ import asyncio
 import hashlib
 from types import SimpleNamespace
 
+from astrbot_plugin_humanize import main as humanize_main
 from astrbot_plugin_humanize.humanize.config import PluginConfig
 from astrbot_plugin_humanize.humanize.domain.errors import ProtocolValidationError
 from astrbot_plugin_humanize.humanize.domain.models import (
@@ -845,6 +846,40 @@ def test_tool_stage_never_sends_control_tags_returned_by_the_service() -> None:
         assert service.failures[0]["error_code"] == "tool_response_control_tag_leak"
         assert service.failures[0]["messages"] == ()
 
+    asyncio.run(scenario())
+
+
+def test_multi_message_dispatch_waits_between_sends(monkeypatch) -> None:
+    timeline: list[tuple[str, str | float]] = []
+
+    class TrackingEvent(_FakeEvent):
+        async def send(self, chain: MessageChain | None) -> None:
+            assert chain is not None
+            timeline.append(("send", chain.get_plain_text()))
+            await super().send(chain)
+
+    async def fake_sleep(seconds: float) -> None:
+        timeline.append(("sleep", seconds))
+
+    async def scenario() -> None:
+        plugin = HumanizePlugin(
+            SimpleNamespace(),
+            {"general": {"message_interval_seconds": 0.8}},
+        )
+        event = TrackingEvent()
+
+        await plugin._send_messages(event, ("第一条", "第二条", "第三条"))
+
+        assert event.sent == ["第一条", "第二条", "第三条"]
+        assert timeline == [
+            ("send", "第一条"),
+            ("sleep", 0.8),
+            ("send", "第二条"),
+            ("sleep", 0.8),
+            ("send", "第三条"),
+        ]
+
+    monkeypatch.setattr(humanize_main.asyncio, "sleep", fake_sleep)
     asyncio.run(scenario())
 
 

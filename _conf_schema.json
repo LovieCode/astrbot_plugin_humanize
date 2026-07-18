@@ -37,6 +37,15 @@
         "maximum": 200,
         "slider": {"min": 1, "max": 200, "step": 1},
         "hint": "普通发言每条不得超过此字数，超出时要求另起一条消息。代码和格式化文本不受此限制。"
+      },
+      "message_interval_seconds": {
+        "description": "多条消息发送间隔（秒）",
+        "type": "float",
+        "default": 0.8,
+        "minimum": 0.0,
+        "maximum": 10.0,
+        "slider": {"min": 0.0, "max": 10.0, "step": 0.1},
+        "hint": "同一次回复拆成多条时，首条立即发送，后续每条等待该时长；设为 0 可关闭间隔。"
       }
     }
   },

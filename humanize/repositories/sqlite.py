@@ -19,13 +19,17 @@ from ..domain.models import (
     MessageContext,
     UnknownTerm,
 )
-from ..domain.prompts import PromptTemplates
+from ..domain.prompts import (
+    LEGACY_PROTOCOL_TEMPLATE,
+    LEGACY_REPAIR_TEMPLATE,
+    PromptTemplates,
+)
 from ..jargon.normalizer import normalize_term
 
 T = TypeVar("T")
 
 
-_SCHEMA_VERSION = 21
+_SCHEMA_VERSION = 23
 _CONTEXT_PREVIEW_CHARS = 1_000
 _SCHEMA = """
 CREATE TABLE IF NOT EXISTS jargon_entries (
@@ -4944,6 +4948,20 @@ class SQLiteRepository:
                 "WHERE reply_examples_content = ''",
                 (PromptTemplates().reply_examples,),
             )
+            if version < 22:
+                conn.execute(
+                    "UPDATE humanize_prompt_templates "
+                    "SET protocol_content = ?, updated_at = ? "
+                    "WHERE protocol_content = ?",
+                    (PromptTemplates().protocol, now, LEGACY_PROTOCOL_TEMPLATE),
+                )
+            if version < 23:
+                conn.execute(
+                    "UPDATE humanize_prompt_templates "
+                    "SET repair_content = ?, updated_at = ? "
+                    "WHERE repair_content = ?",
+                    (PromptTemplates().repair, now, LEGACY_REPAIR_TEMPLATE),
+                )
 
         if self._fts_available and version < 18:
             conn.execute("DELETE FROM humanize_reply_example_fts")

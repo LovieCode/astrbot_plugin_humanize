@@ -1940,7 +1940,9 @@ class HumanizePlugin(Star):
             if event.get_extra(_SEND_GATE_KEY, False):
                 raise RuntimeError("outbound send gate is missing its original sender")
             sender = event.send
-        for message in messages:
+        for index, message in enumerate(messages):
+            if index and self._plugin_config.message_interval_seconds:
+                await asyncio.sleep(self._plugin_config.message_interval_seconds)
             await sender(MessageChain([Plain(message)]))
             dispatched = event.get_extra(_DISPATCHED_MESSAGES_KEY, [])
             if not isinstance(dispatched, list):

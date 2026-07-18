@@ -86,6 +86,11 @@ def test_schema_keeps_common_controls_visible_and_details_collapsed() -> None:
         "max": 200,
         "step": 1,
     }
+    assert _items(schema, "general")["message_interval_seconds"]["slider"] == {
+        "min": 0.0,
+        "max": 10.0,
+        "step": 0.1,
+    }
     assert all(reply_control[field]["collapsed"] is True for field in advanced_fields)
     assert memory["memory_rerank_provider_id"]["collapsed"] is True
     assert memory["memory_recall_timeout_seconds"]["collapsed"] is True
@@ -106,6 +111,7 @@ def test_grouped_schema_defaults_are_flattened_for_runtime_config(
 
     assert list(ui_config) == ["general", "reply_control", "memory"]
     assert config.max_message_chars == 10
+    assert config.message_interval_seconds == 0.8
     assert config.protocol_injection_mode == "user"
     assert config.memory_enabled is True
     assert config.memory_embedding_provider_id == ""
