@@ -159,6 +159,29 @@
   }
 
   /**
+   * Wire the mobile topbar menu button to toggle the sidebar.
+   * Desktop keeps the button hidden via CSS, so this is a no-op there.
+   */
+  function setupMobileNavToggle() {
+    const menuBtn = document.getElementById("topbar-menu-btn");
+    const sidebar = document.getElementById("sidebar");
+    if (!menuBtn || !sidebar) return;
+    menuBtn.addEventListener("click", () => {
+      const open = sidebar.dataset.mobileOpen === "true";
+      sidebar.dataset.mobileOpen = open ? "false" : "true";
+      menuBtn.setAttribute("aria-expanded", String(!open));
+    });
+  }
+
+  /** Close the mobile sidebar (called on every navigation). */
+  function closeMobileNav() {
+    const sidebar = document.getElementById("sidebar");
+    const menuBtn = document.getElementById("topbar-menu-btn");
+    if (sidebar) sidebar.dataset.mobileOpen = "false";
+    if (menuBtn) menuBtn.setAttribute("aria-expanded", "false");
+  }
+
+  /**
    * Navigate to a view by key. Unmounts current view, mounts target view.
    * Honors epoch to drop stale async mounts.
    * @param {string} key
@@ -167,6 +190,7 @@
     if (!NAV_ITEMS.some((item) => item.key === key)) {
       key = "overview";
     }
+    closeMobileNav();
     if (currentView && currentView.key === key) {
       if (global.location.hash !== `#/${key}`) {
         global.location.hash = `#/${key}`;
@@ -241,6 +265,7 @@
     booting = true;
 
     renderSidebar();
+    setupMobileNavToggle();
 
     const app = document.getElementById("app");
     if (app) app.dataset.viewLoading = "false";
