@@ -101,7 +101,7 @@ SDK-only regression and the narrow protocol probe are already reproducible:
 ```bash
 cd D:/Code/Python/_root/SDKs/astrbot-sdk
 uv sync --extra dev
-uv run pytest -q
+.venv/Scripts/python.exe -m pytest -q --basetemp=.pytest-tmp-sdk
 
 cd D:/Code/Python/_root/AstrBot/data/plugins/astrbot_plugin_humanize
 ASTRBOT_SDK_PATH=D:/Code/Python/_root/SDKs/astrbot-sdk \
@@ -128,6 +128,10 @@ ASTRBOT_SDK_PATH=D:/Code/Python/_root/SDKs/astrbot-sdk \
 
 Do not substitute AstrBot's running environment or production data directory
 for `.venv-humanize` or the pytest-owned database.
+
+On this Windows/Git Bash setup, do not use `uv run pytest`: the uv trampoline
+cannot canonicalize the script path. SDK tests also need an SDK-workspace
+`--basetemp` because the system pytest temp directory is not writable.
 
 ## Boundaries and Risks
 
