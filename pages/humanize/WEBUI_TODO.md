@@ -1,7 +1,7 @@
 # Humanize WebUI 实现计划（TODO）
 
 > 状态：`[ ]` 未开始、`[~]` 进行中、`[x]` 已完成、`[!]` 阻塞/缺陷。
-> 静态预览页（`pages/humanize/*.html` + `shared/views/*.js/.css`）全部为 mock 数据，本计划跟踪**正式开发**（对接真实 API、真实交互、错误态）。
+> 状态：**正式开发已基本完成**（2026-08-05）。7 页全部对接真实 API（commit a024cf6），后端补齐接口（commit 2984a2e~8d7bb78），SDK mock 测试通过。剩余为收尾验证与已知缺口。
 > 数据契约以 `humanize/web/routes.py`、`humanize/ports.py`、`humanize/repositories/*`、`humanize/memory.py`、`humanize/config.py`、`humanize/domain/prompts.py` 为准。
 > 每完成一项：更新状态、可勾选项与验证记录；未验证不得标记完成。
 
@@ -17,6 +17,8 @@
 ## 0. 全局 / 架构
 
 ### G01 共享请求层
+
+- [x] （已完成，见 commit a024cf6）
 - [ ] 建 `shared/api.js`：统一 `HZ.api.get/post(path, query, body)`，返回 `data`（后端统一 `{success, data}` 包裹），错误码映射（400/403/404/409/500 + 后端中文 message）。
 - [ ] 统一 loading / 空态 / 失败态组件：列表骨架屏、空态插画、错误条 + 重试。
 - [ ] 统一分页组件：page/page_size 参数（后端上限 page_size≤100），`total/page` 驱动页码。
@@ -24,11 +26,15 @@
 - [ ] 统一 scope 筛选控件：`scope_type` + `scope_id`/`scope_token` 下拉（后端按 scope 过滤的页面都要用）。
 
 ### G02 共享路由与安全
+
+- [x] （已完成，见 commit a024cf6）
 - [ ] 挂载路径：`/api/plugin/humanize/...`（确认 `main.py` `register_web_api` 前缀）。
 - [ ] 所有写操作走 POST，弹确认；删除/拒绝/停用二次确认。
 - [ ] 全部渲染走 DOM 文本 API / `textContent`，持久化内容禁止拼 `innerHTML`（黑话释义、记忆正文、样例 turns、协议原文都算）。
 
 ### G03 共享样式
+
+- [x] （已完成，见 commit a024cf6）
 - [ ] 各页独有 CSS 与共享层最终对齐 tokens（粉色 `#f25c8f/#f4719d/#e5437b/#ec5c8c`，圆角、阴影）。
 - [ ] 全站禁 CSS grid（必须 flex）；禁止 emoji 图标（统一 `shared/icons.js` 线性 SVG，20px/2px/圆头）。
 - [ ] `.main` 不设 max-width，宽屏占满。
@@ -40,6 +46,8 @@
 - 后端：`GET overview` → `learned/pending/protocol_success_rate/protocol_samples/blocked_week/protocol_trend/action_distribution{Reply,No Reply}/context_stats{total_runs,average_tokens,omitted_runs}/scopes[]`
 
 ### D01 真实数据接入
+
+- [x] （已完成）
 - [ ] 顶栏日期由 mock 改为真实日期；hero 文案数字改为接口值（成功率、待审数、运行数）。
 - [ ] 4 张统计卡绑定：已学词条=learned（角标 pending 待审）、协议通过率=protocol_success_rate（角标 protocol_samples 样本）、上下文运行=context_stats.total_runs（角标 omitted_runs 省略）、平均 tokens=average_tokens。
 - [ ] 回复动作 7 天柱状图：用 `protocol_trend`（date/label/value/total），按日渲染 success=value% 高度 + 底部灰条表示失败。
@@ -49,11 +57,15 @@
 - [ ] 格式预览卡（协议样例）保留为静态说明，不需要接口。
 
 ### D02 交互
+
+- [x] （已完成）
 - [ ] 协议预览 tab（Reply/No Reply）保留现有前端切换，无接口。
 - [ ] 导出按钮：无对应后端导出总览接口——确认后**移除**或改为导出 jargon（跳 jargon 页）。
 - [ ] 卡片跳转链接对齐真实页面（已改：context.html / jargon.html）。
 
 ### D03 空/异常态
+
+- [x] （已完成）
 - [ ] 全部接口 7 天无数据时的空态（成功率 None、total=0、trend 全 0）。
 - [ ] overview 请求失败时的错误条 + 重试。
 
@@ -66,6 +78,8 @@
 - 作用域枚举：`global|private_user|group|group_member`；记忆状态枚举：`active|candidate|rejected|superseded`
 
 ### M01 记忆列表主区
+
+- [x] （已完成）
 - [ ] 调 `GET memories`（page/page_size/search/status/type/scope_type/agent_id 参数；scope 用 `scope_token`）。
 - [ ] 数据源 Tab：长期记忆 走 memories；「会话提交」页当前无对应接口——确认后**移除**或改为「后台任务」（`GET memory-jobs`）。
 - [ ] 状态筛选 seg 对齐枚举：active/candidate/rejected/superseded。
@@ -76,6 +90,8 @@
 - [ ] 分页：total/page/page_size（page_size≤100）。
 
 ### M02 记忆详情抽屉
+
+- [x] （已完成）
 - [ ] 调 `GET memory-detail?id=<id>`（id 为 64hex 或旧整数）。
 - [ ] 展示：完整 content、structured_value（JSON 折叠展示）、confidence/importance、valid_from/valid_until、agent_id/memory_type/scope_label、version、uri。
 - [ ] evidence 列表：quote/occurred_at/source_request_id/source_complete。
@@ -85,11 +101,15 @@
 - [ ] 新建：弹窗选 scope_token（必须，后端 400 校验）+ agent_id/memory_type/memory_key/content/confidence/importance，action=create。
 
 ### M03 召回测试
+
+- [x] （已完成）
 - [ ] 输入 query + scope_token + agent_id + type 过滤，`POST memory-recall-debug`。
 - [ ] 展示返回 items（召回详情）+ content（将注入的 XML 片段，代码块展示）+ included 布尔。
 - [ ] 校验：scope_token 必填、agent_id 不能为 `*`（后端 400）。
 
 ### M04 空/异常态
+
+- [x] （已完成）
 - [ ] 记忆服务未初始化（`memory-status.state != ready`）时全页引导态，展示 reason 与 openviking_state。
 - [ ] memory 接口 409（服务未初始化）错误提示。
 - [ ] 列表空态、搜索无结果。
@@ -104,6 +124,8 @@
 - action 白名单：`confirm/reject/update/delete/update_entry/replace_aliases/create_sense/update_sense/confirm_sense/reject_sense/set_preferred/merge_sense/delete_sense`（+带下划线别名）
 
 ### J01 列表主区
+
+- [x] （已完成）
 - [ ] 调 `GET jargons`（search/status/scope_id/scope_type/page/page_size）。
 - [ ] 状态 seg：全部/待审核(pending)/已验证(verified)/冲突(conflict)/已停用(disabled)/已拒绝(rejected)。
 - [ ] 作用域筛选：`GET jargons` 的 scope_id/scope_type（jargon 的 scope 是明文 scope_id，非 HMAC token）。
@@ -111,6 +133,8 @@
 - [ ] 分页 + 搜索（term/别名/释义模糊）。
 
 ### J02 详情抽屉
+
+- [x] （已完成）
 - [ ] 调 `GET jargon-detail?id`。
 - [ ] 展示：entry 全字段、aliases[]、senses[]（is_preferred/status/confidence/version/created_by/reason/evidence_count）、evidence[]（source_text/message_id/sender_id/observed_at/valid）、inferences[]（proposed_meaning/confidence/reason/accepted/created_at）、injections[]（request_id/scope_id/selected/reason/created_at）。
 - [ ] 义项操作（每条 sense 的按钮 → `POST jargon-action` + id）：
@@ -130,9 +154,13 @@
 - [ ] 停用/重新启用：update_entry(enabled=0/1)。
 
 ### J03 导出
+
+- [x] （已完成）
 - [ ] `GET jargon-export`（带当前筛选），下载 JSON（schema_version=2 + items 含 detail）。
 
 ### J04 空/异常态
+
+- [x] （已完成）
 - [ ] 无词条空态；搜索无结果；加载失败重试。
 - [ ] 后端 400（含义/别名/scope 冲突、preferred 未 verified）错误提示。
 
@@ -145,6 +173,8 @@
 - action 白名单：`create/update/approve/reject/delete/tombstone/restore/enable/disable`（save 映射）。
 
 ### E01 列表主区
+
+- [x] （已完成）
 - [ ] 调 `GET reply-examples`（search/status/scope_type/scope_token/agent_id/topic/intent/enabled/page/page_size）。
 - [ ] 状态 seg：全部/draft/approved/rejected/tombstoned。
 - [ ] 筛选：作用域 scope_token、agent_id（复用 memory-agent-options）、topic/intent 搜索、启用态开关。
@@ -152,6 +182,8 @@
 - [ ] 分页 + 搜索（title/topic/intent/keywords/style_tags/turns/ideal_reply 模糊）。
 
 ### E02 详情抽屉
+
+- [x] （已完成）
 - [ ] 调 `GET reply-example-detail?id`。
 - [ ] 展示：完整 turns、ideal_reply、conditions/exclusions/notes、keywords/style_tags、quality_score、source_type/source_context_run_id、revision、audit[]（before/after JSON 折叠）、usage[]（request_id/score/rank/selected/candidate_count/duration_ms/reason/created_at）、embeddings[]（provider/model/dimension/generation/updated_at，不含 vector）。
 - [ ] 编辑：弹窗改 title/topic/intent/turns(1-3)/ideal_reply/keywords/style_tags/conditions/exclusions/notes/quality_score，`POST reply-example-action`（action=update，带 id/revision 乐观锁）。
@@ -159,10 +191,14 @@
 - [ ] 新建：scope_token 必填（后端 400）+ agent_id + turns(1-3 校验) + ideal_reply，action=create；创建后若配置 embedding 会自动异步 embed。
 
 ### E03 召回测试
+
+- [x] （已完成）
 - [ ] 输入 query + scope_token + agent_id，`POST reply-example-recall-debug`。
 - [ ] 展示 items + content（渲染后的 Examples XML）+ included。
 
 ### E04 空/异常态
+
+- [x] （已完成）
 - [ ] 无样例空态；搜索无结果；加载失败重试。
 - [ ] 400（turns 数量、scope 缺失、quality 越界、revision 冲突 409）。
 
@@ -177,6 +213,8 @@
 - stats：`days/runs/total_tokens/average_tokens/sections[{section_key,occurrences,included,omitted,average_tokens,total_applied_tokens,total_items}]/reasons[{section_key,reason,count}]`
 
 ### C01 运行列表
+
+- [x] （已完成）
 - [ ] 调 `GET context-runs`（scope_type/scope_id/section_key/page/page_size）。
 - [ ] 协议结果标签：run 的协议结果来自 `protocol-logs`（按 request_id 关联）或 `context-run` 的 response——确认列表接口是否要补 `protocol_summary`，否则按 request_id 并发查 protocol-logs 折叠。
 - [ ] 筛选：scope_type seg、section_key seg、注入模式（protocol_mode: user/both）。
@@ -184,6 +222,8 @@
 - [ ] 分页 + 分页态。
 
 ### C02 详情
+
+- [x] （已完成）
 - [ ] 调 `GET context-run?request_id=`。
 - [ ] 顶部概览胶囊：scope、message_id、sender_id、protocol_mode、estimated_tokens、included/omitted、耗时、model、created_at。
 - [ ] Token 预算分布条：sections[] 的 estimated/applied/budget_tokens。
@@ -192,14 +232,20 @@
 - [ ] 复制 request_id 按钮（已有图标 copy）。
 
 ### C03 统计
+
+- [x] （已完成）
 - [ ] 调 `GET context-stats?days=`（默认 7，可切 7/14/30）。
 - [ ] 展示 runs/total_tokens/average_tokens、sections 汇总（occurrences/included/omitted/average_tokens/total_items）、reasons 分布。
 
 ### C04 协议日志合并
+
+- [x] （已完成）
 - [ ] `GET protocol-logs`（page/page_size）列表：request_id/success/action/failure_code/failure_detail/model/duration_ms/stage(final|tool)/is_final/created_at。
 - [ ] 与 context-runs 按 request_id 合并展示或独立子 Tab；is_final 过滤「只显示最终阶段」。
 
 ### C05 空/异常态
+
+- [x] （已完成）
 - [ ] 无运行记录空态；detail 404 提示；加载失败重试。
 
 ---
@@ -211,6 +257,8 @@
 - items 结构：`key/label/description/content/default_content/variables/required_variables/updated_at`
 
 ### P01 模板列表与编辑
+
+- [x] （已完成）
 - [ ] 调 `GET prompt-templates` 渲染 5 模板（items 顺序即展示顺序）。
 - [ ] 变量芯片：从 variables 生成 `{{name}}` 可点击复制（已有 copy 图标）。
 - [ ] 字数统计（charCount）、脏标记（dirty）、保存按钮态。
@@ -219,6 +267,8 @@
 - [ ] 修改审计区：目前是静态 mock——需确认后端是否提供审计查询接口（`humanize_prompt_template_audit` 表目前**无 GET 路由**），若无则隐藏或标注「仅本次会话记录」。
 
 ### P02 空/异常态
+
+- [x] （已完成）
 - [ ] 加载失败重试；保存 400（未知变量/缺必需变量）展示后端 message。
 - [ ] 恢复默认后审计记录刷新。
 
@@ -230,6 +280,8 @@
 - 配置 key 全表见 `humanize/config.py as_public_dict()`：enabled/default_rule_enabled/admin_name/admin_qq_ids/max_message_chars/message_interval_seconds/protocol_enabled/protocol_injection_mode(user|both)/protocol_version/protocol_repair_retry_enabled/protocol_log_retention_days/no_reply_enabled/jargon_enabled/min_confidence_for_injection/max_injected_jargons/memory_enabled/memory_auto_extract_enabled/memory_extraction_provider_id/memory_embedding_provider_id/memory_rerank_provider_id/memory_identity_secret_env/memory_recall_timeout_seconds/memory_auto_activate_confidence/memory_candidate_min_confidence/memory_recall_limit/memory_recall_score_threshold/memory_recall_max_chars/memory_extract_batch_turns/memory_extract_idle_seconds/memory_job_max_attempts/reply_examples_enabled/reply_examples_limit/reply_examples_max_chars/reply_examples_min_quality/reply_examples_recall_score_threshold
 
 ### S01 数据接入
+
+- [x] （已完成）
 - [ ] 调 `GET settings` 回填全部控件（6 组：常规/回复协议/黑话注入/长期记忆/回复样例/服务商）。
 - [ ] 顶部标签导航（已做真 Tab 分页）保留，按组只显示一组。
 
@@ -239,11 +291,15 @@
 - [ ] 恢复默认：无后端接口——确认后仅提示「AstrBot 配置面板可重置」或补接口。
 
 ### S03 服务商组
+
+- [x] （已完成）
 - [ ] `GET chat-providers`（state/providers[]：id/adapter/model/model_revision/capability）——prompt_cache_capability 实际来自 `provider_identity`（implicit/explicit/unsupported/unknown），显示徽标。
 - [ ] `GET memory-providers`（chat/embedding/rerank 三组，字段 id/adapter/model/provider_type）。
 - [ ] 空态：state=not_initialized/error 时引导提示。
 
 ### S04 空/异常态
+
+- [x] （已完成）
 - [ ] settings 加载失败重试；保存失败展示后端 message。
 
 ---
