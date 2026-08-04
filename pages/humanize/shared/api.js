@@ -19,7 +19,38 @@
    */
   async function request(path, opts = {}) {
     const method = (opts.method || (opts.body !== undefined ? "POST" : "GET")).toUpperCase();
-    const url = new URL(HZ.api.baseUrl + String(path).replace(/^\/+/, ""), location.origin);
+    const cleanPath = String(path).replace(/^\/+/, "");
+
+    /* AstrBot Dashboard 插件页面（iframe）内：优先走 bridge，由父页面带登录态代发 */
+    const bridge =
+      (global.window && window.AstrBotPluginPage && typeof window.AstrBotPluginPage.apiGet === "function" &&
+        typeof window.AstrBotPluginPage.apiPost === "function")
+        ? window.AstrBotPluginPage
+        : null;
+    if (bridge && global.window && window.self !== window.top) {
+      const endpoint = "/api/v1/plugins/extensions/astrbot_plugin_humanize/" + cleanPath;
+      try {
+        const payload =
+          method === "GET"
+            ? await bridge.apiGet(endpoint, opts.query || {})
+            : await bridge.apiPost(endpoint, opts.body || {});
+        if (payload && payload.success === false) {
+          const err = new Error(String(payload.message || "操作失败"));
+          err.status = 400;
+          err.retryable = false;
+          throw err;
+        }
+        return payload && payload.success === true ? payload.data : payload;
+      } catch (e) {
+        if (e && e.status !== undefined) throw e;
+        const err = new Error(String((e && e.message) || "请求失败"));
+        err.status = (e && e.status) || 0;
+        err.retryable = false;
+        throw err;
+      }
+    }
+
+    const url = new URL(HZ.api.baseUrl + cleanPath, location.origin);
     if (opts.query) {
       Object.entries(opts.query).forEach(([k, v]) => {
         if (v !== undefined && v !== null && v !== "") url.searchParams.set(k, v);
