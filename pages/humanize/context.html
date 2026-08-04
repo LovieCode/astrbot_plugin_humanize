@@ -28,23 +28,25 @@
 
     <div class="topbar" id="topbar"></div>
 
-    <!-- 筛选 -->
+    <!-- 筛选：scope 为后端筛选参数；注入模式仅前端高亮（后端无 protocol_mode 筛选参数） -->
     <div class="cx-filter reveal">
       <div class="scope-seg">
-        <span class="seg-item active">全部 <span class="seg-count">36</span></span>
-        <span class="seg-item">群聊 <span class="seg-count">24</span></span>
-        <span class="seg-item">私聊 <span class="seg-count">12</span></span>
+        <span class="seg-item active" data-scope="">全部</span>
+        <span class="seg-item" data-scope="group">群聊</span>
+        <span class="seg-item" data-scope="private_user">私聊</span>
       </div>
-      <div class="scope-seg">
-        <span class="seg-item active">注入模式 both</span>
-        <span class="seg-item">temp_user</span>
+      <div class="scope-seg cx-mode-seg" title="注入模式：后端无 protocol_mode 筛选参数，仅展示高亮">
+        <span class="seg-item active" data-mode="both">注入模式 both</span>
+        <span class="seg-item" data-mode="temp_user">temp_user</span>
       </div>
+      <span class="cx-filter-hint">注入模式无筛选参数，仅展示</span>
     </div>
 
     <div class="cx-layout">
 
       <!-- 左：运行列表 -->
       <div class="cx-list-col reveal">
+        <div id="cxRunList">
         <div class="cx-run active">
           <div class="cx-run-top">
             <span class="cx-run-id">#a91f…c3</span>
@@ -114,10 +116,12 @@
             <span class="cx-inc"><span class="cx-inc-bar"><i style="width:100%"></i></span>5/5</span>
           </div>
         </div>
+        </div>
+        <div class="pager" id="cxPager" style="display:none"></div>
       </div>
 
       <!-- 右：运行详情 -->
-      <div class="cx-detail-col reveal">
+      <div class="cx-detail-col reveal" id="cxDetail">
 
         <!-- 运行概览 -->
         <div class="card cx-head-card">
@@ -399,7 +403,8 @@
         </div>
 
         <!-- 统计（随详情流） -->
-        <div class="cx-stats-row reveal">
+        <div class="cx-stats-wrap reveal" id="cxStats">
+      <div class="cx-stats-row">
       <div class="card">
         <div class="card-head"><span class="card-dot"></span><span class="card-title">区块纳入率（近 7 天）</span></div>
         <div class="cx-stat-bar-row"><span class="cx-sb-name">current_message</span><div class="cx-sb-bar"><i style="width:100%"></i></div><span class="cx-sb-num">100%</span></div>
@@ -424,6 +429,7 @@
         </div>
       </div>
         </div>
+      </div>
 
       </div>
     </div>
@@ -439,6 +445,7 @@
 
 <script src="shared/icons.js"></script>
 <script src="shared/ui.js"></script>
+<script src="shared/api.js"></script>
 <script>
 /* 将 data-icon 占位替换为共享图标 */
 document.querySelectorAll("[data-icon]").forEach((el) => {

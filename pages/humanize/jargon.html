@@ -31,17 +31,20 @@
     <!-- 筛选：作用域 + 状态 -->
     <div class="jg-filter reveal">
       <div class="scope-seg">
-        <span class="seg-item active">全部 <span class="seg-count">42</span></span>
-        <span class="seg-item">私聊 <span class="seg-count">15</span></span>
-        <span class="seg-item">群聊 <span class="seg-count">24</span></span>
-        <span class="seg-item">全局 <span class="seg-count">3</span></span>
+        <span class="seg-item active" data-scope="">全部 <span class="seg-count">42</span></span>
+        <span class="seg-item" data-scope="private_user">私聊 <span class="seg-count">15</span></span>
+        <span class="seg-item" data-scope="group">群聊 <span class="seg-count">24</span></span>
+        <span class="seg-item" data-scope="global">全局 <span class="seg-count">3</span></span>
       </div>
       <div class="scope-seg status-seg">
-        <span class="seg-item active">全部状态</span>
-        <span class="seg-item">verified</span>
-        <span class="seg-item">provisional</span>
-        <span class="seg-item">candidate</span>
-        <span class="seg-item">ambiguous</span>
+        <span class="seg-item active" data-status="">全部状态</span>
+        <span class="seg-item" data-status="pending">待审</span>
+        <span class="seg-item" data-status="verified">verified</span>
+        <span class="seg-item" data-status="candidate">candidate</span>
+        <span class="seg-item" data-status="ambiguous">ambiguous</span>
+        <span class="seg-item" data-status="conflict">冲突</span>
+        <span class="seg-item" data-status="disabled">停用</span>
+        <span class="seg-item" data-status="rejected">被拒</span>
       </div>
     </div>
 
@@ -49,7 +52,7 @@
 
       <!-- 词条列表 -->
       <div class="jg-main reveal">
-        <div class="jg-list">
+        <div class="jg-list" id="jgList">
 
           <div class="jg-card">
             <div class="jg-top">
@@ -187,7 +190,7 @@
 
         </div>
 
-        <div class="pager">
+        <div class="pager" id="jgPager">
           <button class="pg-btn" disabled><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.4" stroke-linecap="round" stroke-linejoin="round"><polyline points="15 18 9 12 15 6"/></svg></button>
           <button class="pg-btn active" data-page="1">1</button>
           <button class="pg-btn" data-page="2">2</button>
@@ -200,27 +203,16 @@
       <div class="jg-aside reveal">
 
         <div class="card">
-          <div class="card-head"><span class="card-dot"></span><span class="card-title">词条状态</span></div>
+          <div class="card-head"><span class="card-dot"></span><span class="card-title">词条统计</span></div>
           <div class="jg-side-stat">
-            <span class="jg-side-name"><span class="pill-dot" style="background:var(--green)"></span>verified 已验证</span>
-            <span class="jg-side-num">24</span>
+            <span class="jg-side-name"><span class="pill-dot" style="background:var(--green)"></span>总词条数</span>
+            <span class="jg-side-num" id="statTotal">—</span>
           </div>
           <div class="jg-side-stat">
-            <span class="jg-side-name"><span class="pill-dot" style="background:var(--blue)"></span>provisional 临时</span>
-            <span class="jg-side-num">8</span>
+            <span class="jg-side-name"><span class="pill-dot" style="background:var(--amber)"></span>待审核（候选 + 临时）</span>
+            <span class="jg-side-num" id="statPending">—</span>
           </div>
-          <div class="jg-side-stat">
-            <span class="jg-side-name"><span class="pill-dot" style="background:var(--amber)"></span>candidate 候选</span>
-            <span class="jg-side-num">6</span>
-          </div>
-          <div class="jg-side-stat">
-            <span class="jg-side-name"><span class="pill-dot" style="background:var(--violet)"></span>ambiguous 冲突</span>
-            <span class="jg-side-num">3</span>
-          </div>
-          <div class="jg-side-stat">
-            <span class="jg-side-name"><span class="pill-dot" style="background:#d66666"></span>rejected 被拒</span>
-            <span class="jg-side-num">1</span>
-          </div>
+          <div class="jg-side-note">细分状态（verified / ambiguous / rejected 等）暂无统计接口，这里仅展示总数与待审核数。</div>
         </div>
 
         <div class="card">
@@ -246,6 +238,7 @@
             </div>
             <span class="tag tag-ok">selected</span>
           </div>
+          <div class="jg-side-note">以下为示例数据，真实注入记录请在词条详情中查看。</div>
         </div>
 
         <div class="card">
@@ -273,11 +266,13 @@
 <div class="drawer-mask" id="drawerMask"></div>
 <aside class="drawer" id="drawer">
   <div class="drawer-head">
-    <span class="drawer-title">塌房</span>
-    <span class="tag tag-verified"><span class="tag-dot"></span>verified</span>
+    <span class="drawer-title" id="drawerTitle">塌房</span>
+    <span class="drawer-status" id="drawerStatus">
+      <span class="tag tag-verified"><span class="tag-dot"></span>verified</span>
+    </span>
     <button class="drawer-close" id="drawerClose">✕</button>
   </div>
-  <div class="drawer-body">
+  <div class="drawer-body" id="drawerBody">
 
     <div>
       <div class="d-label" data-icon="jargon">词条</div>
@@ -380,14 +375,18 @@
 
   </div>
   <div class="drawer-foot">
-    <button class="btn btn-primary" style="flex:1" data-icon="edit">编辑词条</button>
-    <button class="btn btn-ghost" data-icon="plus">新增义项</button>
-    <button class="btn btn-ghost" data-icon="zap_off">停用</button>
+    <button class="btn btn-primary" data-action="edit_entry" data-icon="edit">编辑词条</button>
+    <button class="btn btn-ghost" data-action="create_sense" data-icon="plus">新增义项</button>
+    <button class="btn btn-ghost" data-action="manage_aliases" data-icon="link">管理别名</button>
+    <button class="btn btn-ghost" data-action="toggle_enable" data-icon="zap_off">停用</button>
+    <button class="btn btn-ghost" data-action="reject_entry" data-icon="alert">拒绝词条</button>
+    <button class="btn btn-ghost jg-danger" data-action="delete_entry" data-icon="trash">删除词条</button>
   </div>
 </aside>
 
 <script src="shared/icons.js"></script>
 <script src="shared/ui.js"></script>
+<script src="shared/api.js"></script>
 <script>
 /* 将 data-icon 占位替换为共享图标 */
 document.querySelectorAll("[data-icon]").forEach((el) => {

@@ -105,17 +105,17 @@
         <div class="card">
           <div class="pt-editor-head">
             <div class="pt-editor-title">
-              <span class="pt-editor-name">基础规则 <span class="k">rule</span><span class="tag tag-custom">已修改</span></span>
-              <span class="pt-editor-desc">根据当前聊天场景和管理员信息生成的每轮规则。</span>
+              <span class="pt-editor-name" id="ptEditorName">基础规则 <span class="k">rule</span><span class="tag tag-custom">已修改</span></span>
+              <span class="pt-editor-desc" id="ptEditorDesc">根据当前聊天场景和管理员信息生成的每轮规则。</span>
             </div>
-            <button class="btn btn-ghost btn-sm" data-icon="refresh">恢复默认</button>
+            <button class="btn btn-ghost btn-sm" id="ptResetBtn" data-icon="refresh">恢复默认</button>
           </div>
 
           <div class="pt-diff-note" style="margin-top:12px" data-icon="info">
             <span>当前内容与默认模板不同。可随时「恢复默认」回到内置版本，操作会记录到下方审计日志。</span>
           </div>
 
-          <div class="pt-vars" style="margin-top:14px">
+          <div class="pt-vars" id="ptVars" style="margin-top:14px">
             <span class="pt-vars-label">可用变量</span>
             <span class="pt-var-chip" title="点击复制">{{scene}}</span>
             <span class="pt-var-chip" title="点击复制">{{admin_name}}</span>
@@ -140,34 +140,37 @@
             <span class="pt-dirty" id="ptDirty"><span class="dot"></span>未保存</span>
             <span class="pt-char-count" id="ptCharCount">0 字</span>
             <span style="flex:1"></span>
-            <button class="btn btn-ghost btn-sm" data-icon="copy">复制</button>
-            <button class="btn btn-primary btn-sm" data-icon="check_simple">保存模板</button>
+            <button class="btn btn-ghost btn-sm" id="ptCopyBtn" data-icon="copy">复制</button>
+            <button class="btn btn-primary btn-sm" id="ptSaveBtn" data-icon="check_simple">保存模板</button>
           </div>
         </div>
 
         <!-- 审计记录 -->
         <div class="card">
           <div class="card-head"><span class="card-dot"></span><span class="card-title">修改审计</span></div>
-          <div class="audit-row">
-            <span class="audit-tag update">update</span>
-            <span class="audit-text"><b>web_admin</b> · 更新了 <b>rule</b> · 原因：补充管理员说明</span>
-            <span class="audit-time">3月29日 21:14</span>
+          <div id="ptAuditList">
+            <div class="audit-row">
+              <span class="audit-tag update">update</span>
+              <span class="audit-text"><b>web_admin</b> · 更新了 <b>rule</b> · 原因：补充管理员说明</span>
+              <span class="audit-time">3月29日 21:14</span>
+            </div>
+            <div class="audit-row">
+              <span class="audit-tag update">update</span>
+              <span class="audit-text"><b>web_admin</b> · 更新了 <b>reply_examples</b> · 原因：强调不得直接复用样例</span>
+              <span class="audit-time">3月28日 16:40</span>
+            </div>
+            <div class="audit-row">
+              <span class="audit-tag reset">reset</span>
+              <span class="audit-text"><b>web_admin</b> · 重置了 <b>protocol</b> · 原因：恢复默认协议模板</span>
+              <span class="audit-time">3月26日 10:02</span>
+            </div>
+            <div class="audit-row">
+              <span class="audit-tag update">update</span>
+              <span class="audit-text"><b>web_admin</b> · 更新了 <b>rule</b> · 原因：web update</span>
+              <span class="audit-time">3月25日 09:31</span>
+            </div>
           </div>
-          <div class="audit-row">
-            <span class="audit-tag update">update</span>
-            <span class="audit-text"><b>web_admin</b> · 更新了 <b>reply_examples</b> · 原因：强调不得直接复用样例</span>
-            <span class="audit-time">3月28日 16:40</span>
-          </div>
-          <div class="audit-row">
-            <span class="audit-tag reset">reset</span>
-            <span class="audit-text"><b>web_admin</b> · 重置了 <b>protocol</b> · 原因：恢复默认协议模板</span>
-            <span class="audit-time">3月26日 10:02</span>
-          </div>
-          <div class="audit-row">
-            <span class="audit-tag update">update</span>
-            <span class="audit-text"><b>web_admin</b> · 更新了 <b>rule</b> · 原因：web update</span>
-            <span class="audit-time">3月25日 09:31</span>
-          </div>
+          <div class="pt-audit-empty" id="ptAuditEmpty" style="display:none">暂无审计记录</div>
         </div>
 
       </div>
@@ -184,6 +187,7 @@
 
 <script src="shared/icons.js"></script>
 <script src="shared/ui.js"></script>
+<script src="shared/api.js"></script>
 <script>
 /* 将 data-icon 占位替换为共享图标 */
 document.querySelectorAll("[data-icon]").forEach((el) => {

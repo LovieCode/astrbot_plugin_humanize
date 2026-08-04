@@ -35,7 +35,7 @@
       <div class="hero-text">
         <div class="hero-hello">GOOD MORNING</div>
         <div class="hero-title">早上好，管理员～<br />我是<em>洛薇</em>，今天状态很好哦</div>
-        <p class="hero-desc">
+        <p class="hero-desc" id="heroDesc">
           近 7 天协议通过率 99.2%，词库有 6 条词条待审核，
           上下文追踪已记录 248 次请求。随时可以在下方查看详情～
         </p>
@@ -44,49 +44,56 @@
         <img src="assets/lovie.jpg" alt="洛薇 Lovie" />
         <span class="hero-tag hero-tag-1">
           <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.4" stroke-linecap="round" stroke-linejoin="round"><path d="M22 11.08V12a10 10 0 1 1-5.93-9.14"/><polyline points="22 4 12 14.01 9 11.01"/></svg>
-          协议通过率 99.2%
+          <span id="heroTagRate">协议通过率 99.2%</span>
         </span>
         <span class="hero-tag hero-tag-2">
           <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.4" stroke-linecap="round" stroke-linejoin="round"><path d="M4 19.5A2.5 2.5 0 0 1 6.5 17H20"/><path d="M6.5 2H20v20H6.5A2.5 2.5 0 0 1 4 19.5v-15A2.5 2.5 0 0 1 6.5 2z"/></svg>
-          6 条待审核
+          <span id="heroTagPending">6 条待审核</span>
         </span>
         <svg class="sparkle sparkle-1" width="18" height="18" viewBox="0 0 24 24" fill="currentColor"><path d="M12 2l2.4 7.6L22 12l-7.6 2.4L12 22l-2.4-7.6L2 12l7.6-2.4z"/></svg>
         <svg class="sparkle sparkle-2" width="13" height="13" viewBox="0 0 24 24" fill="currentColor"><path d="M12 2l2.4 7.6L22 12l-7.6 2.4L12 22l-2.4-7.6L2 12l7.6-2.4z"/></svg>
       </div>
     </section>
 
+    <!-- 概览加载失败重试条 -->
+    <div class="overview-error" id="overviewError" style="display:none">
+      <span data-icon="alert"></span>
+      <span id="overviewErrorText">概览加载失败</span>
+      <button class="btn btn-sm" type="button" data-act="retry">重试</button>
+    </div>
+
     <!-- 统计卡 -->
     <div class="stats-row reveal" data-count-parent>
       <div class="stat-card">
         <div class="stat-top">
           <div class="stat-icon i-pink" data-icon="jargon"></div>
-          <span class="stat-trend">6 条待审</span>
+          <span class="stat-trend" id="statTrendPending">6 条待审</span>
         </div>
-        <div class="stat-value" data-count="42">0</div>
+        <div class="stat-value" id="statLearned" data-count="42">0</div>
         <div class="stat-label">已学词条</div>
       </div>
       <div class="stat-card">
         <div class="stat-top">
           <div class="stat-icon i-green" data-icon="check"></div>
-          <span class="stat-trend">240 样本</span>
+          <span class="stat-trend" id="statTrendSamples">240 样本</span>
         </div>
-        <div class="stat-value" data-count="99.2" data-decimal="1" data-suffix="%">0</div>
+        <div class="stat-value" id="statRate" data-count="99.2" data-decimal="1" data-suffix="%">0</div>
         <div class="stat-label">协议通过率 · 7 天</div>
       </div>
       <div class="stat-card">
         <div class="stat-top">
           <div class="stat-icon i-blue" data-icon="file"></div>
-          <span class="stat-trend">2 次拦截</span>
+          <span class="stat-trend" id="statTrendOmitted">2 次拦截</span>
         </div>
-        <div class="stat-value" data-count="248">0</div>
+        <div class="stat-value" id="statRuns" data-count="248">0</div>
         <div class="stat-label">上下文运行 · 7 天</div>
       </div>
       <div class="stat-card">
         <div class="stat-top">
           <div class="stat-icon i-violet" data-icon="spark"></div>
-          <span class="stat-trend">12 次省略</span>
+          <span class="stat-trend" id="statTrendBlocked">12 次省略</span>
         </div>
-        <div class="stat-value" data-count="1947">0</div>
+        <div class="stat-value" id="statTokens" data-count="1947">0</div>
         <div class="stat-label">平均 tokens</div>
       </div>
     </div>
@@ -97,10 +104,10 @@
         <div class="card" data-bars>
           <div class="card-head">
             <span class="card-dot"></span>
-            <span class="card-title">回复动作 · 近 7 天</span>
+            <span class="card-title">协议通过率 · 近 7 天</span>
             <a class="section-link" href="context.html">上下文追踪 →</a>
           </div>
-          <div class="trend">
+          <div class="trend" id="trendChart">
             <div class="trend-col">
               <span class="trend-tip">32 次 · 回复 27 / 静默 5</span>
               <div class="trend-bar-wrap">
@@ -166,9 +173,8 @@
             </div>
           </div>
           <div class="trend-legend">
-            <span><i style="background:var(--pink)"></i>Reply</span>
-            <span><i style="background:var(--line-strong)"></i>No Reply</span>
-            <span style="margin-left:auto;color:var(--muted)">柱高 = 当日总请求</span>
+            <span><i style="background:var(--pink)"></i>通过率</span>
+            <span style="margin-left:auto;color:var(--muted)">柱高 = 当日通过率 %</span>
           </div>
         </div>
       </div>
@@ -194,12 +200,12 @@
               <div class="action-item">
                 <span class="action-dot" style="background:var(--pink)"></span>
                 <span class="action-label">Reply</span>
-                <span class="action-count" data-count="204">0</span>
+                <span class="action-count" id="actionReplyCount">204</span>
               </div>
               <div class="action-item">
                 <span class="action-dot" style="background:var(--line-strong)"></span>
                 <span class="action-label">No Reply</span>
-                <span class="action-count" data-count="36">0</span>
+                <span class="action-count" id="actionNoReplyCount">36</span>
               </div>
               <div class="action-note">静默也是协议的正常决策，说明洛薇学会了看场合。</div>
             </div>
@@ -221,6 +227,7 @@
             <span class="card-title">词库作用域分布</span>
             <a class="section-link" href="jargon.html">黑话词库 →</a>
           </div>
+          <div id="scopeList">
           <div class="scope-row">
             <div class="scope-main">
               <div class="scope-name">摸鱼小分队</div>
@@ -261,6 +268,7 @@
             <div class="scope-bar"><i style="width:18%"></i></div>
             <span class="scope-count">3 条</span>
           </div>
+          </div>
         </div>
       </div>
 
@@ -271,6 +279,7 @@
             <span class="card-title">待审核词条</span>
             <a class="section-link" href="jargon.html">审核 →</a>
           </div>
+          <div id="pendingList">
           <div class="list-row">
             <div class="list-icon i-pink" data-icon="chat"></div>
             <div class="list-main">
@@ -302,6 +311,7 @@
               <div class="list-sub">猜测：太酷啦 · 置信度 0.81</div>
             </div>
             <span class="tag tag-review">candidate</span>
+          </div>
           </div>
         </div>
       </div>
@@ -336,64 +346,14 @@
       </div>
     </div>
 
-    <!-- 上下文追踪表 -->
-    <div class="section-head reveal">
-      <span class="section-title">上下文追踪</span>
-      <span class="section-hint">每轮 Provider 请求的完整快照</span>
-      <a class="section-link" href="context.html">全部 →</a>
-    </div>
-    <div class="card table-card reveal" data-bars>
-      <table class="tbl">
-        <thead>
-          <tr>
-            <th>请求 ID</th><th>场景</th><th>注入块</th><th>耗时</th><th>Cache 命中</th><th>结果</th>
-          </tr>
-        </thead>
-        <tbody>
-          <tr>
-            <td class="t-id">#a91f…c3</td>
-            <td class="t-scope">群聊 · 摸鱼小分队</td>
-            <td>
-              <span class="mini-chip" style="background:var(--pink-soft);color:var(--pink-strong)">记忆 ×2</span>
-              <span class="mini-chip" style="background:var(--blue-soft);color:var(--blue)">黑话 ×1</span>
-            </td>
-            <td class="t-id">1.42s</td>
-            <td><div class="bar-cell"><div class="bar"><i data-w="82"></i></div><span class="bar-num">82%</span></div></td>
-            <td><span class="tag tag-ok">通过</span></td>
-          </tr>
-          <tr>
-            <td class="t-id">#b77e…9a</td>
-            <td class="t-scope">私聊 · 阿茶</td>
-            <td>
-              <span class="mini-chip" style="background:var(--pink-soft);color:var(--pink-strong)">记忆 ×3</span>
-              <span class="mini-chip" style="background:var(--violet-soft);color:var(--violet)">样例 ×1</span>
-            </td>
-            <td class="t-id">0.98s</td>
-            <td><div class="bar-cell"><div class="bar"><i data-w="64"></i></div><span class="bar-num">64%</span></div></td>
-            <td><span class="tag tag-ok">通过</span></td>
-          </tr>
-          <tr>
-            <td class="t-id">#c402…7f</td>
-            <td class="t-scope">群聊 · 摸鱼小分队</td>
-            <td><span class="mini-chip" style="background:var(--amber-soft);color:var(--amber-text)">仅协议</span></td>
-            <td class="t-id">0.31s</td>
-            <td><div class="bar-cell"><div class="bar"><i data-w="91"></i></div><span class="bar-num">91%</span></div></td>
-            <td><span class="tag tag-review">No Reply</span></td>
-          </tr>
-          <tr>
-            <td class="t-id">#d558…e1</td>
-            <td class="t-scope">群聊 · 深夜食堂</td>
-            <td>
-              <span class="mini-chip" style="background:var(--pink-soft);color:var(--pink-strong)">记忆 ×1</span>
-              <span class="mini-chip" style="background:var(--blue-soft);color:var(--blue)">黑话 ×2</span>
-              <span class="mini-chip" style="background:var(--violet-soft);color:var(--violet)">样例 ×1</span>
-            </td>
-            <td class="t-id">1.87s</td>
-            <td><div class="bar-cell"><div class="bar"><i data-w="45"></i></div><span class="bar-num">45%</span></div></td>
-            <td><span class="tag tag-ok">通过</span></td>
-          </tr>
-        </tbody>
-      </table>
+    <!-- 上下文追踪引导卡 -->
+    <div class="card ctx-guide reveal">
+      <div class="card-head">
+        <span class="card-dot"></span>
+        <span class="card-title">上下文追踪</span>
+        <a class="section-link" href="context.html">查看完整上下文追踪 →</a>
+      </div>
+      <p class="ctx-guide-text">每轮 Provider 请求的完整快照（区块组装、token 预算、协议校验结果）不在此页展示，请前往上下文追踪页按请求 ID 或作用域筛选查看。</p>
     </div>
 
     <div class="footer">
@@ -407,6 +367,7 @@
 
 <script src="shared/icons.js"></script>
 <script src="shared/ui.js"></script>
+<script src="shared/api.js"></script>
 <script>
 /* 将 data-icon 占位替换为共享图标 */
 document.querySelectorAll("[data-icon]").forEach((el) => {

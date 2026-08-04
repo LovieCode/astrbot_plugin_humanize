@@ -87,6 +87,12 @@
 .audit-text b { color: var(--text); }
 .audit-time { font-size: 11px; color: var(--muted); flex-shrink: 0; }
 
+/* 审计空态 / 更多提示 */
+.pt-audit-empty {
+  padding: 16px 0; font-size: 12.5px; color: var(--muted); text-align: center;
+}
+.pt-audit-more { padding-top: 8px; font-size: 11px; color: var(--muted); }
+
 /* ---------- 响应式 ---------- */
 @media (max-width: 1080px) {
   .pt-layout { flex-direction: column; }

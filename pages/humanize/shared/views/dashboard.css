@@ -172,6 +172,32 @@
 .t-scope { font-weight: 700; }
 .mini-chip { display: inline-flex; font-size: 10.5px; font-weight: 800; padding: 2px 8px; border-radius: var(--r-full); margin-right: 4px; }
 
+/* ---------- 概览加载失败重试条 ---------- */
+.overview-error {
+  display: flex; align-items: center; gap: 10px;
+  background: var(--amber-soft); border: 1px solid #f0ddba; border-radius: var(--r-md);
+  padding: 11px 14px; font-size: 12.5px; color: var(--amber-text);
+  margin-bottom: 16px;
+}
+.overview-error svg { width: 15px; height: 15px; color: var(--amber); flex-shrink: 0; }
+.overview-error > span:nth-child(2) { flex: 1; min-width: 0; }
+
+/* ---------- 柱状图 / 列表空态 ---------- */
+.trend-empty {
+  text-align: center; color: var(--muted); font-size: 12.5px; font-weight: 700;
+  padding: 26px 12px; border: 1px dashed var(--line); border-radius: var(--r-md);
+  display: flex; align-items: center; justify-content: center;
+}
+#trendChart .trend-empty { min-height: 150px; }
+#scopeList .trend-empty, #pendingList .trend-empty { padding: 22px 12px; }
+
+/* ---------- 上下文追踪引导卡 ---------- */
+.ctx-guide { margin-top: 16px; }
+.ctx-guide-text {
+  font-size: 12.5px; color: var(--text-2); line-height: 1.8;
+  background: var(--bg); border-radius: var(--r-md); padding: 12px 14px;
+}
+
 /* ---------- 响应式 ---------- */
 @media (max-width: 1080px) {
   .stats-row { flex-wrap: wrap; }

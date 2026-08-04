@@ -137,6 +137,120 @@
 .rev-text { flex: 1; min-width: 0; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; color: var(--text-2); }
 .rev-time { font-size: 11px; color: var(--muted); flex-shrink: 0; }
 
+/* ---------- 筛选下拉 / 输入 ---------- */
+.ex-select {
+  background: var(--card); border: 1px solid var(--line); border-radius: 12px;
+  padding: 10px 13px; font-size: 12.5px; font-weight: 700; color: var(--text-2);
+  font-family: inherit; outline: none; cursor: pointer;
+  transition: border-color var(--dur-mid), box-shadow var(--dur-mid);
+}
+.ex-select:focus { border-color: var(--pink); box-shadow: 0 0 0 3px var(--pink-soft); }
+
+/* ---------- 空态 ---------- */
+.ex-empty {
+  text-align: center; color: var(--text-2); font-size: 13px;
+  padding: 40px 16px; border: 1px dashed var(--line); border-radius: var(--r-lg);
+}
+
+/* ---------- 召回测试 ---------- */
+.ex-recall-card {
+  margin-top: 22px; background: var(--card); border: 1px solid var(--line);
+  border-radius: var(--r-lg); box-shadow: var(--shadow); padding: 18px 20px;
+  display: flex; flex-direction: column; gap: 14px;
+}
+.ex-recall-head { display: flex; align-items: center; gap: 8px; }
+.ex-recall-controls { display: flex; align-items: center; gap: 10px; flex-wrap: wrap; }
+.ex-recall-result { display: flex; flex-direction: column; gap: 8px; }
+.ex-recall-bar { display: flex; align-items: center; gap: 10px; }
+.ex-recall-item {
+  background: var(--bg); border: 1px solid var(--line); border-radius: var(--r-md);
+  padding: 10px 13px;
+}
+.ex-recall-item + .ex-recall-item { margin-top: 6px; }
+.ex-recall-head { display: flex; align-items: center; gap: 8px; }
+.ex-recall-title { font-size: 13px; font-weight: 800; }
+.ex-recall-score { margin-left: auto; font-size: 12px; font-weight: 800; color: var(--pink-strong); font-variant-numeric: tabular-nums; }
+.ex-recall-sub { font-size: 11.5px; color: var(--text-2); margin-top: 2px; }
+.ex-code {
+  font-family: var(--font-mono); font-size: 11.5px; line-height: 1.7;
+  background: var(--bg); border: 1px solid var(--line); border-radius: var(--r-md);
+  padding: 12px 14px; white-space: pre-wrap; word-break: break-all; max-height: 300px; overflow-y: auto;
+}
+
+/* ---------- 详情补充 ---------- */
+.ex-q-row { display: flex; align-items: center; gap: 10px; font-size: 12.5px; font-weight: 800; }
+.ex-q-row .bar { max-width: none; flex: 1; }
+.ex-q-meta { display: flex; align-items: center; gap: 12px; font-size: 11px; color: var(--text-2); margin-top: 8px; flex-wrap: wrap; }
+.ex-tag.dashed { border-style: dashed; }
+
+/* 审计折叠 */
+.audit-row {
+  background: var(--card); border: 1px solid var(--line); border-radius: var(--r-md);
+  padding: 10px 13px; font-size: 12px;
+}
+.audit-row + .audit-row { margin-top: 8px; }
+.audit-row summary { display: flex; align-items: center; gap: 10px; cursor: pointer; list-style: none; }
+.audit-row summary::-webkit-details-marker { display: none; }
+.audit-row summary::before { content: "▸"; color: var(--muted); transition: transform var(--dur-mid); }
+.audit-row[open] summary::before { transform: rotate(90deg); }
+.audit-act { font-size: 10.5px; font-weight: 800; padding: 2px 8px; border-radius: var(--r-full); background: var(--violet-soft); color: var(--violet); flex-shrink: 0; }
+.audit-meta { flex: 1; min-width: 0; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; color: var(--text-2); }
+.audit-json { margin-top: 8px; max-height: 220px; }
+
+/* 向量嵌入 */
+.embed-row {
+  display: flex; align-items: center; gap: 10px; padding: 9px 12px;
+  background: var(--card); border: 1px solid var(--line); border-radius: var(--r-md); font-size: 12px;
+}
+.embed-row + .embed-row { margin-top: 6px; }
+.embed-provider { font-weight: 800; font-family: var(--font-mono); font-size: 11.5px; }
+.embed-meta { margin-left: auto; font-size: 11px; color: var(--text-2); font-variant-numeric: tabular-nums; }
+
+/* ---------- 弹窗（编辑 / 新建 / 原因输入，语义对齐 HZ.confirm） ---------- */
+.ex-modal {
+  position: fixed; inset: 0; z-index: 80; display: flex; align-items: center; justify-content: center;
+  background: rgba(71, 58, 65, 0.3); backdrop-filter: blur(2px);
+}
+.ex-modal-card {
+  width: 460px; max-width: 92vw; background: var(--bg); border: 1px solid var(--line);
+  border-radius: var(--r-lg); box-shadow: var(--shadow-hover); overflow: hidden;
+  display: flex; flex-direction: column; max-height: 88vh;
+}
+.ex-modal-head {
+  display: flex; align-items: center; gap: 10px;
+  padding: 16px 20px; border-bottom: 1px solid var(--line); background: var(--card);
+}
+.ex-modal-head .drawer-title { font-size: 14.5px; }
+.ex-modal-body { flex: 1; overflow-y: auto; padding: 18px 20px; display: flex; flex-direction: column; gap: 12px; }
+.ex-modal-foot { display: flex; justify-content: flex-end; gap: 10px; padding: 14px 20px; border-top: 1px solid var(--line); background: var(--card); }
+.ex-modal-hint { font-size: 12px; color: var(--text-2); line-height: 1.7; }
+
+.ex-field { display: flex; flex-direction: column; gap: 6px; }
+.ex-field-label { font-size: 11.5px; font-weight: 800; color: var(--text-2); }
+.ex-input {
+  width: 100%; background: var(--card); border: 1px solid var(--line); border-radius: 12px;
+  padding: 10px 13px; font-size: 13px; color: var(--text); outline: none;
+  transition: border-color var(--dur-mid), box-shadow var(--dur-mid);
+  font-family: inherit; resize: vertical;
+}
+.ex-input:focus { border-color: var(--pink); box-shadow: 0 0 0 3px var(--pink-soft); }
+
+/* turns 编辑器 */
+.ex-turn-box { display: flex; flex-direction: column; gap: 8px; }
+.ex-turn-row { display: flex; align-items: flex-start; gap: 8px; }
+.ex-turn-row .ex-input:first-child { width: 138px; flex-shrink: 0; }
+.ex-turn-row .ex-input:nth-child(2) { flex: 1; }
+.ex-del-turn { flex-shrink: 0; width: 30px; height: 30px; border-radius: 9px; border: none; cursor: pointer; background: var(--bg); color: var(--text-2); font-size: 13px; }
+.ex-del-turn:hover { background: #fbeaea; color: #c05c5c; }
+
+/* 质量分滑杆行 */
+.ex-q-field { display: flex; align-items: center; gap: 10px; }
+.ex-q-field .range { flex: 1; }
+
+/* 危险按钮 */
+.ex-danger { color: #c05c5c; }
+.ex-danger:hover { color: #a84444; border-color: #e0a8a8; background: #fbeaea; }
+
 /* ---------- 分页 ---------- */
 .pager { display: flex; align-items: center; justify-content: center; gap: 6px; margin-top: 18px; }
 .pg-btn {

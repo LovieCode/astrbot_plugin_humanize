@@ -191,3 +191,94 @@
 /* ---------- 链接 ---------- */
 .section-link { margin-left: auto; font-size: 12.5px; font-weight: 700; color: var(--pink-strong); cursor: pointer; text-decoration: none; }
 .section-link:hover { text-decoration: underline; }
+
+/* ---------- 空态 ---------- */
+.empty {
+  display: flex; flex-direction: column; align-items: center; gap: 10px;
+  padding: 44px 18px; text-align: center;
+  border: 1px dashed var(--line); border-radius: var(--r-lg);
+  background: var(--card);
+}
+.empty-icon { width: 46px; height: 46px; border-radius: 50%; background: var(--pink-soft); color: var(--pink-strong); display: flex; align-items: center; justify-content: center; }
+.empty-icon svg { width: 22px; height: 22px; }
+.empty-text { font-size: 13px; color: var(--text-2); font-weight: 600; }
+.empty-retry { margin-top: 4px; }
+
+/* ---------- 错误条 ---------- */
+.errbar {
+  display: flex; align-items: center; gap: 9px;
+  background: #fbeaea; color: #b05050; border: 1px solid #f3d3d3;
+  border-radius: var(--r-md); padding: 11px 14px; font-size: 12.5px; font-weight: 600;
+}
+.errbar-icon { flex-shrink: 0; display: flex; }
+.errbar-icon svg { width: 15px; height: 15px; }
+.errbar-text { flex: 1; min-width: 0; }
+.errbar-retry {
+  flex-shrink: 0; border: none; cursor: pointer;
+  background: var(--card); color: #b05050; font-size: 12px; font-weight: 800;
+  border-radius: 9px; padding: 5px 12px; transition: background var(--dur-fast);
+}
+.errbar-retry:hover { background: #f7dcdc; }
+
+/* ---------- 骨架屏（依赖 motion.css 的 shimmer） ---------- */
+.skeleton {
+  display: flex; flex-direction: column; gap: 12px; padding: 6px 2px;
+}
+.skeleton .skeleton-line { width: 100%; }
+.skeleton .skeleton-line.w60 { width: 60%; }
+.skeleton .skeleton-line.w40 { width: 40%; }
+
+/* ---------- 弹窗 ---------- */
+.modal-mask {
+  position: fixed; inset: 0; z-index: 80;
+  background: rgba(71, 58, 65, 0.28); backdrop-filter: blur(2px);
+  display: flex; align-items: center; justify-content: center;
+  opacity: 0; pointer-events: none; transition: opacity var(--dur-mid);
+}
+.modal-mask.show { opacity: 1; pointer-events: auto; }
+.modal {
+  width: min(400px, 92vw); background: var(--card);
+  border: 1px solid var(--line); border-radius: var(--r-lg);
+  box-shadow: var(--shadow-hover); padding: 22px 24px 18px;
+  display: flex; flex-direction: column; gap: 8px;
+  transform: translateY(10px) scale(0.97); transition: transform var(--dur-mid) var(--ease-spring);
+}
+.modal-mask.show .modal { transform: none; }
+.modal-title { font-size: 15px; font-weight: 800; }
+.modal-text { font-size: 13px; color: var(--text-2); line-height: 1.7; }
+.modal-actions { display: flex; justify-content: flex-end; gap: 10px; margin-top: 16px; }
+
+/* 危险按钮 */
+.btn-danger {
+  background: #e05c5c; color: #fff;
+  box-shadow: 0 4px 14px rgba(224, 92, 92, 0.3);
+}
+.btn-danger:hover { background: #c94b4b; transform: translateY(-2px); box-shadow: 0 8px 20px rgba(224, 92, 92, 0.36); }
+
+/* ---------- 轻提示 ---------- */
+.toast-host {
+  position: fixed; right: 22px; bottom: 22px; z-index: 90;
+  display: flex; flex-direction: column; gap: 10px; align-items: flex-end;
+}
+.toast {
+  display: flex; align-items: center; gap: 9px;
+  background: var(--card); color: var(--text);
+  border: 1px solid var(--line); border-radius: var(--r-md);
+  box-shadow: var(--shadow-hover); padding: 11px 15px;
+  font-size: 12.5px; font-weight: 700;
+  opacity: 0; transform: translateY(8px); transition: opacity var(--dur-mid), transform var(--dur-mid) var(--ease-spring);
+}
+.toast.show { opacity: 1; transform: none; }
+.toast-icon { display: flex; flex-shrink: 0; }
+.toast-icon svg { width: 15px; height: 15px; }
+.toast-success .toast-icon { color: var(--green); }
+.toast-error { border-color: #f3d3d3; background: #fbeaea; color: #b05050; }
+.toast-error .toast-icon { color: #e05c5c; }
+.toast-info .toast-icon { color: var(--pink-strong); }
+
+/* ---------- 状态标签（status 语义色） ---------- */
+.tag-active { background: var(--green-soft); color: var(--green-text); }
+.tag-candidate { background: var(--amber-soft); color: var(--amber-text); }
+.tag-rejected { background: #fbeaea; color: #c05c5c; }
+.tag-verified { background: var(--pink-soft); color: var(--pink-strong); }
+.tag-disabled { background: var(--bg); color: var(--muted); }

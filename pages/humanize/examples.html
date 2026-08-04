@@ -30,27 +30,29 @@
 
     <!-- 筛选 -->
     <div class="ex-filter reveal">
-      <div class="scope-seg">
-        <span class="seg-item active">全部 <span class="seg-count">17</span></span>
-        <span class="seg-item">全局 <span class="seg-count">9</span></span>
-        <span class="seg-item">群聊 <span class="seg-count">6</span></span>
-        <span class="seg-item">私聊 <span class="seg-count">2</span></span>
-      </div>
-      <div class="scope-seg">
-        <span class="seg-item active">全部 Agent</span>
-        <span class="seg-item">洛薇</span>
-        <span class="seg-item">小洛</span>
-      </div>
       <div class="scope-seg status-seg">
-        <span class="seg-item active">全部状态</span>
-        <span class="seg-item">approved</span>
-        <span class="seg-item">draft</span>
-        <span class="seg-item">rejected</span>
+        <span class="seg-item active" data-status="">全部状态</span>
+        <span class="seg-item" data-status="approved">approved</span>
+        <span class="seg-item" data-status="draft">draft</span>
+        <span class="seg-item" data-status="rejected">rejected</span>
+        <span class="seg-item" data-status="tombstoned">tombstoned</span>
+      </div>
+      <select class="ex-select" id="exScopeSel">
+        <option value="-1">全部作用域</option>
+      </select>
+      <select class="ex-select" id="exAgentSel">
+        <option value="-1">全部 Agent</option>
+      </select>
+      <div class="input-box" style="width:150px">
+        <input type="text" id="exTopicInput" placeholder="话题…" />
+      </div>
+      <div class="input-box" style="width:150px">
+        <input type="text" id="exIntentInput" placeholder="意图…" />
       </div>
     </div>
 
     <!-- 样例卡片流 -->
-    <div class="ex-list reveal">
+    <div class="ex-list reveal" id="exList">
 
       <div class="ex-card">
         <div class="ex-top">
@@ -138,39 +140,38 @@
         </div>
       </div>
 
-      <!-- draft：待审核 -->
-      <div class="ex-card dimmed">
-        <div class="ex-top">
-          <span class="ex-title">安慰加班的朋友</span>
-          <span class="ex-topic">情绪支持</span>
-          <span class="ex-intent">安慰</span>
-          <span class="tag tag-draft"><span class="tag-dot"></span>draft</span>
-          <span class="tag tag-source">从对话提取</span>
-          <div class="ex-actions" style="opacity:1">
-            <button class="btn btn-sm btn-tonal">审核通过</button>
-            <button class="btn btn-sm btn-ghost">拒绝</button>
-          </div>
-        </div>
-        <div class="conv">
-          <div class="conv-row user"><div class="conv-bubble">又加班到十点，麻了</div></div>
-          <div class="conv-row assistant"><div class="conv-bubble">辛苦了</div></div>
-          <div class="conv-row assistant"><div class="conv-bubble">快去吃点好的</div></div>
-        </div>
-        <div class="ideal" data-icon="spark"><span><b>理想回复：</b>先共情再给一个很小的可执行建议，不说教。</span></div>
-        <div class="ex-meta">
-          <span class="m" data-icon="pin">私聊 · 阿茶 · 洛薇</span>
-          <span class="m" data-icon="clock">等待审核 · 未参与召回</span>
-          <div class="q-score"><div class="q-bar"><i style="width:70%"></i></div><span class="q-num">0.70</span></div>
-        </div>
-      </div>
-
     </div>
 
-    <div class="pager">
-      <button class="pg-btn" disabled><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.4" stroke-linecap="round" stroke-linejoin="round"><polyline points="15 18 9 12 15 6"/></svg></button>
-      <button class="pg-btn active" data-page="1">1</button>
-      <button class="pg-btn" data-page="2">2</button>
-      <button class="pg-btn"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.4" stroke-linecap="round" stroke-linejoin="round"><polyline points="9 18 15 12 9 6"/></svg></button>
+    <div class="pager" id="exPager"></div>
+
+    <!-- 召回测试 -->
+    <div class="ex-recall-card reveal">
+      <div class="ex-recall-head">
+        <span class="card-dot"></span>
+        <span class="card-title">召回测试</span>
+        <span style="font-size:11.5px;color:var(--text-2)">模拟一次实时召回，查看候选命中与注入 XML</span>
+      </div>
+      <div class="ex-recall-controls">
+        <div class="input-box" style="flex:1;min-width:200px">
+          <input type="text" id="recallQuery" placeholder="输入一句话，测试召回…" />
+        </div>
+        <select class="ex-select" id="recallScope" style="min-width:150px">
+          <option value="-1">选择作用域（必填）</option>
+        </select>
+        <select class="ex-select" id="recallAgent" style="min-width:150px">
+          <option value="-1">选择 Agent（必填）</option>
+        </select>
+        <button class="btn btn-tonal btn-sm" id="recallBtn">测试召回</button>
+      </div>
+      <div class="ex-recall-result" id="recallResult" style="display:none">
+        <div class="ex-recall-bar">
+          <span class="tag" id="recallIncluded"></span>
+          <span style="font-size:11.5px;color:var(--text-2)" id="recallMeta"></span>
+        </div>
+        <div id="recallItems"></div>
+        <div class="d-label" data-icon="file" style="margin-top:12px">注入内容（Examples XML）</div>
+        <pre class="ex-code" id="recallContent"></pre>
+      </div>
     </div>
 
     <div class="footer">
@@ -186,111 +187,19 @@
 <div class="drawer-mask" id="drawerMask"></div>
 <aside class="drawer" id="drawer">
   <div class="drawer-head">
-    <span class="drawer-title">被夸时的害羞回应</span>
-    <span class="tag tag-approved"><span class="tag-dot"></span>approved</span>
+    <span class="drawer-title" id="drawerTitle">被夸时的害羞回应</span>
+    <span class="drawer-status" id="drawerStatus">
+      <span class="tag tag-approved"><span class="tag-dot"></span>approved</span>
+    </span>
     <button class="drawer-close" id="drawerClose">✕</button>
   </div>
-  <div class="drawer-body">
-
-    <div>
-      <div class="d-label" data-icon="pin">归属与分类</div>
-      <div class="d-chips">
-        <span class="tag tag-lg tag-scope">全局 · 洛薇</span>
-        <span class="ex-topic" style="font-size:11.5px;padding:4px 11px">日常闲聊</span>
-        <span class="ex-intent" style="font-size:11.5px;padding:4px 11px">回应夸奖</span>
-        <span class="tag tag-lg tag-source">人工整理</span>
-      </div>
-    </div>
-
-    <div>
-      <div class="d-label" data-icon="chat">对话样例（turns）</div>
-      <div class="conv">
-        <div class="conv-who">user</div>
-        <div class="conv-row user"><div class="conv-bubble">洛薇今天回复好快，聪明！</div></div>
-        <div class="conv-who" style="text-align:right">assistant</div>
-        <div class="conv-row assistant"><div class="conv-bubble">嘿嘿，被夸了</div></div>
-        <div class="conv-row assistant"><div class="conv-bubble">其实是刚好在线啦</div></div>
-      </div>
-    </div>
-
-    <div>
-      <div class="d-label" data-icon="spark">理想回复要点</div>
-      <div class="d-note">两条短消息，先开心接受再小小谦虚，不超过 10 字/条，不用表情包堆砌。</div>
-    </div>
-
-    <div>
-      <div class="d-label" data-icon="check">适用条件 / 排除条件</div>
-      <div class="d-note" style="margin-bottom:8px">适用：用户明确夸奖 Bot 的回复速度或质量时。</div>
-      <div class="d-note warn">排除：对方在阴阳怪气或反讽时，不使用本样例。</div>
-    </div>
-
-    <div>
-      <div class="d-label" data-icon="file">风格标签 / 关键词</div>
-      <div class="d-chips">
-        <span class="ex-tag">害羞</span><span class="ex-tag">简短</span><span class="ex-tag">不端着</span>
-        <span class="ex-tag" style="border-style:dashed">聪明</span>
-        <span class="ex-tag" style="border-style:dashed">回复快</span>
-        <span class="ex-tag" style="border-style:dashed">厉害</span>
-      </div>
-    </div>
-
-    <div>
-      <div class="d-label" data-icon="eye">召回使用记录（近 3 次）</div>
-      <div class="use-item">
-        <span class="use-rank hit">1</span>
-        <div class="use-main">
-          <div class="use-id">#b77e…9a · 私聊 · 阿茶</div>
-          <div class="use-sub">候选 6 条 · 排名第 1 · 已注入</div>
-        </div>
-        <span class="use-score">0.87</span>
-      </div>
-      <div class="use-item">
-        <span class="use-rank hit">2</span>
-        <div class="use-main">
-          <div class="use-id">#c402…7f · 群聊 · 摸鱼小分队</div>
-          <div class="use-sub">候选 9 条 · 排名第 2 · 已注入</div>
-        </div>
-        <span class="use-score">0.79</span>
-      </div>
-      <div class="use-item">
-        <span class="use-rank">4</span>
-        <div class="use-main">
-          <div class="use-id">#f231…08 · 私聊 · 阿茶</div>
-          <div class="use-sub">候选 5 条 · 排名第 4 · 未选用</div>
-        </div>
-        <span class="use-score">0.61</span>
-      </div>
-    </div>
-
-    <div>
-      <div class="d-label" data-icon="history">修订历史</div>
-      <div class="rev-row">
-        <span class="rev-tag now">r3 当前</span>
-        <span class="rev-text">approve · web_admin · 补充排除条件</span>
-        <span class="rev-time">3月29日</span>
-      </div>
-      <div class="rev-row">
-        <span class="rev-tag">r2</span>
-        <span class="rev-text">update · web_admin · 调整理想回复描述</span>
-        <span class="rev-time">3月27日</span>
-      </div>
-      <div class="rev-row">
-        <span class="rev-tag">r1</span>
-        <span class="rev-text">create · web_admin · 首次创建</span>
-        <span class="rev-time">3月25日</span>
-      </div>
-    </div>
-
-  </div>
-  <div class="drawer-foot">
-    <button class="btn btn-primary" style="flex:1" data-icon="edit">编辑样例</button>
-    <button class="btn btn-ghost" data-icon="zap_off">停用</button>
-    <button class="btn btn-ghost" data-icon="trash">删除</button>
-  </div>
+  <div class="drawer-body" id="drawerBody"></div>
+  <div class="drawer-foot" id="drawerFoot"></div>
 </aside>
 
 <script src="shared/icons.js"></script>
 <script src="shared/ui.js"></script>
+<script src="shared/api.js"></script>
 <script>
 /* 将 data-icon 占位替换为共享图标 */
 document.querySelectorAll("[data-icon]").forEach((el) => {

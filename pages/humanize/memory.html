@@ -30,37 +30,37 @@
 
     <!-- 数据源 Tab -->
     <div class="source-tabs reveal">
-      <span class="source-tab active" data-source="memories" data-icon="memory">长期记忆 <span class="nav-badge">128</span></span>
-      <span class="source-tab" data-source="sessions" data-icon="history">会话提交 <span class="nav-badge">36</span></span>
+      <span class="source-tab active" data-source="memories" data-icon="memory">长期记忆 <span class="nav-badge" id="badgeMemories">128</span></span>
+      <span class="source-tab" data-source="jobs" data-icon="history">后台任务 <span class="nav-badge" id="badgeJobs">0</span></span>
     </div>
 
     <!-- 记忆筛选 -->
     <div id="memoryFilters">
       <div class="filter-bar reveal">
-        <div class="scope-seg">
-          <span class="seg-item active">全部 <span class="seg-count">128</span></span>
+        <div class="scope-seg" id="scopeSeg">
+          <span class="seg-item active">全部作用域 <span class="seg-count">128</span></span>
           <span class="seg-item">私聊 <span class="seg-count">46</span></span>
           <span class="seg-item">群聊 <span class="seg-count">38</span></span>
           <span class="seg-item">群成员 <span class="seg-count">32</span></span>
           <span class="seg-item">全局 <span class="seg-count">12</span></span>
         </div>
-        <div class="scope-seg agent-seg">
+        <div class="scope-seg agent-seg" id="agentSeg">
           <span class="seg-item active">全部 Agent</span>
           <span class="seg-item">洛薇</span>
           <span class="seg-item">小洛</span>
         </div>
       </div>
-      <div class="type-pills reveal">
-        <span class="pill active" data-group="type" data-icon="filter">全部类型</span>
-        <span class="pill" data-group="type"><span class="pill-dot" style="background:var(--pink)"></span>preference</span>
-        <span class="pill" data-group="type"><span class="pill-dot" style="background:var(--blue)"></span>profile</span>
-        <span class="pill" data-group="type"><span class="pill-dot" style="background:var(--violet)"></span>entity</span>
-        <span class="pill" data-group="type"><span class="pill-dot" style="background:var(--green)"></span>event</span>
-        <span class="pill active" data-group="status">全部状态</span>
-        <span class="pill" data-group="status"><span class="pill-dot" style="background:var(--green)"></span>active</span>
-        <span class="pill" data-group="status"><span class="pill-dot" style="background:var(--amber)"></span>candidate</span>
-        <span class="pill" data-group="status"><span class="pill-dot" style="background:var(--muted)"></span>superseded</span>
-        <span class="pill" data-group="status"><span class="pill-dot" style="background:#d66666"></span>rejected</span>
+      <div class="type-pills reveal" id="typePills">
+        <span class="pill active" data-group="type" data-icon="filter" data-value="">全部类型</span>
+        <span class="pill" data-group="type" data-value="preference"><span class="pill-dot" style="background:var(--pink)"></span>preference</span>
+        <span class="pill" data-group="type" data-value="profile"><span class="pill-dot" style="background:var(--blue)"></span>profile</span>
+        <span class="pill" data-group="type" data-value="entity"><span class="pill-dot" style="background:var(--violet)"></span>entity</span>
+        <span class="pill" data-group="type" data-value="event"><span class="pill-dot" style="background:var(--green)"></span>event</span>
+        <span class="pill active" data-group="status" data-value="">全部状态</span>
+        <span class="pill" data-group="status" data-value="active"><span class="pill-dot" style="background:var(--green)"></span>active</span>
+        <span class="pill" data-group="status" data-value="candidate"><span class="pill-dot" style="background:var(--amber)"></span>candidate</span>
+        <span class="pill" data-group="status" data-value="superseded"><span class="pill-dot" style="background:var(--muted)"></span>superseded</span>
+        <span class="pill" data-group="status" data-value="rejected"><span class="pill-dot" style="background:#d66666"></span>rejected</span>
       </div>
     </div>
 
@@ -68,111 +68,20 @@
     <div class="mem-layout" id="panelMemories">
 
       <div class="mem-main reveal">
-        <div class="mem-list">
-
-          <div class="mem-card">
-            <div class="mem-top">
-              <span class="tag tag-pink">preference</span>
-              <span class="tag tag-scope">私聊</span>
-              <span class="tag tag-active"><span class="tag-dot"></span>active</span>
-              <span class="mem-agent">洛薇</span>
-              <div class="mem-actions">
-                <button class="icon-btn" data-icon="edit" title="编辑"></button>
-                <button class="icon-btn" data-icon="trash" title="标记 rejected"></button>
-              </div>
-            </div>
-            <div class="mem-abstract">阿茶的饮食偏好：不吃香菜，奶茶三分糖去冰，火锅必点虾滑</div>
-            <div class="mem-overview">{"drink":"奶茶三分糖去冰","dislike":"香菜"} · 阿茶不吃香菜，奶茶固定三分糖去冰，吃火锅必点虾滑。多次在点单与聚餐场景中得到验证。</div>
-            <div class="mem-meta">
-              <span class="mem-key">diet.acha</span>
-              <span class="m" data-icon="quote">3 条证据</span>
-              <span class="m" data-icon="history">v2 · 今天 09:58</span>
-              <span class="m" data-icon="spark">conf 0.94 · imp 0.8</span>
-            </div>
+        <!-- 记忆服务未就绪引导卡 -->
+        <div id="memGuide" style="display:none">
+          <div class="card guide-card">
+            <div class="guide-icon" data-icon="alert"></div>
+            <div class="guide-title">记忆服务未就绪</div>
+            <div class="guide-text" id="guideReason"></div>
+            <div class="guide-meta" id="guideMeta"></div>
           </div>
-
-          <div class="mem-card">
-            <div class="mem-top">
-              <span class="tag" style="background:var(--green-soft);color:var(--green-text)">event</span>
-              <span class="tag tag-scope">群聊</span>
-              <span class="tag tag-active"><span class="tag-dot"></span>active</span>
-              <span class="mem-agent">洛薇</span>
-              <div class="mem-actions">
-                <button class="icon-btn" data-icon="edit" title="编辑"></button>
-                <button class="icon-btn" data-icon="trash" title="标记 rejected"></button>
-              </div>
-            </div>
-            <div class="mem-abstract">「摸鱼小分队」每周五晚 8 点固定开黑，阿茶打辅助位</div>
-            <div class="mem-overview">固定活动：周五 20:00 开黑。参与者：阿茶（辅助）、老白（打野）、KK（中单）。已持续 6 周。</div>
-            <div class="mem-meta">
-              <span class="mem-key">weekly.game.moyu</span>
-              <span class="m" data-icon="quote">5 条证据</span>
-              <span class="m" data-icon="history">v1 · 昨天 21:14</span>
-              <span class="m" data-icon="spark">conf 0.91 · imp 0.6</span>
-            </div>
-          </div>
-
-          <div class="mem-card">
-            <div class="mem-top">
-              <span class="tag tag-alias">entity</span>
-              <span class="tag tag-scope">全局</span>
-              <span class="tag tag-active"><span class="tag-dot"></span>active</span>
-              <span class="mem-agent">洛薇</span>
-              <div class="mem-actions">
-                <button class="icon-btn" data-icon="edit" title="编辑"></button>
-                <button class="icon-btn" data-icon="trash" title="标记 rejected"></button>
-              </div>
-            </div>
-            <div class="mem-abstract">「年糕」是管理员养的布偶猫，两岁，怕生</div>
-            <div class="mem-overview">{"kind":"cat","name":"年糕","breed":"布偶","age":2} · 管理员养了一只叫「年糕」的布偶猫，今年两岁，怕生，不喜欢被抱。</div>
-            <div class="mem-meta">
-              <span class="mem-key">pet.niangao</span>
-              <span class="m" data-icon="quote">2 条证据</span>
-              <span class="m" data-icon="history">v1 · 3 天前</span>
-              <span class="m" data-icon="spark">conf 0.88 · imp 0.5</span>
-            </div>
-          </div>
-
-          <!-- candidate：待审核 -->
-          <div class="mem-card dimmed">
-            <div class="mem-top">
-              <span class="tag tag-pink">preference</span>
-              <span class="tag tag-scope">私聊</span>
-              <span class="tag tag-candidate"><span class="tag-dot"></span>candidate</span>
-              <span class="mem-agent">洛薇</span>
-              <div class="mem-actions" style="opacity:1">
-                <button class="btn btn-sm btn-tonal">通过</button>
-                <button class="btn btn-sm btn-ghost">拒绝</button>
-              </div>
-            </div>
-            <div class="mem-abstract">阿茶最近可能在戒咖啡，改喝热可可</div>
-            <div class="mem-overview">阿茶最近似乎在戒咖啡，改成了喝热可可。仅 1 条证据，置信度未达自动激活阈值（0.72 &lt; 0.85）。</div>
-            <div class="mem-meta">
-              <span class="mem-key">diet.acha.coffee</span>
-              <span class="m" data-icon="quote">1 条证据</span>
-              <span class="m" data-icon="spark">conf 0.72 · imp 0.4</span>
-            </div>
-          </div>
-
-          <!-- superseded：被取代 -->
-          <div class="mem-card dimmed">
-            <div class="mem-top">
-              <span class="tag tag-scope">profile</span>
-              <span class="tag tag-scope">群成员</span>
-              <span class="tag tag-superseded"><span class="tag-dot"></span>superseded</span>
-              <span class="mem-agent">小洛</span>
-            </div>
-            <div class="mem-abstract" style="text-decoration:line-through">阿茶是后端开发，主要写 Java</div>
-            <div class="mem-overview">已被 v3 取代：阿茶实为前端开发（Vue），最近转向 Rust。旧版本保留用于审计追溯。</div>
-            <div class="mem-meta">
-              <span class="mem-key">profile.acha.job</span>
-              <span class="m" data-icon="history">v1 → v3 · 3 天前被取代</span>
-            </div>
-          </div>
-
+        </div>
+        <div class="mem-list" id="memList">
+          <!-- 记忆卡片由 shared/views/memory.js 动态渲染 -->
         </div>
 
-        <div class="pager">
+        <div class="pager" id="memPager">
           <button class="pg-btn" disabled><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.4" stroke-linecap="round" stroke-linejoin="round"><polyline points="15 18 9 12 15 6"/></svg></button>
           <button class="pg-btn active" data-page="1">1</button>
           <button class="pg-btn" data-page="2">2</button>
@@ -190,26 +99,34 @@
           <div class="side-block">
             <div class="side-stat-row">
               <span class="side-stat-name"><span class="pill-dot" style="background:var(--green)"></span>active 生效中</span>
-              <span class="side-stat-num">112</span>
+              <span class="side-stat-num" id="statActive">0</span>
             </div>
             <div class="side-stat-row">
               <span class="side-stat-name"><span class="pill-dot" style="background:var(--amber)"></span>candidate 候选</span>
-              <span class="side-stat-num">9</span>
+              <span class="side-stat-num" id="statCandidate">0</span>
             </div>
             <div class="side-stat-row">
               <span class="side-stat-name"><span class="pill-dot" style="background:var(--muted)"></span>superseded 被取代</span>
-              <span class="side-stat-num">5</span>
+              <span class="side-stat-num" id="statSuperseded">0</span>
             </div>
             <div class="side-stat-row">
               <span class="side-stat-name"><span class="pill-dot" style="background:#d66666"></span>rejected 被拒</span>
-              <span class="side-stat-num">2</span>
+              <span class="side-stat-num" id="statRejected">0</span>
+            </div>
+            <div class="side-stat-row">
+              <span class="side-stat-name">工作线程</span>
+              <span class="side-stat-sub" id="statWorker">—</span>
+            </div>
+            <div class="side-stat-row">
+              <span class="side-stat-name">上次召回</span>
+              <span class="side-stat-sub" id="statRecall">—</span>
             </div>
           </div>
         </div>
 
         <div class="card">
-          <div class="card-head"><span class="card-dot"></span><span class="card-title">后台任务</span><a class="section-link" href="#">全部 →</a></div>
-          <div class="side-block">
+          <div class="card-head"><span class="card-dot"></span><span class="card-title">后台任务</span><a class="section-link" href="#" id="jobAllLink">全部 →</a></div>
+          <div class="side-block" id="jobMiniList">
             <div class="job-row">
               <div class="job-icon i-pink" data-icon="refresh"></div>
               <div class="job-main">
@@ -221,8 +138,8 @@
             <div class="job-row">
               <div class="job-icon i-violet" data-icon="file"></div>
               <div class="job-main">
-                <span class="job-name">会话提交归档</span>
-                <span class="job-sub">排队中 · 第 2 位</span>
+                <span class="job-name">后台任务示例</span>
+                <span class="job-sub">排队中 · 待执行</span>
               </div>
               <span class="tag tag-candidate">排队</span>
             </div>
@@ -237,15 +154,17 @@
           </div>
         </div>
 
-        <div class="card">
+        <div class="card" id="recallCard">
           <div class="card-head"><span class="card-dot"></span><span class="card-title">召回测试</span></div>
-          <div style="display:flex;flex-direction:column;gap:10px">
-            <div class="input-box"><input type="text" placeholder="输入一句话，测试召回…" /></div>
-            <div class="scope-seg" style="align-self:flex-start">
+          <div style="display:flex;flex-direction:column;gap:10px" id="recallCardBody">
+            <div class="input-box"><input type="text" id="recallQuery" placeholder="输入一句话，测试召回…" /></div>
+            <div class="scope-seg" style="align-self:flex-start" id="recallScopeSeg">
               <span class="seg-item active">私聊 · 阿茶</span>
               <span class="seg-item">群聊</span>
             </div>
-            <button class="btn btn-tonal btn-sm" style="align-self:flex-start" data-icon="search">测试召回</button>
+            <select class="form-select" id="recallAgent"></select>
+            <button class="btn btn-tonal btn-sm" style="align-self:flex-start" data-icon="search" id="recallBtn">测试召回</button>
+            <div id="recallResult"></div>
             <div style="font-size:11.5px;color:var(--text-2);line-height:1.6">
               召回先对 L0 abstract / L1 overview 打分，命中后展开 L2 全文；
               同时合并当前会话的近期提交。对应 memory-recall-debug。
@@ -256,73 +175,38 @@
       </div>
     </div>
 
-    <!-- ============ 会话提交面板 ============ -->
-    <div id="panelSessions" style="display:none">
+    <!-- ============ 后台任务面板 ============ -->
+    <div id="panelJobs" style="display:none">
       <div class="mem-layout">
         <div class="mem-main">
 
-          <div class="session-group-label" data-icon="chat">私聊 · 阿茶 · 当前会话</div>
-
-          <div class="commit-card">
-            <div class="commit-head">
-              <span class="tag tag-ok">Reply</span>
-              <span class="commit-id">commit 9f3a…e1</span>
-              <span style="margin-left:auto;font-size:11.5px;color:var(--text-2)">今天 10:24</span>
-            </div>
-            <div class="commit-l0">阿茶问周五开黑时间，确认 8 点并问要不要带奶茶</div>
-            <div class="commit-l1">User: 周五还是老时间吗？要不要我带奶茶
-Assistant: 老时间 8 点～三分糖去冰谢谢</div>
-            <div class="commit-derived" data-icon="memory">已提取记忆 → diet.acha（v2）· weekly.game.moyu</div>
-            <div class="commit-l2ref" data-icon="file">viking://agent/lovie/sessions/private_user/…/context_l2/ctx_9f3a.json</div>
+          <div class="scope-seg" id="jobStatusSeg" style="align-self:flex-start">
+            <span class="seg-item active" data-value="">全部</span>
+            <span class="seg-item" data-value="pending">排队中</span>
+            <span class="seg-item" data-value="running">运行中</span>
+            <span class="seg-item" data-value="retry">重试</span>
+            <span class="seg-item" data-value="completed">已完成</span>
+            <span class="seg-item" data-value="dead">失败</span>
           </div>
 
-          <div class="commit-card">
-            <div class="commit-head">
-              <span class="tag tag-candidate">No Reply</span>
-              <span class="commit-id">commit 7b22…4c</span>
-              <span style="margin-left:auto;font-size:11.5px;color:var(--text-2)">今天 09:31</span>
-            </div>
-            <div class="commit-l0">阿茶和朋友闲聊周末安排，无需接话</div>
-            <div class="commit-l1">User: 周末想去爬山，看天气再说</div>
-            <div class="commit-l2ref" data-icon="file">viking://agent/lovie/sessions/private_user/…/messages.jsonl</div>
+          <div class="job-list" id="jobList" style="display:flex;flex-direction:column;gap:10px;margin-top:14px">
+            <!-- 任务卡片由 shared/views/memory.js 动态渲染 -->
           </div>
 
-          <div class="session-group-label" data-icon="users">群聊 · 摸鱼小分队 · 当前会话</div>
-
-          <div class="commit-card">
-            <div class="commit-head">
-              <span class="tag tag-ok">Reply</span>
-              <span class="commit-id">commit c480…9d</span>
-              <span style="margin-left:auto;font-size:11.5px;color:var(--text-2)">昨天 21:14</span>
-            </div>
-            <div class="commit-l0">群内确认本周五开黑，阿茶继续打辅助</div>
-            <div class="commit-l1">User: 周五开黑搞起，阿茶你辅助
-Assistant: 收到，老位置</div>
-            <div class="commit-derived" data-icon="memory">已提取记忆 → weekly.game.moyu（v1）</div>
-            <div class="commit-l2ref" data-icon="file">viking://agent/lovie/sessions/group/…/context_l2/ctx_c480.json</div>
-          </div>
-
-          <div class="commit-card">
-            <div class="commit-head">
-              <span class="tag tag-ok">Reply</span>
-              <span class="commit-id">commit a1f5…77</span>
-              <span style="margin-left:auto;font-size:11.5px;color:var(--text-2)">昨天 20:03</span>
-            </div>
-            <div class="commit-l0">老白发战绩截图，大家讨论新版本打野强度</div>
-            <div class="commit-l1">User: 看我这把 15/2，新版本打野真离谱
-Assistant: 这数据确实夸张，下把让我躺</div>
-            <div class="commit-l2ref" data-icon="file">viking://agent/lovie/sessions/group/…/messages.jsonl</div>
+          <div class="pager" id="jobPager" style="display:none">
+            <button class="pg-btn" disabled><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.4" stroke-linecap="round" stroke-linejoin="round"><polyline points="15 18 9 12 15 6"/></svg></button>
+            <button class="pg-btn" disabled><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.4" stroke-linecap="round" stroke-linejoin="round"><polyline points="9 18 15 12 9 6"/></svg></button>
           </div>
 
         </div>
 
         <div class="mem-aside">
           <div class="card">
-            <div class="card-head"><span class="card-dot"></span><span class="card-title">关于会话提交</span></div>
+            <div class="card-head"><span class="card-dot"></span><span class="card-title">关于后台任务</span></div>
             <div style="font-size:12.5px;color:var(--text-2);line-height:1.8;display:flex;flex-direction:column;gap:8px">
-              <div>每轮真实发送的回复都会归档为一条 commit，包含 L0 摘要、L1 对话概览和 L2 原文指针。</div>
-              <div>召回时，当前会话的近期 commit 会作为「recent_conversation」与长期记忆一起参与，保证对话连续性。</div>
-              <div>标记「已提取记忆」的 commit 通过 derived_from 链接到对应记忆，可在记忆详情中回溯来源。</div>
+              <div>记忆提取（extract_turn）与示例嵌入（embed_example）任务由后台调度器异步执行。</div>
+              <div>重试任务会按策略延后执行，超过最大尝试次数后标记为 dead。</div>
+              <div>运行中的任务持有租约，崩溃重启后会自动过期回收。</div>
             </div>
           </div>
         </div>
@@ -342,31 +226,31 @@ Assistant: 这数据确实夸张，下把让我躺</div>
 <div class="drawer-mask" id="drawerMask"></div>
 <aside class="drawer" id="drawer">
   <div class="drawer-head">
-    <span class="tag tag-pink">preference</span>
-    <span class="tag tag-active"><span class="tag-dot"></span>active</span>
+    <span class="tag tag-pink" id="detailTypeTag">preference</span>
+    <span class="tag tag-active" id="detailStatusTag"><span class="tag-dot"></span>active</span>
     <span class="drawer-title">记忆详情</span>
     <button class="drawer-close" id="drawerClose">✕</button>
   </div>
-  <div class="drawer-body">
+  <div class="drawer-body" id="drawerBody">
 
     <div>
       <div class="d-label"><span class="layer-chip">L0</span>abstract · 召回匹配层</div>
-      <div class="d-abstract">阿茶的饮食偏好：不吃香菜，奶茶三分糖去冰，火锅必点虾滑</div>
+      <div class="d-abstract" id="dAbstract">阿茶的饮食偏好：不吃香菜，奶茶三分糖去冰，火锅必点虾滑</div>
     </div>
 
     <div>
       <div class="d-label"><span class="layer-chip l1">L1</span>overview · 命中展开层</div>
-      <div class="d-overview">{"drink":"奶茶三分糖去冰","dislike":"香菜"} · 阿茶不吃香菜，奶茶固定三分糖去冰，吃火锅必点虾滑。多次在点单与聚餐场景中得到验证。</div>
+      <div class="d-overview" id="dOverview">{"drink":"奶茶三分糖去冰","dislike":"香菜"} · 阿茶不吃香菜，奶茶固定三分糖去冰，吃火锅必点虾滑。多次在点单与聚餐场景中得到验证。</div>
     </div>
 
     <div>
       <div class="d-label"><span class="layer-chip l2">L2</span>content · 完整内容</div>
-      <div class="d-content">阿茶不吃香菜，奶茶固定三分糖去冰，吃火锅必点虾滑。点外卖时会主动备注「不要香菜」；聚餐吃火锅时虾滑是必点菜，其余菜品不挑。</div>
+      <div class="d-content" id="dContent">阿茶不吃香菜，奶茶固定三分糖去冰，吃火锅必点虾滑。点外卖时会主动备注「不要香菜」；聚餐吃火锅时虾滑是必点菜，其余菜品不挑。</div>
     </div>
 
     <div>
       <div class="d-label" data-icon="file">structured_value</div>
-      <div class="d-struct">{
+      <div class="d-struct" id="dStruct">{
   "drink": "奶茶三分糖去冰",
   "dislike": "香菜",
   "hotpot_must": "虾滑"
@@ -375,7 +259,7 @@ Assistant: 这数据确实夸张，下把让我躺</div>
 
     <div>
       <div class="d-label" data-icon="pin">归属与标识</div>
-      <div class="d-chips">
+      <div class="d-chips" id="dChips">
         <span class="tag tag-lg tag-scope">私聊 · 阿茶</span>
         <span class="tag tag-lg tag-alias">Agent · 洛薇</span>
         <span class="tag tag-lg tag-pink">memory_key · diet.acha</span>
@@ -385,17 +269,18 @@ Assistant: 这数据确实夸张，下把让我躺</div>
     <div>
       <div class="d-label" data-icon="spark">置信度与重要性</div>
       <div class="d-conf" style="margin-bottom:8px">
-        <span class="d-conf-label">conf 0.94</span>
-        <div class="bar" style="flex:1"><i style="width:94%"></i></div>
+        <span class="d-conf-label" id="confVal">conf 0.94</span>
+        <div class="bar" style="flex:1"><i id="confBar" style="width:94%"></i></div>
       </div>
       <div class="d-conf">
-        <span class="d-conf-label">imp 0.80</span>
-        <div class="bar" style="flex:1"><i style="width:80%"></i></div>
+        <span class="d-conf-label" id="impVal">imp 0.80</span>
+        <div class="bar" style="flex:1"><i id="impBar" style="width:80%"></i></div>
       </div>
     </div>
 
-    <div>
-      <div class="d-label" data-icon="quote">证据（3 条）</div>
+    <div id="drawerEvidence">
+      <div class="d-label" data-icon="quote" id="eviLabel">证据（3 条）</div>
+      <div id="eviRows">
       <div class="evi-item">
         <div class="evi-icon" data-icon="quote"></div>
         <div class="evi-text">
@@ -417,10 +302,12 @@ Assistant: 这数据确实夸张，下把让我躺</div>
           <div class="evi-time">2026-03-15 15:22 · source_complete: true</div>
         </div>
       </div>
+      </div>
     </div>
 
-    <div>
+    <div id="drawerRevisions">
       <div class="d-label" data-icon="history">版本与来源</div>
+      <div id="revRows">
       <div class="ver-row">
         <span class="ver-tag now">v2 当前</span>
         <span class="ver-text">补充「火锅必点虾滑」· 源自 commit 9f3a…e1</span>
@@ -431,22 +318,81 @@ Assistant: 这数据确实夸张，下把让我躺</div>
         <span class="ver-text">首次创建 · 源自 commit 2d81…b0</span>
         <span class="ver-time">3月28日</span>
       </div>
+      </div>
+    </div>
+
+    <div id="drawerAudit">
+      <div class="d-label" data-icon="pin">审计记录</div>
+      <div id="auditRows"></div>
     </div>
 
     <div>
       <div class="d-label" data-icon="pin">URI</div>
-      <div class="d-uri">viking://agent/lovie/memories/private_user/9c2f…/8a1b…/preference/3fa9…e2</div>
+      <div class="d-uri" id="dUri">viking://agent/lovie/memories/private_user/9c2f…/8a1b…/preference/3fa9…e2</div>
     </div>
 
   </div>
   <div class="drawer-foot">
-    <button class="btn btn-primary" style="flex:1" data-icon="edit">编辑记忆</button>
-    <button class="btn btn-ghost" data-icon="trash">标记 rejected</button>
+    <button class="btn btn-primary" style="flex:1" data-icon="edit" id="btnEditMem">编辑记忆</button>
+    <button class="btn btn-ghost" data-icon="trash" id="btnRejectMem">标记 rejected</button>
+  </div>
+</aside>
+
+<!-- 新建记忆弹窗 -->
+<div class="drawer-mask" id="modalMask"></div>
+<aside class="drawer" id="memModal">
+  <div class="drawer-head">
+    <span class="tag tag-pink">新建记忆</span>
+    <span class="drawer-title" id="modalTitle">创建一条长期记忆</span>
+    <button class="drawer-close" id="modalClose">✕</button>
+  </div>
+  <div class="drawer-body" id="modalBody">
+    <div>
+      <div class="d-label">作用域（必选）</div>
+      <select class="form-select" id="mScope"></select>
+    </div>
+    <div>
+      <div class="d-label">Agent（共享记忆可选）</div>
+      <select class="form-select" id="mAgent"></select>
+    </div>
+    <div class="row">
+      <div style="flex:1">
+        <div class="d-label">类型</div>
+        <select class="form-select" id="mType">
+          <option value="preference">preference</option>
+          <option value="profile">profile</option>
+          <option value="entity">entity</option>
+          <option value="event">event</option>
+        </select>
+      </div>
+      <div style="flex:1">
+        <div class="d-label">memory_key</div>
+        <input class="form-input" type="text" id="mKey" placeholder="如 diet.acha" />
+      </div>
+    </div>
+    <div>
+      <div class="d-label">content（L2 完整内容）</div>
+      <textarea class="form-input" id="mContent" rows="4" placeholder="记忆的完整内容…"></textarea>
+    </div>
+    <div class="row">
+      <div style="flex:1">
+        <div class="d-label">conf 置信度（0-1）</div>
+        <input class="form-input" type="number" id="mConf" min="0" max="1" step="0.01" value="0.9" />
+      </div>
+      <div style="flex:1">
+        <div class="d-label">imp 重要性（0-1）</div>
+        <input class="form-input" type="number" id="mImp" min="0" max="1" step="0.01" value="0.5" />
+      </div>
+    </div>
+  </div>
+  <div class="drawer-foot">
+    <button class="btn btn-primary" style="flex:1" data-icon="plus" id="mSubmit">创建记忆</button>
   </div>
 </aside>
 
 <script src="shared/icons.js"></script>
 <script src="shared/ui.js"></script>
+<script src="shared/api.js"></script>
 <script>
 /* 将 data-icon 占位替换为共享图标 */
 document.querySelectorAll("[data-icon]").forEach((el) => {

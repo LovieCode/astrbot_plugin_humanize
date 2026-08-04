@@ -143,6 +143,125 @@
       </div>`;
   }
 
+  /* ---------- 轻提示 ---------- */
+  /**
+   * 右下角轻提示，自动消失。
+   * @param {string} message 提示文本
+   * @param {{type?: "success"|"error"|"info"}} [opts] 类型，默认 info
+   */
+  function toast(message, opts) {
+    const type = (opts && opts.type) || "info";
+    let host = document.querySelector(".toast-host");
+    if (!host) {
+      host = document.createElement("div");
+      host.className = "toast-host";
+      document.body.appendChild(host);
+    }
+    const el = document.createElement("div");
+    el.className = `toast toast-${type}`;
+    const icon = document.createElement("span");
+    icon.className = "toast-icon";
+    icon.innerHTML = HZ.icon(type === "success" ? "check" : type === "error" ? "alert" : "info", 15);
+    const text = document.createElement("span");
+    text.textContent = String(message || "");
+    el.appendChild(icon);
+    el.appendChild(text);
+    host.appendChild(el);
+    requestAnimationFrame(() => el.classList.add("show"));
+    setTimeout(() => {
+      el.classList.remove("show");
+      setTimeout(() => el.remove(), 300);
+    }, 2600);
+  }
+
+  /* ---------- 确认框 ---------- */
+  /**
+   * 基于 .modal 的确认框。
+   * @param {{title?: string, text: string, danger?: boolean, confirmText?: string, cancelText?: string, onConfirm: () => void}} opts
+   */
+  function confirm(opts) {
+    const o = opts || {};
+    const mask = document.createElement("div");
+    mask.className = "modal-mask";
+    mask.innerHTML = `
+      <div class="modal" role="dialog" aria-modal="true">
+        <div class="modal-title">${o.title || "确认操作"}</div>
+        <div class="modal-text"></div>
+        <div class="modal-actions">
+          <button class="btn btn-ghost" data-act="cancel">${o.cancelText || "取消"}</button>
+          <button class="btn ${o.danger ? "btn-danger" : "btn-primary"}" data-act="ok">${o.confirmText || "确定"}</button>
+        </div>
+      </div>`;
+    mask.querySelector(".modal-text").textContent = String(o.text || "");
+    const close = (act) => {
+      mask.classList.remove("show");
+      setTimeout(() => mask.remove(), 220);
+      if (act === "ok" && typeof o.onConfirm === "function") o.onConfirm();
+    };
+    mask.addEventListener("click", (e) => {
+      if (e.target === mask || e.target.closest("[data-act]")) {
+        close(e.target.closest("[data-act]") ? e.target.closest("[data-act]").dataset.act : "cancel");
+      }
+    });
+    document.body.appendChild(mask);
+    requestAnimationFrame(() => mask.classList.add("show"));
+  }
+
+  /* ---------- 空态 / 错误条工厂 ---------- */
+  /**
+   * 生成空态元素（含可选重试按钮）。
+   * @param {{text?: string, icon?: string, retry?: () => void, retryText?: string}} [opts]
+   * @returns {HTMLElement} .empty 元素，可直接 appendChild
+   */
+  function initEmpty(opts) {
+    const o = opts || {};
+    const el = document.createElement("div");
+    el.className = "empty";
+    const icon = document.createElement("div");
+    icon.className = "empty-icon";
+    icon.innerHTML = HZ.icon(o.icon || "mood", 30);
+    const text = document.createElement("div");
+    text.className = "empty-text";
+    text.textContent = String(o.text || "暂无数据");
+    el.appendChild(icon);
+    el.appendChild(text);
+    if (typeof o.retry === "function") {
+      const btn = document.createElement("button");
+      btn.className = "btn btn-ghost btn-sm empty-retry";
+      btn.textContent = o.retryText || "重试";
+      btn.addEventListener("click", () => o.retry());
+      el.appendChild(btn);
+    }
+    return el;
+  }
+
+  /**
+   * 生成错误条元素（含重试按钮）。
+   * @param {{message?: string, retry?: () => void}} [opts]
+   * @returns {HTMLElement} .errbar 元素，可直接 appendChild
+   */
+  function initErrbar(opts) {
+    const o = opts || {};
+    const el = document.createElement("div");
+    el.className = "errbar";
+    const icon = document.createElement("span");
+    icon.className = "errbar-icon";
+    icon.innerHTML = HZ.icon("alert", 15);
+    const text = document.createElement("span");
+    text.className = "errbar-text";
+    text.textContent = String(o.message || "加载失败");
+    el.appendChild(icon);
+    el.appendChild(text);
+    if (typeof o.retry === "function") {
+      const btn = document.createElement("button");
+      btn.className = "errbar-retry";
+      btn.textContent = "重试";
+      btn.addEventListener("click", () => o.retry());
+      el.appendChild(btn);
+    }
+    return el;
+  }
+
   /* ---------- 顶栏 ---------- */
   /**
    * 渲染页面顶栏。
@@ -181,5 +300,9 @@
     renderSidebar,
     renderTopbar,
     NAV_GROUPS,
+    toast,
+    confirm,
+    initEmpty,
+    initErrbar,
   });
 })(window);
