@@ -7,7 +7,7 @@ import sqlite3
 from typing import Any
 
 from ..domain.prompts import PromptTemplates
-from .base import _now
+from .base import _json_value, _now
 
 __all__ = ["PromptTemplateRepository"]
 
@@ -139,5 +139,48 @@ class PromptTemplateRepository:
                 conn.rollback()
                 raise
             return {"templates": updated.as_dict(), "updated_at": now}
+
+        return await self._run(operation)
+
+    async def list_prompt_template_audit(
+        self, *, page: int, page_size: int
+    ) -> dict[str, Any]:
+        """Return paginated prompt template audit entries newest first.
+
+        Args:
+            page: One-based page number.
+            page_size: Bounded result count.
+
+        Returns:
+            Paginated audit items with decoded before/after snapshots.
+        """
+
+        def operation(conn: sqlite3.Connection) -> dict[str, Any]:
+            total = int(
+                conn.execute(
+                    "SELECT COUNT(*) AS count FROM humanize_prompt_template_audit"
+                ).fetchone()["count"]
+            )
+            rows = conn.execute(
+                """
+                SELECT id, action, actor, reason, before_json, after_json,
+                       created_at
+                FROM humanize_prompt_template_audit
+                ORDER BY created_at DESC, id DESC LIMIT ? OFFSET ?
+                """,
+                (page_size, (page - 1) * page_size),
+            ).fetchall()
+            items = []
+            for row in rows:
+                item = dict(row)
+                item["before"] = _json_value(str(item.pop("before_json", "{}")), {})
+                item["after"] = _json_value(str(item.pop("after_json", "{}")), {})
+                items.append(item)
+            return {
+                "items": items,
+                "total": total,
+                "page": page,
+                "page_size": page_size,
+            }
 
         return await self._run(operation)
