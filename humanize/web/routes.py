@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import json
 import logging
 import re
 from pathlib import Path
@@ -58,6 +59,88 @@ def _required_request_id(value: Any) -> str:
     if not request_id or len(request_id) > 200:
         raise ValueError("缺少有效的请求 ID")
     return request_id
+
+
+_TYPE_LABELS = {
+    bool: "bool",
+    int: "int",
+    float: "float",
+    str: "string",
+    list: "list",
+}
+
+
+def _validate_settings_values(values: dict[str, Any]) -> dict[str, Any]:
+    """Validate one settings payload against the public config whitelist.
+
+    Args:
+        values: Flat key to value mapping submitted by the settings form.
+
+    Returns:
+        Validated flat key to value mapping.
+
+    Raises:
+        ValueError: If a key is unknown or its value has the wrong type.
+    """
+    public = PluginConfig().as_public_dict()
+    validated: dict[str, Any] = {}
+    for key, value in values.items():
+        if key not in public:
+            raise ValueError(f"未知配置项: {key}")
+        expected = type(public[key])
+        if not isinstance(value, expected):
+            raise ValueError(
+                f"配置项 {key} 的类型错误: 期望是 {_TYPE_LABELS.get(expected, expected.__name__)}, "
+                f"得到了 {type(value).__name__}"
+            )
+        validated[key] = value
+    return validated
+
+
+def _write_plugin_config(values: dict[str, Any]) -> None:
+    """Persist validated settings into the plugin config file without reloading.
+
+    The plugin schema groups every key under general, reply_control or memory;
+    runtime code reads the flattened mapping, so flat values must be written
+    back into their declared groups.
+
+    Args:
+        values: Validated flat key to value mapping.
+
+    Raises:
+        RuntimeError: If the schema file or config file cannot be accessed.
+    """
+    from astrbot.core.config.astrbot_config import AstrBotConfig
+    from astrbot.core.utils.astrbot_path import get_astrbot_config_path
+
+    schema_path = Path(__file__).resolve().parents[2] / "_conf_schema.json"
+    try:
+        schema = json.loads(schema_path.read_text(encoding="utf-8"))
+    except (OSError, ValueError) as exc:
+        raise RuntimeError("无法读取插件配置 schema") from exc
+    config = AstrBotConfig(
+        config_path=(
+            Path(get_astrbot_config_path()) / "astrbot_plugin_humanize_config.json"
+        ),
+        schema=schema,
+    )
+
+    def assign(section: dict[str, Any], key: str, value: Any) -> bool:
+        """Place one value into the matching nested schema group."""
+        for nested in section.values():
+            if not isinstance(nested, dict):
+                continue
+            if key in nested:
+                nested[key] = value
+                return True
+            if assign(nested, key, value):
+                return True
+        return False
+
+    for key, value in values.items():
+        if not assign(config, key, value):
+            raise ValueError(f"未知配置项: {key}")
+    config.save_config()
 
 
 _PAGE_DIR = Path(__file__).resolve().parents[2] / "pages" / "humanize"
@@ -176,10 +259,6 @@ class WebApi:
         if path == "context-stats":
             days = _positive_int(request.query.get("days"), 7, 365)
             return self._ok(await self._repository.get_context_stats(days=days))
-        if path == "provider-cache-capabilities":
-            return self._ok(
-                {"items": await self._repository.list_provider_cache_capabilities()}
-            )
         if path == "memory-status":
             if self._memory is None:
                 return self._ok(
@@ -407,6 +486,14 @@ class WebApi:
                     "updated_at": stored["updated_at"],
                 }
             )
+        if path == "prompt-template-audit":
+            page = _positive_int(request.query.get("page"), 1, 100_000)
+            page_size = _positive_int(request.query.get("page_size"), 20, 100)
+            return self._ok(
+                await self._repository.list_prompt_template_audit(
+                    page=page, page_size=page_size
+                )
+            )
         return error_response("未找到该接口", status_code=404)
 
     async def _handle_post(self, path: str):
@@ -415,6 +502,13 @@ class WebApi:
         body = await request.json(default={})
         if not isinstance(body, dict):
             raise ValueError("请求体必须是 JSON 对象")
+        if path == "settings":
+            raw_values = body.get("values")
+            if not isinstance(raw_values, dict) or not raw_values:
+                raise ValueError("settings 请求必须包含非空的 values 对象")
+            validated = _validate_settings_values(raw_values)
+            _write_plugin_config(validated)
+            return self._ok({"updated": list(validated), "restart_required": True})
         if path == "prompt-templates":
             action = str(body.get("action") or "update").strip().lower()
             reason = str(body.get("reason") or "").strip()
@@ -540,44 +634,62 @@ class WebApi:
             )
         if path != "jargon-action":
             return error_response("未找到该接口", status_code=404)
-        entry_id = _required_id(body.get("id"))
         action = str(body.get("action", "")).strip()
         if action == "update_meaning":
             action = "update"
-        meaning = str(body.get("meaning", ""))
-        if action not in {
-            "confirm",
-            "reject",
-            "update",
-            "delete",
-            "update_entry",
-            "replace_aliases",
-            "create_sense",
-            "update_sense",
-            "confirm_sense",
-            "reject_sense",
-            "set_preferred",
-            "set_preferred_sense",
-            "merge_sense",
-            "delete_sense",
-            "sense_create",
-            "sense_update",
-            "sense_confirm",
-            "sense_reject",
-            "sense_preferred",
-            "sense_merge",
-            "sense_delete",
-        }:
-            raise ValueError("不支持的词条操作")
-        updated = await self._repository.apply_jargon_action(
-            entry_id,
-            action,
-            meaning,
-            payload=body,
-        )
-        if not updated:
-            return error_response("词条不存在", status_code=404)
-        detail = await self._repository.get_jargon_detail(entry_id)
+        if action == "create_entry":
+            if not await self._repository.apply_jargon_action(0, action, payload=body):
+                return error_response("词条创建失败", status_code=500)
+            listing = await self._repository.list_jargons(
+                search=str(body.get("term") or "").strip(),
+                status="",
+                scope_id=str(body.get("scope_id") or "").strip(),
+                scope_type=str(body.get("scope_type") or "").strip(),
+                page=1,
+                page_size=1,
+            )
+            created = listing["items"][0] if listing["items"] else None
+            detail = (
+                await self._repository.get_jargon_detail(int(created["id"]))
+                if created is not None
+                else None
+            )
+        else:
+            entry_id = _required_id(body.get("id"))
+            meaning = str(body.get("meaning", ""))
+            if action not in {
+                "confirm",
+                "reject",
+                "update",
+                "delete",
+                "update_entry",
+                "replace_aliases",
+                "create_sense",
+                "update_sense",
+                "confirm_sense",
+                "reject_sense",
+                "set_preferred",
+                "set_preferred_sense",
+                "merge_sense",
+                "delete_sense",
+                "sense_create",
+                "sense_update",
+                "sense_confirm",
+                "sense_reject",
+                "sense_preferred",
+                "sense_merge",
+                "sense_delete",
+            }:
+                raise ValueError("不支持的词条操作")
+            updated = await self._repository.apply_jargon_action(
+                entry_id,
+                action,
+                meaning,
+                payload=body,
+            )
+            if not updated:
+                return error_response("词条不存在", status_code=404)
+            detail = await self._repository.get_jargon_detail(entry_id)
         return self._ok({"updated": True, "deleted": detail is None, "detail": detail})
 
     @staticmethod
