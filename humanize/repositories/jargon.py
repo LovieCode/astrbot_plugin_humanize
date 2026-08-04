@@ -618,14 +618,52 @@ class JargonRepository:
                     raise ValueError("meaning must contain 1 to 1000 characters")
                 return value
 
+            def clean_aliases(
+                existing_term: str, scope_type: str, scope_id: str
+            ) -> list[tuple[str, str]]:
+                """Validate optional aliases against scope-wide conflicts.
+
+                Args:
+                    existing_term: Entry term that must not collide with an alias.
+                    scope_type: Scope type used by the conflict query.
+                    scope_id: Scope identifier used by the conflict query.
+
+                Returns:
+                    Deduplicated (alias, normalized_alias) pairs.
+
+                Raises:
+                    ValueError: If any alias is invalid or already used.
+                """
+                raw_aliases = data.get("aliases", [])
+                if not isinstance(raw_aliases, list):
+                    raise ValueError("aliases must be a list")
+                clean: list[tuple[str, str]] = []
+                seen: set[str] = set()
+                for raw_alias in raw_aliases[:50]:
+                    alias = str(raw_alias or "").strip()
+                    normalized_alias = normalize_term(alias)
+                    if not alias or len(alias) > 128 or not normalized_alias:
+                        raise ValueError("alias must contain 1 to 128 characters")
+                    if normalized_alias in seen or normalized_alias == existing_term:
+                        continue
+                    conflict = conn.execute(
+                        """
+                        SELECT e.id FROM jargon_entries e
+                        LEFT JOIN jargon_aliases a ON a.entry_id = e.id
+                        WHERE e.scope_type = ? AND e.scope_id = ?
+                          AND (e.normalized_term = ? OR a.normalized_alias = ?)
+                        LIMIT 1
+                        """,
+                        (scope_type, scope_id, normalized_alias, normalized_alias),
+                    ).fetchone()
+                    if conflict is not None:
+                        raise ValueError("alias already belongs to another entry")
+                    seen.add(normalized_alias)
+                    clean.append((alias, normalized_alias))
+                return clean
+
             conn.execute("BEGIN IMMEDIATE")
             try:
-                exists = conn.execute(
-                    "SELECT * FROM jargon_entries WHERE id = ?", (entry_id,)
-                ).fetchone()
-                if exists is None:
-                    conn.rollback()
-                    return False
                 normalized_action = {
                     "sense_create": "create_sense",
                     "sense_update": "update_sense",
@@ -636,6 +674,106 @@ class JargonRepository:
                     "sense_merge": "merge_sense",
                     "sense_delete": "delete_sense",
                 }.get(action, action)
+
+                if normalized_action == "create_entry":
+                    term = str(data.get("term") or "").strip()
+                    if not term or len(term) > 128:
+                        raise ValueError("term must contain 1 to 128 characters")
+                    normalized_term = normalize_term(term)
+                    if not normalized_term:
+                        raise ValueError("term must contain 1 to 128 characters")
+                    scope_type = str(data.get("scope_type") or "").strip()
+                    scope_id = str(data.get("scope_id") or "").strip()
+                    if not scope_type or not scope_id:
+                        raise ValueError("scope_type and scope_id are required")
+                    clean = clean_meaning()
+                    confidence = max(0.0, min(float(data.get("confidence", 1.0)), 1.0))
+                    status = str(data.get("status") or "candidate").strip().lower()
+                    if status not in {
+                        "candidate",
+                        "provisional",
+                        "verified",
+                        "rejected",
+                    }:
+                        raise ValueError("unsupported entry status")
+                    conflict = conn.execute(
+                        """
+                        SELECT e.id FROM jargon_entries e
+                        LEFT JOIN jargon_aliases a ON a.entry_id = e.id
+                        WHERE e.scope_type = ? AND e.scope_id = ?
+                          AND (e.normalized_term = ? OR a.normalized_alias = ?)
+                        LIMIT 1
+                        """,
+                        (scope_type, scope_id, normalized_term, normalized_term),
+                    ).fetchone()
+                    if conflict is not None:
+                        raise ValueError("term already exists in this scope")
+                    aliases = clean_aliases(normalized_term, scope_type, scope_id)
+                    cursor = conn.execute(
+                        """
+                        INSERT INTO jargon_entries (
+                            scope_type, scope_id, term, normalized_term, status,
+                            occurrence_count, confidence, first_seen_at,
+                            last_seen_at, created_at, updated_at
+                        ) VALUES (?, ?, ?, ?, ?, 0, ?, ?, ?, ?, ?)
+                        """,
+                        (
+                            scope_type,
+                            scope_id,
+                            term,
+                            normalized_term,
+                            status,
+                            confidence,
+                            now,
+                            now,
+                            now,
+                            now,
+                        ),
+                    )
+                    new_entry_id = int(cursor.lastrowid)
+                    sense_cursor = conn.execute(
+                        """
+                        INSERT INTO jargon_senses (
+                            entry_id, meaning, normalized_meaning, confidence,
+                            status, version, created_by, reason, created_at, updated_at
+                        ) VALUES (?, ?, ?, ?, ?, 1, 'admin', 'manual create', ?, ?)
+                        """,
+                        (
+                            new_entry_id,
+                            clean,
+                            normalize_term(clean),
+                            confidence,
+                            status,
+                            now,
+                            now,
+                        ),
+                    )
+                    if status == "verified":
+                        conn.execute(
+                            "UPDATE jargon_entries SET preferred_sense_id = ? WHERE id = ?",
+                            (int(sense_cursor.lastrowid), new_entry_id),
+                        )
+                    conn.executemany(
+                        """
+                        INSERT INTO jargon_aliases (
+                            entry_id, alias, normalized_alias, created_at
+                        ) VALUES (?, ?, ?, ?)
+                        """,
+                        [
+                            (new_entry_id, alias, normalized_alias, now)
+                            for alias, normalized_alias in aliases
+                        ],
+                    )
+                    self._refresh_entry_state(conn, new_entry_id, now)
+                    conn.commit()
+                    return True
+
+                exists = conn.execute(
+                    "SELECT * FROM jargon_entries WHERE id = ?", (entry_id,)
+                ).fetchone()
+                if exists is None:
+                    conn.rollback()
+                    return False
                 if normalized_action in {
                     "confirm",
                     "reject",
