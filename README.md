@@ -149,10 +149,7 @@ AstrBot 支持插件热重载，修改后无需重启整个进程。重载时后
 python -m pytest tests
 python -m ruff format --check .
 python -m ruff check .
-node --check pages/humanize/api.js
 node --check pages/humanize/app.js
-node --check pages/humanize/memory.js
-node --check pages/humanize/examples.js
 ```
 
 ## 工程结构

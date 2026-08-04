@@ -1,0 +1,202 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+<meta charset="UTF-8" />
+<meta name="viewport" content="width=device-width, initial-scale=1.0" />
+<title>提示词模板 · 洛薇 Humanize</title>
+<link rel="preconnect" href="https://fonts.googleapis.com" />
+<link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Nunito:wght@400;600;700;800&family=Noto+Sans+SC:wght@400;500;700&display=swap" />
+<link rel="stylesheet" href="shared/tokens.css" />
+<link rel="stylesheet" href="shared/base.css" />
+<link rel="stylesheet" href="shared/components.css" />
+<link rel="stylesheet" href="shared/layout.css" />
+<link rel="stylesheet" href="shared/motion.css" />
+<link rel="stylesheet" href="shared/views/prompts.css" />
+</head>
+<body>
+
+<div class="bg-decor">
+  <div class="blob blob-1"></div>
+  <div class="blob blob-2"></div>
+</div>
+
+<div class="app">
+
+  <aside class="sidebar" id="sidebar"></aside>
+
+  <main class="main">
+
+    <div class="topbar" id="topbar"></div>
+
+    <div class="pt-layout">
+
+      <!-- 左：模板列表 -->
+      <div class="pt-list-col reveal">
+
+        <div class="pt-item active">
+          <div class="pt-item-top">
+            <span class="pt-item-name">基础规则</span>
+            <span class="pt-item-key">rule</span>
+            <span class="tag tag-custom" style="margin-left:auto">已修改</span>
+          </div>
+          <div class="pt-item-desc">根据当前聊天场景和管理员信息生成的每轮规则。</div>
+          <div class="pt-item-foot">
+            <span class="pt-var">{{scene}}</span>
+            <span class="pt-var">{{admin_name}}</span>
+            <span class="pt-var">{{admin_ids}}</span>
+          </div>
+        </div>
+
+        <div class="pt-item">
+          <div class="pt-item-top">
+            <span class="pt-item-name">回复协议</span>
+            <span class="pt-item-key">protocol</span>
+            <span class="tag tag-default" style="margin-left:auto">默认</span>
+          </div>
+          <div class="pt-item-desc">每轮注入的回复控制头、分消息和陌生词规则。</div>
+          <div class="pt-item-foot">
+            <span class="pt-var">{{version}}</span>
+            <span class="pt-var">{{max_chars}}</span>
+          </div>
+        </div>
+
+        <div class="pt-item">
+          <div class="pt-item-top">
+            <span class="pt-item-name">协议修复</span>
+            <span class="pt-item-key">repair</span>
+            <span class="tag tag-default" style="margin-left:auto">默认</span>
+          </div>
+          <div class="pt-item-desc">首次回复控制头无效时使用的隔离修复提示。</div>
+          <div class="pt-item-foot">
+            <span class="pt-var">{{version}}</span>
+            <span class="pt-var required">{{required_action}} 必填</span>
+          </div>
+        </div>
+
+        <div class="pt-item">
+          <div class="pt-item-top">
+            <span class="pt-item-name">记忆提取</span>
+            <span class="pt-item-key">memory_extraction</span>
+            <span class="tag tag-default" style="margin-left:auto">默认</span>
+          </div>
+          <div class="pt-item-desc">后台从成功聊天中生成有原文证据的结构化记忆候选。</div>
+          <div class="pt-item-foot">
+            <span class="pt-var-note">无变量</span>
+          </div>
+        </div>
+
+        <div class="pt-item">
+          <div class="pt-item-top">
+            <span class="pt-item-name">回复样例</span>
+            <span class="pt-item-key">reply_examples</span>
+            <span class="tag tag-custom" style="margin-left:auto">已修改</span>
+          </div>
+          <div class="pt-item-desc">把审核后的典型短对话作为临时 few-shot 参考注入。</div>
+          <div class="pt-item-foot">
+            <span class="pt-var required">{{examples}} 必填</span>
+          </div>
+        </div>
+
+      </div>
+
+      <!-- 右：编辑器 -->
+      <div class="pt-editor-col reveal">
+
+        <div class="card">
+          <div class="pt-editor-head">
+            <div class="pt-editor-title">
+              <span class="pt-editor-name">基础规则 <span class="k">rule</span><span class="tag tag-custom">已修改</span></span>
+              <span class="pt-editor-desc">根据当前聊天场景和管理员信息生成的每轮规则。</span>
+            </div>
+            <button class="btn btn-ghost btn-sm" data-icon="refresh">恢复默认</button>
+          </div>
+
+          <div class="pt-diff-note" style="margin-top:12px" data-icon="info">
+            <span>当前内容与默认模板不同。可随时「恢复默认」回到内置版本，操作会记录到下方审计日志。</span>
+          </div>
+
+          <div class="pt-vars" style="margin-top:14px">
+            <span class="pt-vars-label">可用变量</span>
+            <span class="pt-var-chip" title="点击复制">{{scene}}</span>
+            <span class="pt-var-chip" title="点击复制">{{admin_name}}</span>
+            <span class="pt-var-chip" title="点击复制">{{admin_ids}}</span>
+            <span class="pt-var-note">渲染时自动替换，未知变量将原样保留</span>
+          </div>
+
+          <div style="margin-top:12px">
+<textarea class="pt-textarea" id="ptTextarea">你正在参与一场{{scene}}聊天。
+
+【场景规则】
+- 像朋友一样自然接话，不端着、不说教
+- 每条消息尽量简短，口语化
+
+【管理员】
+- 管理员昵称：{{admin_name}}
+- 管理员 ID：{{admin_ids}}
+- 管理员的话可以相信，但不要盲从</textarea>
+          </div>
+
+          <div class="pt-editor-foot" style="margin-top:12px">
+            <span class="pt-dirty" id="ptDirty"><span class="dot"></span>未保存</span>
+            <span class="pt-char-count" id="ptCharCount">0 字</span>
+            <span style="flex:1"></span>
+            <button class="btn btn-ghost btn-sm" data-icon="copy">复制</button>
+            <button class="btn btn-primary btn-sm" data-icon="check_simple">保存模板</button>
+          </div>
+        </div>
+
+        <!-- 审计记录 -->
+        <div class="card">
+          <div class="card-head"><span class="card-dot"></span><span class="card-title">修改审计</span></div>
+          <div class="audit-row">
+            <span class="audit-tag update">update</span>
+            <span class="audit-text"><b>web_admin</b> · 更新了 <b>rule</b> · 原因：补充管理员说明</span>
+            <span class="audit-time">3月29日 21:14</span>
+          </div>
+          <div class="audit-row">
+            <span class="audit-tag update">update</span>
+            <span class="audit-text"><b>web_admin</b> · 更新了 <b>reply_examples</b> · 原因：强调不得直接复用样例</span>
+            <span class="audit-time">3月28日 16:40</span>
+          </div>
+          <div class="audit-row">
+            <span class="audit-tag reset">reset</span>
+            <span class="audit-text"><b>web_admin</b> · 重置了 <b>protocol</b> · 原因：恢复默认协议模板</span>
+            <span class="audit-time">3月26日 10:02</span>
+          </div>
+          <div class="audit-row">
+            <span class="audit-tag update">update</span>
+            <span class="audit-text"><b>web_admin</b> · 更新了 <b>rule</b> · 原因：web update</span>
+            <span class="audit-time">3月25日 09:31</span>
+          </div>
+        </div>
+
+      </div>
+    </div>
+
+    <div class="footer">
+      Made with
+      <svg viewBox="0 0 24 24" fill="currentColor"><path d="M20.8 4.6a5.5 5.5 0 0 0-7.8 0L12 5.6l-1-1a5.5 5.5 0 0 0-7.8 7.8l1 1L12 21l7.8-7.6 1-1a5.5 5.5 0 0 0 0-7.8z"/></svg>
+      by LovieCode · astrbot_plugin_humanize v0.2.0
+    </div>
+
+  </main>
+</div>
+
+<script src="shared/icons.js"></script>
+<script src="shared/ui.js"></script>
+<script>
+/* 将 data-icon 占位替换为共享图标 */
+document.querySelectorAll("[data-icon]").forEach((el) => {
+  const svg = HZ.icon(el.dataset.icon);
+  if (el.tagName === "BUTTON" && el.textContent.trim()) {
+    el.insertAdjacentHTML("afterbegin", svg);
+  } else if (el.classList.contains("pt-diff-note")) {
+    el.insertAdjacentHTML("afterbegin", svg);
+  } else {
+    el.innerHTML = svg;
+  }
+});
+</script>
+<script src="shared/views/prompts.js"></script>
+</body>
+</html>

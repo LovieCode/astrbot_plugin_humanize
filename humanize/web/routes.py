@@ -2,6 +2,7 @@ from __future__ import annotations
 
 import logging
 import re
+from pathlib import Path
 from typing import Any
 
 from ..config import PluginConfig
@@ -59,6 +60,15 @@ def _required_request_id(value: Any) -> str:
     return request_id
 
 
+_PAGE_DIR = Path(__file__).resolve().parents[2] / "pages" / "humanize"
+_PAGE_FILES = {
+    "": "index.html",
+    "index.html": "index.html",
+    "style.css": "style.css",
+    "app.js": "app.js",
+}
+
+
 class WebApi:
     def __init__(
         self,
@@ -75,11 +85,13 @@ class WebApi:
         self._memory = memory
 
     async def dispatch(self, subpath: str = ""):
-        from astrbot.api.web import error_response, request
+        from astrbot.api.web import error_response, file_response, request
 
         path = (subpath or "").strip("/")
         try:
             if request.method == "GET":
+                if path in _PAGE_FILES:
+                    return file_response(_PAGE_DIR / _PAGE_FILES[path])
                 return await self._handle_get(path)
             if request.method == "POST":
                 return await self._handle_post(path)

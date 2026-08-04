@@ -1,0 +1,408 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+<meta charset="UTF-8" />
+<meta name="viewport" content="width=device-width, initial-scale=1.0" />
+<title>黑话词库 · 洛薇 Humanize</title>
+<link rel="preconnect" href="https://fonts.googleapis.com" />
+<link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Nunito:wght@400;600;700;800&family=Noto+Sans+SC:wght@400;500;700&display=swap" />
+<link rel="stylesheet" href="shared/tokens.css" />
+<link rel="stylesheet" href="shared/base.css" />
+<link rel="stylesheet" href="shared/components.css" />
+<link rel="stylesheet" href="shared/layout.css" />
+<link rel="stylesheet" href="shared/motion.css" />
+<link rel="stylesheet" href="shared/views/jargon.css" />
+</head>
+<body>
+
+<div class="bg-decor">
+  <div class="blob blob-1"></div>
+  <div class="blob blob-2"></div>
+</div>
+
+<div class="app">
+
+  <aside class="sidebar" id="sidebar"></aside>
+
+  <main class="main">
+
+    <div class="topbar" id="topbar"></div>
+
+    <!-- 筛选：作用域 + 状态 -->
+    <div class="jg-filter reveal">
+      <div class="scope-seg">
+        <span class="seg-item active">全部 <span class="seg-count">42</span></span>
+        <span class="seg-item">私聊 <span class="seg-count">15</span></span>
+        <span class="seg-item">群聊 <span class="seg-count">24</span></span>
+        <span class="seg-item">全局 <span class="seg-count">3</span></span>
+      </div>
+      <div class="scope-seg status-seg">
+        <span class="seg-item active">全部状态</span>
+        <span class="seg-item">verified</span>
+        <span class="seg-item">provisional</span>
+        <span class="seg-item">candidate</span>
+        <span class="seg-item">ambiguous</span>
+      </div>
+    </div>
+
+    <div class="jg-layout">
+
+      <!-- 词条列表 -->
+      <div class="jg-main reveal">
+        <div class="jg-list">
+
+          <div class="jg-card">
+            <div class="jg-top">
+              <span class="jg-term">塌房</span>
+              <span class="tag tag-verified"><span class="tag-dot"></span>verified</span>
+              <span class="jg-scope">群聊 · 摸鱼小分队</span>
+              <div class="jg-actions">
+                <button class="icon-btn" data-icon="edit" title="编辑"></button>
+                <button class="icon-btn" data-icon="zap_off" title="停用"></button>
+              </div>
+            </div>
+            <div class="jg-meaning">偶像或公众人物人设崩塌、形象翻车 <span class="sense-more">+1 个义项</span></div>
+            <div class="jg-meta">
+              <span class="m" data-icon="quote">6 条证据</span>
+              <span class="m" data-icon="eye">出现 14 次</span>
+              <span class="m" data-icon="spark">conf 0.95</span>
+              <span class="m" data-icon="clock">最近 3月29日</span>
+            </div>
+          </div>
+
+          <div class="jg-card">
+            <div class="jg-top">
+              <span class="jg-term">摸鱼</span>
+              <div class="jg-aliases">
+                <span class="jg-alias" data-icon="link">划水</span>
+                <span class="jg-alias" data-icon="link">划划水</span>
+              </div>
+              <span class="tag tag-verified"><span class="tag-dot"></span>verified</span>
+              <span class="jg-scope">全局</span>
+              <div class="jg-actions">
+                <button class="icon-btn" data-icon="edit" title="编辑"></button>
+                <button class="icon-btn" data-icon="zap_off" title="停用"></button>
+              </div>
+            </div>
+            <div class="jg-meaning">上班或上课时偷懒、做与工作无关的事</div>
+            <div class="jg-meta">
+              <span class="m" data-icon="quote">9 条证据</span>
+              <span class="m" data-icon="eye">出现 31 次</span>
+              <span class="m" data-icon="spark">conf 0.97</span>
+              <span class="m" data-icon="clock">最近 3月30日</span>
+            </div>
+          </div>
+
+          <div class="jg-card">
+            <div class="jg-top">
+              <span class="jg-term">破防</span>
+              <span class="tag tag-verified"><span class="tag-dot"></span>verified</span>
+              <span class="jg-scope">群聊 · 摸鱼小分队</span>
+              <div class="jg-actions">
+                <button class="icon-btn" data-icon="edit" title="编辑"></button>
+                <button class="icon-btn" data-icon="zap_off" title="停用"></button>
+              </div>
+            </div>
+            <div class="jg-meaning">情绪被击穿，心理防线崩溃，多指被戳中痛点</div>
+            <div class="jg-meta">
+              <span class="m" data-icon="quote">4 条证据</span>
+              <span class="m" data-icon="eye">出现 11 次</span>
+              <span class="m" data-icon="spark">conf 0.93</span>
+              <span class="m" data-icon="clock">最近 3月28日</span>
+            </div>
+          </div>
+
+          <!-- provisional：临时释义，单义项高置信可注入 -->
+          <div class="jg-card">
+            <div class="jg-top">
+              <span class="jg-term">绝绝子</span>
+              <span class="tag tag-provisional"><span class="tag-dot"></span>provisional</span>
+              <span class="jg-scope">私聊 · 阿茶</span>
+              <div class="jg-actions">
+                <button class="icon-btn" data-icon="edit" title="编辑"></button>
+                <button class="icon-btn" data-icon="zap_off" title="停用"></button>
+              </div>
+            </div>
+            <div class="jg-meaning">表示极度赞叹，"太绝了"的强调说法</div>
+            <div class="jg-meta">
+              <span class="m" data-icon="quote">2 条证据</span>
+              <span class="m" data-icon="eye">出现 5 次</span>
+              <span class="m" data-icon="spark">conf 0.88</span>
+              <span class="m" data-icon="clock">最近 3月27日</span>
+            </div>
+          </div>
+
+          <!-- candidate：待审核，给出快捷操作 -->
+          <div class="jg-card" style="opacity:.72">
+            <div class="jg-top">
+              <span class="jg-term">尊嘟假嘟</span>
+              <span class="tag tag-candidate2"><span class="tag-dot"></span>candidate</span>
+              <span class="jg-scope">群聊 · 摸鱼小分队</span>
+              <div class="jg-actions" style="opacity:1">
+                <button class="btn btn-sm btn-tonal">确认释义</button>
+                <button class="btn btn-sm btn-ghost">拒绝</button>
+              </div>
+            </div>
+            <div class="jg-meaning">猜测：真的假的（"真的假的"的谐音卖萌说法）</div>
+            <div class="jg-meta">
+              <span class="m" data-icon="quote">1 条证据</span>
+              <span class="m" data-icon="spark">conf 0.86 · 待人工确认</span>
+            </div>
+          </div>
+
+          <!-- ambiguous：多义项冲突 -->
+          <div class="jg-card">
+            <div class="jg-top">
+              <span class="jg-term">yyds</span>
+              <span class="tag tag-ambiguous"><span class="tag-dot"></span>ambiguous</span>
+              <span class="jg-scope">群聊 · 深夜食堂</span>
+              <div class="jg-actions">
+                <button class="icon-btn" data-icon="edit" title="解决冲突"></button>
+              </div>
+            </div>
+            <div class="jg-meaning">2 个冲突义项：「永远的神」/「阴阳大师」 <span class="sense-more">需指定首选义项</span></div>
+            <div class="jg-meta">
+              <span class="m" data-icon="quote">7 条证据</span>
+              <span class="m" data-icon="eye">出现 19 次</span>
+              <span class="m" data-icon="spark">conf 0.81</span>
+            </div>
+          </div>
+
+          <!-- disabled -->
+          <div class="jg-card" style="opacity:.6">
+            <div class="jg-top">
+              <span class="jg-term">emo</span>
+              <span class="tag tag-disabled"><span class="tag-dot"></span>已停用</span>
+              <span class="jg-scope">私聊 · 阿茶</span>
+              <div class="jg-actions" style="opacity:1">
+                <button class="btn btn-sm btn-ghost">重新启用</button>
+              </div>
+            </div>
+            <div class="jg-meaning">情绪低落、抑郁、丧</div>
+            <div class="jg-meta">
+              <span class="m" data-icon="quote">3 条证据</span>
+              <span class="m" data-icon="spark">conf 0.9 · 不参与注入</span>
+            </div>
+          </div>
+
+        </div>
+
+        <div class="pager">
+          <button class="pg-btn" disabled><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.4" stroke-linecap="round" stroke-linejoin="round"><polyline points="15 18 9 12 15 6"/></svg></button>
+          <button class="pg-btn active" data-page="1">1</button>
+          <button class="pg-btn" data-page="2">2</button>
+          <button class="pg-btn" data-page="3">3</button>
+          <button class="pg-btn"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.4" stroke-linecap="round" stroke-linejoin="round"><polyline points="9 18 15 12 9 6"/></svg></button>
+        </div>
+      </div>
+
+      <!-- 侧栏 -->
+      <div class="jg-aside reveal">
+
+        <div class="card">
+          <div class="card-head"><span class="card-dot"></span><span class="card-title">词条状态</span></div>
+          <div class="jg-side-stat">
+            <span class="jg-side-name"><span class="pill-dot" style="background:var(--green)"></span>verified 已验证</span>
+            <span class="jg-side-num">24</span>
+          </div>
+          <div class="jg-side-stat">
+            <span class="jg-side-name"><span class="pill-dot" style="background:var(--blue)"></span>provisional 临时</span>
+            <span class="jg-side-num">8</span>
+          </div>
+          <div class="jg-side-stat">
+            <span class="jg-side-name"><span class="pill-dot" style="background:var(--amber)"></span>candidate 候选</span>
+            <span class="jg-side-num">6</span>
+          </div>
+          <div class="jg-side-stat">
+            <span class="jg-side-name"><span class="pill-dot" style="background:var(--violet)"></span>ambiguous 冲突</span>
+            <span class="jg-side-num">3</span>
+          </div>
+          <div class="jg-side-stat">
+            <span class="jg-side-name"><span class="pill-dot" style="background:#d66666"></span>rejected 被拒</span>
+            <span class="jg-side-num">1</span>
+          </div>
+        </div>
+
+        <div class="card">
+          <div class="card-head"><span class="card-dot"></span><span class="card-title">最近注入</span></div>
+          <div class="log-item">
+            <div class="log-main">
+              命中「塌房」→ 注入释义
+              <div class="log-sub"><span>群聊 · 摸鱼小分队</span><span>10:24</span></div>
+            </div>
+            <span class="tag tag-ok">selected</span>
+          </div>
+          <div class="log-item">
+            <div class="log-main">
+              命中「摸鱼」→ 命中但跳过
+              <div class="log-sub"><span>群聊 · 深夜食堂</span><span>09:47</span></div>
+            </div>
+            <span class="tag tag-disabled">skipped</span>
+          </div>
+          <div class="log-item">
+            <div class="log-main">
+              命中「破防」→ 注入释义
+              <div class="log-sub"><span>群聊 · 摸鱼小分队</span><span>昨天 22:10</span></div>
+            </div>
+            <span class="tag tag-ok">selected</span>
+          </div>
+        </div>
+
+        <div class="card">
+          <div class="card-head"><span class="card-dot"></span><span class="card-title">注入规则</span></div>
+          <div style="font-size:12.5px;color:var(--text-2);line-height:1.8;display:flex;flex-direction:column;gap:8px">
+            <div>仅 <b style="color:var(--text)">enabled + 非 rejected + 置信度达标</b> 的词条参与注入。</div>
+            <div>优先使用 verified 义项；无 verified 时，单条 provisional 高置信义项才可临时注入。</div>
+            <div>ambiguous 词条必须人工指定首选义项后才会注入。</div>
+          </div>
+        </div>
+
+      </div>
+    </div>
+
+    <div class="footer">
+      Made with
+      <svg viewBox="0 0 24 24" fill="currentColor"><path d="M20.8 4.6a5.5 5.5 0 0 0-7.8 0L12 5.6l-1-1a5.5 5.5 0 0 0-7.8 7.8l1 1L12 21l7.8-7.6 1-1a5.5 5.5 0 0 0 0-7.8z"/></svg>
+      by LovieCode · astrbot_plugin_humanize v0.2.0
+    </div>
+
+  </main>
+</div>
+
+<!-- 词条详情抽屉 -->
+<div class="drawer-mask" id="drawerMask"></div>
+<aside class="drawer" id="drawer">
+  <div class="drawer-head">
+    <span class="drawer-title">塌房</span>
+    <span class="tag tag-verified"><span class="tag-dot"></span>verified</span>
+    <button class="drawer-close" id="drawerClose">✕</button>
+  </div>
+  <div class="drawer-body">
+
+    <div>
+      <div class="d-label" data-icon="jargon">词条</div>
+      <div class="d-chips">
+        <span class="tag tag-lg tag-pink">term · 塌房</span>
+        <span class="tag tag-lg tag-scope">normalized · 塌房</span>
+        <span class="jg-alias" data-icon="link" style="font-size:11.5px;padding:4px 10px">塌房了</span>
+      </div>
+    </div>
+
+    <div>
+      <div class="d-label" data-icon="settings">匹配配置</div>
+      <div class="match-flags">
+        <span class="match-flag on" data-icon="check_simple">enabled</span>
+        <span class="match-flag" data-icon="check_simple">match_mode · contains</span>
+        <span class="match-flag" data-icon="check_simple">case_sensitive · off</span>
+        <span class="match-flag on" data-icon="check_simple">min_confidence 达标</span>
+      </div>
+    </div>
+
+    <div>
+      <div class="d-label" data-icon="file">义项（2 个）</div>
+      <div class="sense-item preferred">
+        <div class="sense-top">
+          <span class="preferred-star" data-icon="star">首选义项</span>
+          <span class="tag tag-verified">verified</span>
+          <span style="margin-left:auto;font-size:11px;color:var(--text-2)">v3 · by web_admin</span>
+        </div>
+        <div class="sense-meaning">偶像或公众人物人设崩塌、形象翻车</div>
+        <div class="sense-reason">群聊语境中均指明星人设崩塌，与「房子塌了」字面无关。</div>
+        <div class="sense-meta">
+          <span>conf 0.95</span><span>5 条证据</span>
+        </div>
+      </div>
+      <div class="sense-item">
+        <div class="sense-top">
+          <span class="tag tag-provisional">provisional</span>
+          <span style="margin-left:auto;font-size:11px;color:var(--text-2)">v1 · by llm_infer</span>
+        </div>
+        <div class="sense-meaning">游戏基地被攻破（引申用法）</div>
+        <div class="sense-meta">
+          <span>conf 0.62</span><span>1 条证据</span>
+        </div>
+      </div>
+    </div>
+
+    <div>
+      <div class="d-label" data-icon="quote">证据（近 3 条）</div>
+      <div class="log-item">
+        <div class="log-main">
+          「xxx 塌房了你知道吗，粉丝都跑路了」
+          <div class="log-sub"><span>sender 已脱敏</span><span>3月29日 21:14</span></div>
+        </div>
+      </div>
+      <div class="log-item">
+        <div class="log-main">
+          「这也能塌房，内娱完了」
+          <div class="log-sub"><span>sender 已脱敏</span><span>3月26日 23:02</span></div>
+        </div>
+      </div>
+      <div class="log-item">
+        <div class="log-main">
+          「还好我粉的那位不会塌房」
+          <div class="log-sub"><span>sender 已脱敏</span><span>3月22日 19:45</span></div>
+        </div>
+      </div>
+    </div>
+
+    <div>
+      <div class="d-label" data-icon="spark">推断日志（近 2 条）</div>
+      <div class="log-item">
+        <div class="log-main">
+          提议释义「偶像人设崩塌」· conf 0.9
+          <div class="log-sub"><span>理由：上下文提及粉丝与脱粉</span><span class="log-accepted">accepted</span></div>
+        </div>
+      </div>
+      <div class="log-item">
+        <div class="log-main">
+          提议释义「基地被攻破」· conf 0.62
+          <div class="log-sub"><span>理由：游戏对局语境</span><span class="log-rejected">rejected</span></div>
+        </div>
+      </div>
+    </div>
+
+    <div>
+      <div class="d-label" data-icon="history">注入日志（近 2 条）</div>
+      <div class="log-item">
+        <div class="log-main">
+          request #a91f…c3 · selected
+          <div class="log-sub"><span>理由：命中首选义项，conf 达标</span><span>今天 10:24</span></div>
+        </div>
+      </div>
+      <div class="log-item">
+        <div class="log-main">
+          request #d558…e1 · selected
+          <div class="log-sub"><span>理由：命中首选义项，conf 达标</span><span>昨天 22:10</span></div>
+        </div>
+      </div>
+    </div>
+
+  </div>
+  <div class="drawer-foot">
+    <button class="btn btn-primary" style="flex:1" data-icon="edit">编辑词条</button>
+    <button class="btn btn-ghost" data-icon="plus">新增义项</button>
+    <button class="btn btn-ghost" data-icon="zap_off">停用</button>
+  </div>
+</aside>
+
+<script src="shared/icons.js"></script>
+<script src="shared/ui.js"></script>
+<script>
+/* 将 data-icon 占位替换为共享图标 */
+document.querySelectorAll("[data-icon]").forEach((el) => {
+  const svg = HZ.icon(el.dataset.icon);
+  if (el.tagName === "BUTTON" && el.textContent.trim()) {
+    el.insertAdjacentHTML("afterbegin", svg);
+  } else if (el.classList.contains("m") || el.classList.contains("d-label")) {
+    el.insertAdjacentHTML("afterbegin", svg);
+  } else if (el.classList.contains("jg-alias") || el.classList.contains("match-flag") || el.classList.contains("preferred-star")) {
+    el.insertAdjacentHTML("afterbegin", svg);
+  } else {
+    el.innerHTML = svg;
+  }
+});
+</script>
+<script src="shared/views/jargon.js"></script>
+</body>
+</html>

@@ -1,0 +1,418 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+<meta charset="UTF-8" />
+<meta name="viewport" content="width=device-width, initial-scale=1.0" />
+<title>仪表盘 · 洛薇 Humanize</title>
+<link rel="preconnect" href="https://fonts.googleapis.com" />
+<link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Nunito:wght@400;600;700;800&family=Noto+Sans+SC:wght@400;500;700&display=swap" />
+<link rel="stylesheet" href="shared/tokens.css" />
+<link rel="stylesheet" href="shared/base.css" />
+<link rel="stylesheet" href="shared/components.css" />
+<link rel="stylesheet" href="shared/layout.css" />
+<link rel="stylesheet" href="shared/motion.css" />
+<link rel="stylesheet" href="shared/views/dashboard.css" />
+</head>
+<body>
+
+<div class="bg-decor">
+  <div class="blob blob-1"></div>
+  <div class="blob blob-2"></div>
+</div>
+
+<div class="app">
+
+  <!-- 侧边栏由 shared/ui.js 渲染 -->
+  <aside class="sidebar" id="sidebar"></aside>
+
+  <main class="main">
+
+    <!-- 顶栏由 shared/ui.js 渲染 -->
+    <div class="topbar" id="topbar"></div>
+
+    <!-- Hero -->
+    <section class="hero reveal">
+      <div class="hero-text">
+        <div class="hero-hello">GOOD MORNING</div>
+        <div class="hero-title">早上好，管理员～<br />我是<em>洛薇</em>，今天状态很好哦</div>
+        <p class="hero-desc">
+          近 7 天协议通过率 99.2%，词库有 6 条词条待审核，
+          上下文追踪已记录 248 次请求。随时可以在下方查看详情～
+        </p>
+      </div>
+      <div class="hero-figure">
+        <img src="assets/lovie.jpg" alt="洛薇 Lovie" />
+        <span class="hero-tag hero-tag-1">
+          <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.4" stroke-linecap="round" stroke-linejoin="round"><path d="M22 11.08V12a10 10 0 1 1-5.93-9.14"/><polyline points="22 4 12 14.01 9 11.01"/></svg>
+          协议通过率 99.2%
+        </span>
+        <span class="hero-tag hero-tag-2">
+          <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.4" stroke-linecap="round" stroke-linejoin="round"><path d="M4 19.5A2.5 2.5 0 0 1 6.5 17H20"/><path d="M6.5 2H20v20H6.5A2.5 2.5 0 0 1 4 19.5v-15A2.5 2.5 0 0 1 6.5 2z"/></svg>
+          6 条待审核
+        </span>
+        <svg class="sparkle sparkle-1" width="18" height="18" viewBox="0 0 24 24" fill="currentColor"><path d="M12 2l2.4 7.6L22 12l-7.6 2.4L12 22l-2.4-7.6L2 12l7.6-2.4z"/></svg>
+        <svg class="sparkle sparkle-2" width="13" height="13" viewBox="0 0 24 24" fill="currentColor"><path d="M12 2l2.4 7.6L22 12l-7.6 2.4L12 22l-2.4-7.6L2 12l7.6-2.4z"/></svg>
+      </div>
+    </section>
+
+    <!-- 统计卡 -->
+    <div class="stats-row reveal" data-count-parent>
+      <div class="stat-card">
+        <div class="stat-top">
+          <div class="stat-icon i-pink" data-icon="jargon"></div>
+          <span class="stat-trend">6 条待审</span>
+        </div>
+        <div class="stat-value" data-count="42">0</div>
+        <div class="stat-label">已学词条</div>
+      </div>
+      <div class="stat-card">
+        <div class="stat-top">
+          <div class="stat-icon i-green" data-icon="check"></div>
+          <span class="stat-trend">240 样本</span>
+        </div>
+        <div class="stat-value" data-count="99.2" data-decimal="1" data-suffix="%">0</div>
+        <div class="stat-label">协议通过率 · 7 天</div>
+      </div>
+      <div class="stat-card">
+        <div class="stat-top">
+          <div class="stat-icon i-blue" data-icon="file"></div>
+          <span class="stat-trend">2 次拦截</span>
+        </div>
+        <div class="stat-value" data-count="248">0</div>
+        <div class="stat-label">上下文运行 · 7 天</div>
+      </div>
+      <div class="stat-card">
+        <div class="stat-top">
+          <div class="stat-icon i-violet" data-icon="spark"></div>
+          <span class="stat-trend">12 次省略</span>
+        </div>
+        <div class="stat-value" data-count="1947">0</div>
+        <div class="stat-label">平均 tokens</div>
+      </div>
+    </div>
+
+    <!-- 协议趋势 + 动作分布 -->
+    <div class="row two-col reveal">
+      <div class="col-main">
+        <div class="card" data-bars>
+          <div class="card-head">
+            <span class="card-dot"></span>
+            <span class="card-title">回复动作 · 近 7 天</span>
+            <a class="section-link" href="context.html">上下文追踪 →</a>
+          </div>
+          <div class="trend">
+            <div class="trend-col">
+              <span class="trend-tip">32 次 · 回复 27 / 静默 5</span>
+              <div class="trend-bar-wrap">
+                <div class="trend-bar-skip" style="--h:12%"></div>
+                <div class="trend-bar-ok" style="--h:66%"></div>
+              </div>
+              <div class="trend-val">32</div>
+              <div class="trend-day">03-25</div>
+            </div>
+            <div class="trend-col">
+              <span class="trend-tip">35 次 · 回复 30 / 静默 5</span>
+              <div class="trend-bar-wrap">
+                <div class="trend-bar-skip" style="--h:12%"></div>
+                <div class="trend-bar-ok" style="--h:74%"></div>
+              </div>
+              <div class="trend-val">35</div>
+              <div class="trend-day">03-26</div>
+            </div>
+            <div class="trend-col">
+              <span class="trend-tip">29 次 · 回复 24 / 静默 5</span>
+              <div class="trend-bar-wrap">
+                <div class="trend-bar-skip" style="--h:14%"></div>
+                <div class="trend-bar-ok" style="--h:56%"></div>
+              </div>
+              <div class="trend-val">29</div>
+              <div class="trend-day">03-27</div>
+            </div>
+            <div class="trend-col">
+              <span class="trend-tip">41 次 · 回复 36 / 静默 5</span>
+              <div class="trend-bar-wrap">
+                <div class="trend-bar-skip" style="--h:11%"></div>
+                <div class="trend-bar-ok" style="--h:89%"></div>
+              </div>
+              <div class="trend-val">41</div>
+              <div class="trend-day">03-28</div>
+            </div>
+            <div class="trend-col">
+              <span class="trend-tip">38 次 · 回复 33 / 静默 5</span>
+              <div class="trend-bar-wrap">
+                <div class="trend-bar-skip" style="--h:12%"></div>
+                <div class="trend-bar-ok" style="--h:80%"></div>
+              </div>
+              <div class="trend-val">38</div>
+              <div class="trend-day">03-29</div>
+            </div>
+            <div class="trend-col">
+              <span class="trend-tip">37 次 · 回复 30 / 静默 7</span>
+              <div class="trend-bar-wrap">
+                <div class="trend-bar-skip" style="--h:17%"></div>
+                <div class="trend-bar-ok" style="--h:68%"></div>
+              </div>
+              <div class="trend-val">37</div>
+              <div class="trend-day">03-30</div>
+            </div>
+            <div class="trend-col today">
+              <span class="trend-tip">36 次 · 回复 24 / 静默 12</span>
+              <div class="trend-bar-wrap">
+                <div class="trend-bar-skip" style="--h:28%"></div>
+                <div class="trend-bar-ok" style="--h:56%"></div>
+              </div>
+              <div class="trend-val">36</div>
+              <div class="trend-day">今天</div>
+            </div>
+          </div>
+          <div class="trend-legend">
+            <span><i style="background:var(--pink)"></i>Reply</span>
+            <span><i style="background:var(--line-strong)"></i>No Reply</span>
+            <span style="margin-left:auto;color:var(--muted)">柱高 = 当日总请求</span>
+          </div>
+        </div>
+      </div>
+
+      <div class="col-side">
+        <div class="card" data-count-parent>
+          <div class="card-head">
+            <span class="card-dot"></span>
+            <span class="card-title">回复占比 · 近 7 天</span>
+          </div>
+          <div class="action-wrap">
+            <div class="action-donut">
+              <svg width="140" height="140" viewBox="0 0 140 140">
+                <circle class="donut-bg" cx="70" cy="70" r="58" />
+                <circle class="donut-val" id="actionRing" cx="70" cy="70" r="58" />
+              </svg>
+              <div class="action-center">
+                <div class="action-num" id="actionNum">0%</div>
+                <div class="action-name">回复占比</div>
+              </div>
+            </div>
+            <div class="action-legend">
+              <div class="action-item">
+                <span class="action-dot" style="background:var(--pink)"></span>
+                <span class="action-label">Reply</span>
+                <span class="action-count" data-count="204">0</span>
+              </div>
+              <div class="action-item">
+                <span class="action-dot" style="background:var(--line-strong)"></span>
+                <span class="action-label">No Reply</span>
+                <span class="action-count" data-count="36">0</span>
+              </div>
+              <div class="action-note">静默也是协议的正常决策，说明洛薇学会了看场合。</div>
+            </div>
+          </div>
+        </div>
+      </div>
+    </div>
+
+    <!-- 词库作用域 + 待审核 -->
+    <div class="section-head reveal">
+      <span class="section-title">词库概况</span>
+      <span class="section-hint">按作用域隔离 · LLM 词条需审核后才可信</span>
+    </div>
+    <div class="row two-col reveal">
+      <div class="col-main">
+        <div class="card">
+          <div class="card-head">
+            <span class="card-dot"></span>
+            <span class="card-title">词库作用域分布</span>
+            <a class="section-link" href="jargon.html">黑话词库 →</a>
+          </div>
+          <div class="scope-row">
+            <div class="scope-main">
+              <div class="scope-name">摸鱼小分队</div>
+              <div class="scope-sub">群聊 · 最近活跃</div>
+            </div>
+            <div class="scope-bar"><i style="width:76%"></i></div>
+            <span class="scope-count">14 条</span>
+          </div>
+          <div class="scope-row">
+            <div class="scope-main">
+              <div class="scope-name">全局</div>
+              <div class="scope-sub">跨会话共享</div>
+            </div>
+            <div class="scope-bar"><i style="width:60%"></i></div>
+            <span class="scope-count">11 条</span>
+          </div>
+          <div class="scope-row">
+            <div class="scope-main">
+              <div class="scope-name">阿茶 · 私聊</div>
+              <div class="scope-sub">私聊作用域</div>
+            </div>
+            <div class="scope-bar"><i style="width:44%"></i></div>
+            <span class="scope-count">8 条</span>
+          </div>
+          <div class="scope-row">
+            <div class="scope-main">
+              <div class="scope-name">深夜食堂</div>
+              <div class="scope-sub">群聊</div>
+            </div>
+            <div class="scope-bar"><i style="width:32%"></i></div>
+            <span class="scope-count">6 条</span>
+          </div>
+          <div class="scope-row">
+            <div class="scope-main">
+              <div class="scope-name">前端研究所</div>
+              <div class="scope-sub">群聊</div>
+            </div>
+            <div class="scope-bar"><i style="width:18%"></i></div>
+            <span class="scope-count">3 条</span>
+          </div>
+        </div>
+      </div>
+
+      <div class="col-side">
+        <div class="card">
+          <div class="card-head">
+            <span class="card-dot"></span>
+            <span class="card-title">待审核词条</span>
+            <a class="section-link" href="jargon.html">审核 →</a>
+          </div>
+          <div class="list-row">
+            <div class="list-icon i-pink" data-icon="chat"></div>
+            <div class="list-main">
+              <div class="list-title">尊嘟假嘟</div>
+              <div class="list-sub">猜测：真的假的 · 置信度 0.86</div>
+            </div>
+            <span class="tag tag-review">candidate</span>
+          </div>
+          <div class="list-row">
+            <div class="list-icon i-blue" data-icon="jargon"></div>
+            <div class="list-main">
+              <div class="list-title">绝绝子</div>
+              <div class="list-sub">极度赞叹 · 单义项高置信</div>
+            </div>
+            <span class="tag tag-review">provisional</span>
+          </div>
+          <div class="list-row">
+            <div class="list-icon i-violet" data-icon="jargon"></div>
+            <div class="list-main">
+              <div class="list-title">yyds</div>
+              <div class="list-sub">2 个冲突义项，需指定首选</div>
+            </div>
+            <span class="tag tag-review">ambiguous</span>
+          </div>
+          <div class="list-row">
+            <div class="list-icon i-green" data-icon="jargon"></div>
+            <div class="list-main">
+              <div class="list-title">泰裤辣</div>
+              <div class="list-sub">猜测：太酷啦 · 置信度 0.81</div>
+            </div>
+            <span class="tag tag-review">candidate</span>
+          </div>
+        </div>
+      </div>
+    </div>
+
+    <!-- 协议预览 -->
+    <div class="card protocol-card reveal">
+      <div class="card-head">
+        <span class="card-dot"></span>
+        <span class="card-title">回复协议 · 格式预览</span>
+        <div class="protocol-tabs">
+          <span class="p-tab active" data-tab="reply">普通回复</span>
+          <span class="p-tab" data-tab="noreply">不回复</span>
+        </div>
+      </div>
+      <div class="protocol-body" id="protocolReply">
+        <span class="tk tk-action">&lt;Action&gt;Reply&lt;/Action&gt;</span><br />
+        <span class="tk tk-unknown">&lt;UnknownTerms&gt;[]&lt;/UnknownTerms&gt;</span><br />
+        <span class="tk tk-reply">&lt;Reply&gt;</span>
+        <span class="bubble">早呀～</span>
+        <span class="bubble">昨晚睡得好吗</span>
+        <span class="tk tk-reply">&lt;/Reply&gt;</span>
+      </div>
+      <div class="protocol-body" id="protocolNoreply" style="display:none">
+        <span class="tk tk-action">&lt;Action&gt;No Reply&lt;/Action&gt;</span><br />
+        <span class="tk tk-unknown">&lt;UnknownTerms&gt;[]&lt;/UnknownTerms&gt;</span><br />
+        <span style="color:var(--text-2);font-size:12.5px">（保持安静，本轮不发送任何消息）</span>
+      </div>
+      <div class="protocol-note">
+        <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round"><circle cx="12" cy="12" r="10"/><line x1="12" y1="16" x2="12" y2="12"/><line x1="12" y1="8" x2="12.01" y2="8"/></svg>
+        标签只用于插件校验，发送前会被剥离，用户永远看不到它们。
+      </div>
+    </div>
+
+    <!-- 上下文追踪表 -->
+    <div class="section-head reveal">
+      <span class="section-title">上下文追踪</span>
+      <span class="section-hint">每轮 Provider 请求的完整快照</span>
+      <a class="section-link" href="context.html">全部 →</a>
+    </div>
+    <div class="card table-card reveal" data-bars>
+      <table class="tbl">
+        <thead>
+          <tr>
+            <th>请求 ID</th><th>场景</th><th>注入块</th><th>耗时</th><th>Cache 命中</th><th>结果</th>
+          </tr>
+        </thead>
+        <tbody>
+          <tr>
+            <td class="t-id">#a91f…c3</td>
+            <td class="t-scope">群聊 · 摸鱼小分队</td>
+            <td>
+              <span class="mini-chip" style="background:var(--pink-soft);color:var(--pink-strong)">记忆 ×2</span>
+              <span class="mini-chip" style="background:var(--blue-soft);color:var(--blue)">黑话 ×1</span>
+            </td>
+            <td class="t-id">1.42s</td>
+            <td><div class="bar-cell"><div class="bar"><i data-w="82"></i></div><span class="bar-num">82%</span></div></td>
+            <td><span class="tag tag-ok">通过</span></td>
+          </tr>
+          <tr>
+            <td class="t-id">#b77e…9a</td>
+            <td class="t-scope">私聊 · 阿茶</td>
+            <td>
+              <span class="mini-chip" style="background:var(--pink-soft);color:var(--pink-strong)">记忆 ×3</span>
+              <span class="mini-chip" style="background:var(--violet-soft);color:var(--violet)">样例 ×1</span>
+            </td>
+            <td class="t-id">0.98s</td>
+            <td><div class="bar-cell"><div class="bar"><i data-w="64"></i></div><span class="bar-num">64%</span></div></td>
+            <td><span class="tag tag-ok">通过</span></td>
+          </tr>
+          <tr>
+            <td class="t-id">#c402…7f</td>
+            <td class="t-scope">群聊 · 摸鱼小分队</td>
+            <td><span class="mini-chip" style="background:var(--amber-soft);color:var(--amber-text)">仅协议</span></td>
+            <td class="t-id">0.31s</td>
+            <td><div class="bar-cell"><div class="bar"><i data-w="91"></i></div><span class="bar-num">91%</span></div></td>
+            <td><span class="tag tag-review">No Reply</span></td>
+          </tr>
+          <tr>
+            <td class="t-id">#d558…e1</td>
+            <td class="t-scope">群聊 · 深夜食堂</td>
+            <td>
+              <span class="mini-chip" style="background:var(--pink-soft);color:var(--pink-strong)">记忆 ×1</span>
+              <span class="mini-chip" style="background:var(--blue-soft);color:var(--blue)">黑话 ×2</span>
+              <span class="mini-chip" style="background:var(--violet-soft);color:var(--violet)">样例 ×1</span>
+            </td>
+            <td class="t-id">1.87s</td>
+            <td><div class="bar-cell"><div class="bar"><i data-w="45"></i></div><span class="bar-num">45%</span></div></td>
+            <td><span class="tag tag-ok">通过</span></td>
+          </tr>
+        </tbody>
+      </table>
+    </div>
+
+    <div class="footer">
+      Made with
+      <svg viewBox="0 0 24 24" fill="currentColor"><path d="M20.8 4.6a5.5 5.5 0 0 0-7.8 0L12 5.6l-1-1a5.5 5.5 0 0 0-7.8 7.8l1 1L12 21l7.8-7.6 1-1a5.5 5.5 0 0 0 0-7.8z"/></svg>
+      by LovieCode · astrbot_plugin_humanize v0.2.0
+    </div>
+
+  </main>
+</div>
+
+<script src="shared/icons.js"></script>
+<script src="shared/ui.js"></script>
+<script>
+/* 将 data-icon 占位替换为共享图标 */
+document.querySelectorAll("[data-icon]").forEach((el) => {
+  el.innerHTML = HZ.icon(el.dataset.icon, el.dataset.iconSize ? parseInt(el.dataset.iconSize, 10) : undefined);
+});
+</script>
+<script src="shared/views/dashboard.js"></script>
+</body>
+</html>

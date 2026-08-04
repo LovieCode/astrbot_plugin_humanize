@@ -1,0 +1,150 @@
+/* ============================================
+   View: Jargon — 黑话词库页独有样式
+   数据结构对齐 jargon_entries / jargon_senses / jargon_aliases /
+   jargon_evidence / jargon_inference_logs / jargon_injection_logs
+   依赖：shared/tokens.css, components.css, layout.css, motion.css
+   ============================================ */
+
+/* ---------- 筛选 ---------- */
+.jg-filter { display: flex; align-items: center; gap: 12px; flex-wrap: wrap; }
+.jg-filter .scope-seg.status-seg { margin-left: auto; }
+
+/* ---------- 布局 ---------- */
+.jg-layout { display: flex; gap: 16px; margin-top: 16px; align-items: flex-start; }
+.jg-main { flex: 1; min-width: 0; display: flex; flex-direction: column; }
+.jg-aside { width: 308px; flex-shrink: 0; display: flex; flex-direction: column; gap: 16px; position: sticky; top: 20px; }
+
+/* ---------- 词条卡片 ---------- */
+.jg-list { display: flex; flex-direction: column; gap: 12px; }
+.jg-card {
+  background: var(--card); border: 1px solid var(--line); border-radius: var(--r-lg);
+  box-shadow: var(--shadow); padding: 16px 18px;
+  display: flex; flex-direction: column; gap: 10px;
+  transition: transform var(--dur-slow) var(--ease-spring), box-shadow var(--dur-slow), border-color var(--dur-slow);
+}
+.jg-card:hover { transform: translateY(-3px); box-shadow: var(--shadow-hover); }
+.jg-card.selected { border-color: var(--pink); box-shadow: 0 0 0 3px var(--pink-soft); }
+.jg-top { display: flex; align-items: center; gap: 9px; flex-wrap: wrap; }
+.jg-term { font-size: 16px; font-weight: 800; letter-spacing: 0.3px; }
+.jg-aliases { display: flex; align-items: center; gap: 5px; flex-wrap: wrap; }
+.jg-alias {
+  font-size: 10.5px; font-weight: 700; padding: 2px 8px; border-radius: var(--r-full);
+  background: var(--violet-soft); color: var(--violet);
+  display: inline-flex; align-items: center; gap: 4px;
+}
+.jg-alias svg { width: 10px; height: 10px; }
+.jg-actions { margin-left: auto; display: flex; gap: 4px; opacity: 0; transition: opacity var(--dur-mid); }
+.jg-card:hover .jg-actions, .jg-card.selected .jg-actions { opacity: 1; }
+.jg-meaning { font-size: 13px; font-weight: 600; line-height: 1.65; }
+.jg-meaning .sense-more { color: var(--pink-strong); font-weight: 800; font-size: 12px; }
+.jg-meta { display: flex; align-items: center; gap: 12px; font-size: 11.5px; color: var(--text-2); flex-wrap: wrap; }
+.jg-meta .m { display: flex; align-items: center; gap: 4px; }
+.jg-meta svg { width: 12px; height: 12px; }
+.jg-scope { font-size: 10.5px; font-weight: 800; padding: 2px 8px; border-radius: var(--r-full); background: var(--blue-soft); color: var(--blue); }
+
+/* 词条状态标签（JargonStatus 枚举） */
+.tag-verified { background: var(--green-soft); color: var(--green-text); }
+.tag-provisional { background: var(--blue-soft); color: var(--blue); }
+.tag-candidate2 { background: var(--amber-soft); color: var(--amber-text); }
+.tag-ambiguous { background: var(--violet-soft); color: var(--violet); }
+.tag-rejected2 { background: #fbeaea; color: #c05c5c; }
+.tag-disabled { background: var(--bg); color: var(--muted); }
+
+/* ---------- 侧栏 ---------- */
+.jg-side-stat { display: flex; align-items: center; gap: 10px; padding: 8px 0; }
+.jg-side-stat + .jg-side-stat { border-top: 1px dashed var(--line); }
+.jg-side-name { flex: 1; font-size: 12.5px; font-weight: 700; display: flex; align-items: center; gap: 7px; }
+.jg-side-num { font-size: 14px; font-weight: 800; font-variant-numeric: tabular-nums; }
+.pill-dot { width: 7px; height: 7px; border-radius: 50%; }
+
+/* ---------- 详情抽屉 ---------- */
+.drawer-mask {
+  position: fixed; inset: 0; background: rgba(71, 58, 65, 0.24);
+  opacity: 0; pointer-events: none; transition: opacity var(--dur-slow); z-index: 60;
+  backdrop-filter: blur(2px);
+}
+.drawer-mask.open { opacity: 1; pointer-events: auto; }
+.drawer {
+  position: fixed; top: 0; right: 0; bottom: 0; width: 500px; max-width: 94vw;
+  background: var(--bg); border-left: 1px solid var(--line);
+  box-shadow: -16px 0 44px rgba(226, 118, 158, 0.12);
+  transform: translateX(100%); transition: transform 0.42s var(--ease-out);
+  z-index: 61; display: flex; flex-direction: column;
+}
+.drawer.open { transform: translateX(0); }
+.drawer-head {
+  display: flex; align-items: center; gap: 10px;
+  padding: 18px 22px; border-bottom: 1px solid var(--line); background: var(--card);
+}
+.drawer-title { font-size: 16px; font-weight: 800; flex: 1; }
+.drawer-close {
+  width: 32px; height: 32px; border-radius: 10px; border: none; cursor: pointer;
+  background: var(--bg); color: var(--text-2); font-size: 16px;
+  display: flex; align-items: center; justify-content: center;
+  transition: all var(--dur-fast) var(--ease-spring);
+}
+.drawer-close:hover { background: var(--pink-soft); color: var(--pink-strong); transform: rotate(90deg); }
+.drawer-body { flex: 1; overflow-y: auto; padding: 20px 22px; display: flex; flex-direction: column; gap: 18px; }
+.drawer-foot { display: flex; gap: 10px; padding: 14px 22px; border-top: 1px solid var(--line); background: var(--card); }
+
+.d-label { font-size: 11px; font-weight: 800; letter-spacing: 1.5px; color: var(--muted); text-transform: uppercase; margin-bottom: 8px; display: flex; align-items: center; gap: 6px; }
+.d-label svg { width: 13px; height: 13px; }
+.d-chips { display: flex; gap: 8px; flex-wrap: wrap; }
+
+/* 匹配配置行 */
+.match-flags { display: flex; gap: 8px; flex-wrap: wrap; }
+.match-flag {
+  display: flex; align-items: center; gap: 6px;
+  font-size: 11.5px; font-weight: 700; padding: 5px 11px; border-radius: var(--r-full);
+  background: var(--bg); color: var(--text-2); border: 1px solid var(--line);
+}
+.match-flag.on { background: var(--green-soft); color: var(--green-text); border-color: transparent; }
+.match-flag svg { width: 12px; height: 12px; }
+
+/* 义项 */
+.sense-item {
+  background: var(--card); border: 1px solid var(--line); border-radius: var(--r-md);
+  padding: 13px 15px; display: flex; flex-direction: column; gap: 7px;
+}
+.sense-item + .sense-item { margin-top: 8px; }
+.sense-item.preferred { border-color: var(--pink-line); background: #fffafc; }
+.sense-top { display: flex; align-items: center; gap: 8px; flex-wrap: wrap; }
+.sense-meaning { font-size: 13px; font-weight: 700; line-height: 1.6; }
+.sense-meta { display: flex; align-items: center; gap: 10px; font-size: 11px; color: var(--text-2); flex-wrap: wrap; }
+.sense-reason { font-size: 11.5px; color: var(--text-2); background: var(--bg); border-radius: var(--r-sm); padding: 7px 10px; line-height: 1.6; }
+.preferred-star { display: inline-flex; align-items: center; gap: 4px; font-size: 10.5px; font-weight: 800; color: var(--pink-strong); background: var(--pink-soft); padding: 2px 8px; border-radius: var(--r-full); }
+.preferred-star svg { width: 11px; height: 11px; }
+
+/* 证据 / 推断 / 注入日志条目 */
+.log-item {
+  display: flex; gap: 10px; padding: 10px 12px; border-radius: var(--r-md);
+  background: var(--card); border: 1px solid var(--line); font-size: 12.5px; line-height: 1.6;
+}
+.log-item + .log-item { margin-top: 8px; }
+.log-main { flex: 1; min-width: 0; }
+.log-sub { font-size: 11px; color: var(--text-2); margin-top: 2px; display: flex; gap: 8px; flex-wrap: wrap; }
+.log-accepted { color: var(--green-text); font-weight: 800; }
+.log-rejected { color: #c05c5c; font-weight: 800; }
+
+/* 置信度条 */
+.conf-row { display: flex; align-items: center; gap: 10px; }
+.conf-row .bar { max-width: none; flex: 1; }
+
+/* ---------- 分页 ---------- */
+.pager { display: flex; align-items: center; justify-content: center; gap: 6px; margin-top: 18px; }
+.pg-btn {
+  min-width: 34px; height: 34px; padding: 0 10px; border-radius: 11px; border: 1px solid var(--line);
+  background: var(--card); color: var(--text-2); font-size: 12.5px; font-weight: 800;
+  cursor: pointer; display: flex; align-items: center; justify-content: center;
+  transition: all var(--dur-mid) var(--ease-spring);
+}
+.pg-btn svg { width: 14px; height: 14px; }
+.pg-btn:hover { border-color: var(--pink-line); color: var(--pink-strong); transform: translateY(-2px); }
+.pg-btn.active { background: var(--pink); border-color: var(--pink); color: #fff; box-shadow: var(--shadow-pink); }
+.pg-btn:disabled { opacity: 0.4; cursor: not-allowed; transform: none; }
+
+/* ---------- 响应式 ---------- */
+@media (max-width: 1080px) {
+  .jg-layout { flex-direction: column; }
+  .jg-aside { width: 100%; position: static; }
+}

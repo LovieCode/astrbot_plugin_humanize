@@ -1,0 +1,309 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+<meta charset="UTF-8" />
+<meta name="viewport" content="width=device-width, initial-scale=1.0" />
+<title>回复样例 · 洛薇 Humanize</title>
+<link rel="preconnect" href="https://fonts.googleapis.com" />
+<link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Nunito:wght@400;600;700;800&family=Noto+Sans+SC:wght@400;500;700&display=swap" />
+<link rel="stylesheet" href="shared/tokens.css" />
+<link rel="stylesheet" href="shared/base.css" />
+<link rel="stylesheet" href="shared/components.css" />
+<link rel="stylesheet" href="shared/layout.css" />
+<link rel="stylesheet" href="shared/motion.css" />
+<link rel="stylesheet" href="shared/views/examples.css" />
+</head>
+<body>
+
+<div class="bg-decor">
+  <div class="blob blob-1"></div>
+  <div class="blob blob-2"></div>
+</div>
+
+<div class="app">
+
+  <aside class="sidebar" id="sidebar"></aside>
+
+  <main class="main">
+
+    <div class="topbar" id="topbar"></div>
+
+    <!-- 筛选 -->
+    <div class="ex-filter reveal">
+      <div class="scope-seg">
+        <span class="seg-item active">全部 <span class="seg-count">17</span></span>
+        <span class="seg-item">全局 <span class="seg-count">9</span></span>
+        <span class="seg-item">群聊 <span class="seg-count">6</span></span>
+        <span class="seg-item">私聊 <span class="seg-count">2</span></span>
+      </div>
+      <div class="scope-seg">
+        <span class="seg-item active">全部 Agent</span>
+        <span class="seg-item">洛薇</span>
+        <span class="seg-item">小洛</span>
+      </div>
+      <div class="scope-seg status-seg">
+        <span class="seg-item active">全部状态</span>
+        <span class="seg-item">approved</span>
+        <span class="seg-item">draft</span>
+        <span class="seg-item">rejected</span>
+      </div>
+    </div>
+
+    <!-- 样例卡片流 -->
+    <div class="ex-list reveal">
+
+      <div class="ex-card">
+        <div class="ex-top">
+          <span class="ex-title">被夸时的害羞回应</span>
+          <span class="ex-topic">日常闲聊</span>
+          <span class="ex-intent">回应夸奖</span>
+          <span class="tag tag-approved"><span class="tag-dot"></span>approved</span>
+          <span class="tag tag-source">人工整理</span>
+          <div class="ex-actions">
+            <button class="icon-btn" data-icon="edit" title="编辑"></button>
+            <button class="icon-btn" data-icon="zap_off" title="停用"></button>
+          </div>
+        </div>
+        <div class="conv">
+          <div class="conv-row user"><div class="conv-bubble">洛薇今天回复好快，聪明！</div></div>
+          <div class="conv-row assistant"><div class="conv-bubble">嘿嘿，被夸了</div></div>
+          <div class="conv-row assistant"><div class="conv-bubble">其实是刚好在线啦</div></div>
+        </div>
+        <div class="ideal" data-icon="spark"><span><b>理想回复：</b>两条短消息，先开心接受再小小谦虚，不超过 10 字/条，不用表情包堆砌。</span></div>
+        <div class="ex-meta">
+          <span class="m" data-icon="pin">全局 · 洛薇</span>
+          <div class="ex-tags">
+            <span class="ex-tag">害羞</span><span class="ex-tag">简短</span><span class="ex-tag">不端着</span>
+          </div>
+          <span class="m" data-icon="eye">被选用 23 次</span>
+          <div class="q-score"><div class="q-bar"><i style="width:92%"></i></div><span class="q-num">0.92</span></div>
+        </div>
+      </div>
+
+      <div class="ex-card">
+        <div class="ex-top">
+          <span class="ex-title">不懂的黑话先问再答</span>
+          <span class="ex-topic">词义澄清</span>
+          <span class="ex-intent">求知提问</span>
+          <span class="tag tag-approved"><span class="tag-dot"></span>approved</span>
+          <span class="tag tag-source">从对话提取</span>
+          <div class="ex-actions">
+            <button class="icon-btn" data-icon="edit" title="编辑"></button>
+            <button class="icon-btn" data-icon="zap_off" title="停用"></button>
+          </div>
+        </div>
+        <div class="conv">
+          <div class="conv-row user"><div class="conv-bubble">这波操作属实是city不city啊</div></div>
+          <div class="conv-row assistant"><div class="conv-bubble">city不city是啥意思呀</div></div>
+          <div class="conv-row user"><div class="conv-bubble">就是问你洋不洋气</div></div>
+          <div class="conv-row assistant"><div class="conv-bubble">那必须city</div></div>
+        </div>
+        <div class="ideal" data-icon="spark"><span><b>理想回复：</b>坦白不认识并简短追问，得到解释后立刻自然接梗，不装懂、不硬凹。</span></div>
+        <div class="ex-meta">
+          <span class="m" data-icon="pin">全局 · 洛薇</span>
+          <div class="ex-tags">
+            <span class="ex-tag">诚实</span><span class="ex-tag">接梗快</span>
+          </div>
+          <span class="m" data-icon="eye">被选用 11 次</span>
+          <div class="q-score"><div class="q-bar"><i style="width:88%"></i></div><span class="q-num">0.88</span></div>
+        </div>
+      </div>
+
+      <div class="ex-card">
+        <div class="ex-top">
+          <span class="ex-title">群聊冷场时的自然搭话</span>
+          <span class="ex-topic">群聊活跃</span>
+          <span class="ex-intent">主动接话</span>
+          <span class="tag tag-approved"><span class="tag-dot"></span>approved</span>
+          <span class="tag tag-source">人工整理</span>
+          <div class="ex-actions">
+            <button class="icon-btn" data-icon="edit" title="编辑"></button>
+            <button class="icon-btn" data-icon="zap_off" title="停用"></button>
+          </div>
+        </div>
+        <div class="conv">
+          <div class="conv-row user"><div class="conv-bubble">今天摸鱼摸了一下午</div></div>
+          <div class="conv-row user"><div class="conv-bubble">报告一个字没动</div></div>
+          <div class="conv-row assistant"><div class="conv-bubble">没事，明天也是新的一天</div></div>
+          <div class="conv-row assistant"><div class="conv-bubble">（继续摸）</div></div>
+        </div>
+        <div class="ideal" data-icon="spark"><span><b>理想回复：</b>顺着情绪接话+一个轻轻的神转折，括号体可用但不滥用。</span></div>
+        <div class="ex-meta">
+          <span class="m" data-icon="pin">群聊 · 摸鱼小分队 · 洛薇</span>
+          <div class="ex-tags">
+            <span class="ex-tag">松弛</span><span class="ex-tag">神转折</span>
+          </div>
+          <span class="m" data-icon="eye">被选用 17 次</span>
+          <div class="q-score"><div class="q-bar"><i style="width:85%"></i></div><span class="q-num">0.85</span></div>
+        </div>
+      </div>
+
+      <!-- draft：待审核 -->
+      <div class="ex-card dimmed">
+        <div class="ex-top">
+          <span class="ex-title">安慰加班的朋友</span>
+          <span class="ex-topic">情绪支持</span>
+          <span class="ex-intent">安慰</span>
+          <span class="tag tag-draft"><span class="tag-dot"></span>draft</span>
+          <span class="tag tag-source">从对话提取</span>
+          <div class="ex-actions" style="opacity:1">
+            <button class="btn btn-sm btn-tonal">审核通过</button>
+            <button class="btn btn-sm btn-ghost">拒绝</button>
+          </div>
+        </div>
+        <div class="conv">
+          <div class="conv-row user"><div class="conv-bubble">又加班到十点，麻了</div></div>
+          <div class="conv-row assistant"><div class="conv-bubble">辛苦了</div></div>
+          <div class="conv-row assistant"><div class="conv-bubble">快去吃点好的</div></div>
+        </div>
+        <div class="ideal" data-icon="spark"><span><b>理想回复：</b>先共情再给一个很小的可执行建议，不说教。</span></div>
+        <div class="ex-meta">
+          <span class="m" data-icon="pin">私聊 · 阿茶 · 洛薇</span>
+          <span class="m" data-icon="clock">等待审核 · 未参与召回</span>
+          <div class="q-score"><div class="q-bar"><i style="width:70%"></i></div><span class="q-num">0.70</span></div>
+        </div>
+      </div>
+
+    </div>
+
+    <div class="pager">
+      <button class="pg-btn" disabled><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.4" stroke-linecap="round" stroke-linejoin="round"><polyline points="15 18 9 12 15 6"/></svg></button>
+      <button class="pg-btn active" data-page="1">1</button>
+      <button class="pg-btn" data-page="2">2</button>
+      <button class="pg-btn"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.4" stroke-linecap="round" stroke-linejoin="round"><polyline points="9 18 15 12 9 6"/></svg></button>
+    </div>
+
+    <div class="footer">
+      Made with
+      <svg viewBox="0 0 24 24" fill="currentColor"><path d="M20.8 4.6a5.5 5.5 0 0 0-7.8 0L12 5.6l-1-1a5.5 5.5 0 0 0-7.8 7.8l1 1L12 21l7.8-7.6 1-1a5.5 5.5 0 0 0 0-7.8z"/></svg>
+      by LovieCode · astrbot_plugin_humanize v0.2.0
+    </div>
+
+  </main>
+</div>
+
+<!-- 样例详情抽屉 -->
+<div class="drawer-mask" id="drawerMask"></div>
+<aside class="drawer" id="drawer">
+  <div class="drawer-head">
+    <span class="drawer-title">被夸时的害羞回应</span>
+    <span class="tag tag-approved"><span class="tag-dot"></span>approved</span>
+    <button class="drawer-close" id="drawerClose">✕</button>
+  </div>
+  <div class="drawer-body">
+
+    <div>
+      <div class="d-label" data-icon="pin">归属与分类</div>
+      <div class="d-chips">
+        <span class="tag tag-lg tag-scope">全局 · 洛薇</span>
+        <span class="ex-topic" style="font-size:11.5px;padding:4px 11px">日常闲聊</span>
+        <span class="ex-intent" style="font-size:11.5px;padding:4px 11px">回应夸奖</span>
+        <span class="tag tag-lg tag-source">人工整理</span>
+      </div>
+    </div>
+
+    <div>
+      <div class="d-label" data-icon="chat">对话样例（turns）</div>
+      <div class="conv">
+        <div class="conv-who">user</div>
+        <div class="conv-row user"><div class="conv-bubble">洛薇今天回复好快，聪明！</div></div>
+        <div class="conv-who" style="text-align:right">assistant</div>
+        <div class="conv-row assistant"><div class="conv-bubble">嘿嘿，被夸了</div></div>
+        <div class="conv-row assistant"><div class="conv-bubble">其实是刚好在线啦</div></div>
+      </div>
+    </div>
+
+    <div>
+      <div class="d-label" data-icon="spark">理想回复要点</div>
+      <div class="d-note">两条短消息，先开心接受再小小谦虚，不超过 10 字/条，不用表情包堆砌。</div>
+    </div>
+
+    <div>
+      <div class="d-label" data-icon="check">适用条件 / 排除条件</div>
+      <div class="d-note" style="margin-bottom:8px">适用：用户明确夸奖 Bot 的回复速度或质量时。</div>
+      <div class="d-note warn">排除：对方在阴阳怪气或反讽时，不使用本样例。</div>
+    </div>
+
+    <div>
+      <div class="d-label" data-icon="file">风格标签 / 关键词</div>
+      <div class="d-chips">
+        <span class="ex-tag">害羞</span><span class="ex-tag">简短</span><span class="ex-tag">不端着</span>
+        <span class="ex-tag" style="border-style:dashed">聪明</span>
+        <span class="ex-tag" style="border-style:dashed">回复快</span>
+        <span class="ex-tag" style="border-style:dashed">厉害</span>
+      </div>
+    </div>
+
+    <div>
+      <div class="d-label" data-icon="eye">召回使用记录（近 3 次）</div>
+      <div class="use-item">
+        <span class="use-rank hit">1</span>
+        <div class="use-main">
+          <div class="use-id">#b77e…9a · 私聊 · 阿茶</div>
+          <div class="use-sub">候选 6 条 · 排名第 1 · 已注入</div>
+        </div>
+        <span class="use-score">0.87</span>
+      </div>
+      <div class="use-item">
+        <span class="use-rank hit">2</span>
+        <div class="use-main">
+          <div class="use-id">#c402…7f · 群聊 · 摸鱼小分队</div>
+          <div class="use-sub">候选 9 条 · 排名第 2 · 已注入</div>
+        </div>
+        <span class="use-score">0.79</span>
+      </div>
+      <div class="use-item">
+        <span class="use-rank">4</span>
+        <div class="use-main">
+          <div class="use-id">#f231…08 · 私聊 · 阿茶</div>
+          <div class="use-sub">候选 5 条 · 排名第 4 · 未选用</div>
+        </div>
+        <span class="use-score">0.61</span>
+      </div>
+    </div>
+
+    <div>
+      <div class="d-label" data-icon="history">修订历史</div>
+      <div class="rev-row">
+        <span class="rev-tag now">r3 当前</span>
+        <span class="rev-text">approve · web_admin · 补充排除条件</span>
+        <span class="rev-time">3月29日</span>
+      </div>
+      <div class="rev-row">
+        <span class="rev-tag">r2</span>
+        <span class="rev-text">update · web_admin · 调整理想回复描述</span>
+        <span class="rev-time">3月27日</span>
+      </div>
+      <div class="rev-row">
+        <span class="rev-tag">r1</span>
+        <span class="rev-text">create · web_admin · 首次创建</span>
+        <span class="rev-time">3月25日</span>
+      </div>
+    </div>
+
+  </div>
+  <div class="drawer-foot">
+    <button class="btn btn-primary" style="flex:1" data-icon="edit">编辑样例</button>
+    <button class="btn btn-ghost" data-icon="zap_off">停用</button>
+    <button class="btn btn-ghost" data-icon="trash">删除</button>
+  </div>
+</aside>
+
+<script src="shared/icons.js"></script>
+<script src="shared/ui.js"></script>
+<script>
+/* 将 data-icon 占位替换为共享图标 */
+document.querySelectorAll("[data-icon]").forEach((el) => {
+  const svg = HZ.icon(el.dataset.icon);
+  if (el.tagName === "BUTTON" && el.textContent.trim()) {
+    el.insertAdjacentHTML("afterbegin", svg);
+  } else if (el.classList.contains("m") || el.classList.contains("d-label") || el.classList.contains("ideal")) {
+    el.insertAdjacentHTML("afterbegin", svg);
+  } else {
+    el.innerHTML = svg;
+  }
+});
+</script>
+<script src="shared/views/examples.js"></script>
+</body>
+</html>

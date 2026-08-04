@@ -4,14 +4,6 @@
 
 - 只修改本插件目录，不修改 AstrBot 核心代码或其他插件。
 - 本插件目标是通过人格、状态、关系、记忆和行为决策提升 Bot 的长期交互连贯性。
-- `astrbot_plugin_style_learner` 负责表达风格学习，本插件优先集成而不是复制其能力。
-
-## Current phase
-
-- 当前处于 MVP 实现与稳定化阶段。
-- 首要能力是轻量回复控制协议、黑话学习、作用域隔离、审计日志和管理 WebUI。
-- Persona、State、Behavior、Expression 和 Control 已有统一管理与持久化入口，运行时联动按 `PLAN.md` 后续阶段推进。
-- Relationship Memory 尚未实现，必须先完成作用域、隐私、衰减和冲突策略研究。
 
 ## Engineering rules
 
@@ -29,5 +21,4 @@
 
 - 父目录 `AstrBot/AGENTS.md` 的“执行、验证与部署流程”是本插件的完整且优先的操作指南；本节只补充插件特例，不以文件数量替代风险判断。
 - 未明确要求部署时，插件改动完成定向测试、改动文件的 Ruff format/check、`git diff --check` 和本插件 commit 即结束；不打包、不 SSH、不重启、不做无关全量检查。
-- 明确要求部署且不涉及依赖、配置 schema、API、迁移、vendor、许可证、前端构建或跨模块契约时，必须调用 `bash scripts/deploy_hotfix.sh --pytest <相关测试> -- <改动文件...>`；先用 `--dry-run` 检查清单。禁止手工拼 SSH、SCP、sudo、tmux、校验和重启命令。
-- 仅当上述条件命中或用户明确要求完整发布时，才读取 `PLAN.md` 的完整部署指南；`PLAN.md` 只维护可复用流程，不追加每次部署流水账。
+- 明确要求部署且不涉及依赖、配置 schema、API、迁移、vendor、许可证、前端构建或跨模块契约时，调用 `bash scripts/deploy_hotfix.sh --pytest <相关测试> -- <改动文件...>`；先用 `--dry-run` 检查清单。
