@@ -314,15 +314,50 @@ class ContextRepository:
                 f"""
                 SELECT r.id, r.request_id, r.scope_type, r.scope_id, r.message_id,
                        r.sender_id, r.protocol_mode, r.estimated_tokens,
-                       r.included_sections, r.omitted_sections, r.created_at
+                       r.included_sections, r.omitted_sections, r.created_at,
+                       fp.success AS protocol_success,
+                       fp.action AS protocol_action,
+                       fp.failure_code AS protocol_failure_code,
+                       fp.duration_ms AS protocol_duration_ms,
+                       fp.model AS protocol_model
                 FROM humanize_context_runs r
+                LEFT JOIN (
+                    SELECT p.* FROM protocol_logs p
+                    JOIN (
+                        SELECT request_id, MAX(id) AS final_id
+                        FROM protocol_logs WHERE stage = 'final'
+                        GROUP BY request_id
+                    ) latest ON latest.final_id = p.id
+                ) fp ON fp.request_id = r.request_id
                 {where}
                 ORDER BY r.created_at DESC, r.id DESC LIMIT ? OFFSET ?
                 """,
                 [*params, page_size, (page - 1) * page_size],
             ).fetchall()
+            items = []
+            for row in rows:
+                item = dict(row)
+                if item.get("protocol_success") is None:
+                    item["protocol_summary"] = None
+                else:
+                    item["protocol_summary"] = {
+                        "success": bool(item["protocol_success"]),
+                        "action": item["protocol_action"],
+                        "failure_code": item["protocol_failure_code"],
+                        "duration_ms": int(item["protocol_duration_ms"] or 0),
+                        "model": item["protocol_model"],
+                    }
+                for column in (
+                    "protocol_success",
+                    "protocol_action",
+                    "protocol_failure_code",
+                    "protocol_duration_ms",
+                    "protocol_model",
+                ):
+                    item.pop(column, None)
+                items.append(item)
             return {
-                "items": [dict(row) for row in rows],
+                "items": items,
                 "total": total,
                 "page": page,
                 "page_size": page_size,
