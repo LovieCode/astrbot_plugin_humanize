@@ -145,11 +145,34 @@ def _write_plugin_config(values: dict[str, Any]) -> None:
 
 _PAGE_DIR = Path(__file__).resolve().parents[2] / "pages" / "humanize"
 _PAGE_FILES = {
-    "": "index.html",
-    "index.html": "index.html",
-    "style.css": "style.css",
-    "app.js": "app.js",
+    "": "dashboard.html",
+    "dashboard.html": "dashboard.html",
+    "memory.html": "memory.html",
+    "jargon.html": "jargon.html",
+    "examples.html": "examples.html",
+    "context.html": "context.html",
+    "prompts.html": "prompts.html",
+    "settings.html": "settings.html",
 }
+
+
+def _static_path(path: str) -> Path | None:
+    """Resolve one static asset inside the page directory without traversal.
+
+    Args:
+        path: URL path relative to the page root.
+
+    Returns:
+        Resolved page asset, or ``None`` when the path escapes the root.
+    """
+    if not path or path.startswith(("/", "\\")):
+        return None
+    candidate = (_PAGE_DIR / path).resolve()
+    try:
+        candidate.relative_to(_PAGE_DIR)
+    except ValueError:
+        return None
+    return candidate if candidate.is_file() else None
 
 
 class WebApi:
@@ -175,6 +198,9 @@ class WebApi:
             if request.method == "GET":
                 if path in _PAGE_FILES:
                     return file_response(_PAGE_DIR / _PAGE_FILES[path])
+                static = _static_path(path)
+                if static is not None:
+                    return file_response(static)
                 return await self._handle_get(path)
             if request.method == "POST":
                 return await self._handle_post(path)
