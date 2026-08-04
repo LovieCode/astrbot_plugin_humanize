@@ -20,6 +20,10 @@ class RepositoryPort(Protocol):
         action: str = "update",
     ) -> dict[str, Any]: ...
 
+    async def list_prompt_template_audit(
+        self, *, page: int, page_size: int
+    ) -> dict[str, Any]: ...
+
     async def list_injectable_terms(
         self,
         scope_type: str,
@@ -242,5 +246,3 @@ class RepositoryPort(Protocol):
     async def get_latest_prompt_prefix_sample(
         self, *, scope_type: str, scope_id: str, conversation_id: str
     ) -> dict[str, Any] | None: ...
-
-    async def list_provider_cache_capabilities(self) -> list[dict[str, Any]]: ...

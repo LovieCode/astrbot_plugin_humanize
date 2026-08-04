@@ -231,24 +231,6 @@ class ObservabilityRepository:
 
         return await self._run(operation)
 
-    async def list_provider_cache_capabilities(self) -> list[dict[str, Any]]:
-        """List non-secret Provider cache capability observations."""
-
-        def operation(conn: sqlite3.Connection) -> list[dict[str, Any]]:
-            rows = conn.execute(
-                """
-                SELECT provider_id, provider_type, model, capability,
-                       usage_observability, observed_samples, cached_samples,
-                       input_cached, input_other, output_tokens, reason,
-                       first_seen_at, last_seen_at
-                FROM humanize_provider_cache_capabilities
-                ORDER BY last_seen_at DESC, provider_id, model
-                """
-            ).fetchall()
-            return [dict(row) for row in rows]
-
-        return await self._run(operation)
-
     async def get_overview(self) -> dict[str, Any]:
         def operation(conn: sqlite3.Connection) -> dict[str, Any]:
             counts = conn.execute(
@@ -358,6 +340,28 @@ class ObservabilityRepository:
                     """
                 ).fetchall()
             ]
+            pending_rows = conn.execute(
+                """
+                SELECT e.id, e.term, e.scope_type, e.scope_id, e.status,
+                       e.confidence, e.updated_at,
+                       (SELECT COUNT(*) FROM jargon_senses s
+                        WHERE s.entry_id = e.id
+                          AND s.status IN ('candidate', 'provisional')) AS pending_sense_count
+                FROM jargon_entries e
+                WHERE EXISTS (
+                    SELECT 1 FROM jargon_senses s
+                    WHERE s.entry_id = e.id
+                      AND s.status IN ('candidate', 'provisional')
+                )
+                ORDER BY e.updated_at DESC, e.id DESC
+                LIMIT 10
+                """
+            ).fetchall()
+            pending_items = []
+            for row in pending_rows:
+                item = dict(row)
+                item["pending_sense_count"] = int(item["pending_sense_count"] or 0)
+                pending_items.append(item)
             return {
                 "learned": int(counts["total"] or 0),
                 "pending": int(counts["pending"] or 0),
@@ -375,6 +379,7 @@ class ObservabilityRepository:
                     "omitted_runs": int(context["omitted_runs"] or 0),
                 },
                 "scopes": scopes,
+                "pending_items": pending_items,
             }
 
         return await self._run(operation)
