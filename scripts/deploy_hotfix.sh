@@ -213,10 +213,22 @@ scp_no_stdin() {
     scp -P "$port" -o BatchMode=no -o ConnectTimeout=15 -o StrictHostKeyChecking=accept-new "$@" < /dev/null
 }
 
+py_files=()
+js_files=()
+for file in "${files[@]}"; do
+    case "$file" in
+        *.py) py_files+=("$file") ;;
+        *.js) js_files+=("$file") ;;
+    esac
+done
+
 printf 'Running local targeted checks...\n'
 uv run pytest -q "${tests[@]}"
-uvx ruff format --check "${files[@]}"
-uvx ruff check "${files[@]}"
+(( ${#py_files[@]} > 0 )) && uvx ruff format --check "${py_files[@]}"
+(( ${#py_files[@]} > 0 )) && uvx ruff check "${py_files[@]}"
+for js in "${js_files[@]}"; do
+    node --check "$js"
+done
 git diff --check
 
 printf 'Staging selected files remotely...\n'
@@ -248,6 +260,11 @@ scp_no_stdin "$manifest" "$target:$remote_stage/manifest.sha256"
         printf '    %q\n' "$test_path"
     done
     printf ')\n'
+    printf 'py_files=(\n'
+    for py_file in "${py_files[@]}"; do
+        printf '    %q\n' "$py_file"
+    done
+    printf ')\n'
     cat <<'REMOTE'
 set -euo pipefail
 
@@ -270,6 +287,7 @@ cd "$remote_stage"
 sha256sum -c manifest.sha256
 
 for file in "${files[@]}"; do
+    sudo_run mkdir -p -- "$(dirname "$remote_plugin/$file")"
     sudo_run install -m 0644 -- "$remote_stage/$file" "$remote_plugin/$file"
 done
 
@@ -281,8 +299,8 @@ done
 
 cd "$remote_plugin"
 sudo_run "$remote_python" -m pytest -q "${tests[@]}"
-sudo_run "$remote_ruff" format --check "${files[@]}"
-sudo_run "$remote_ruff" check "${files[@]}"
+(( ${#py_files[@]} > 0 )) && sudo_run "$remote_ruff" format --check "${py_files[@]}"
+(( ${#py_files[@]} > 0 )) && sudo_run "$remote_ruff" check "${py_files[@]}"
 
 if "$needs_restart"; then
     old_session="$(tmux list-sessions -F '#{session_name}' 2>/dev/null | awk '/^astrbot-service-/{value=$0} END {print value}')"
