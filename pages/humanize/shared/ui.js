@@ -90,8 +90,8 @@
     {
       label: "能力",
       items: [
-        { id: "memory", name: "长期记忆", icon: "memory", href: "memory.html", badge: "128" },
-        { id: "jargon", name: "黑话词库", icon: "jargon", href: "jargon.html", badge: "42" },
+        { id: "memory", name: "长期记忆", icon: "memory", href: "memory.html" },
+        { id: "jargon", name: "黑话词库", icon: "jargon", href: "jargon.html" },
         { id: "examples", name: "回复样例", icon: "chat", href: "examples.html" },
         { id: "context", name: "上下文追踪", icon: "file", href: "context.html" },
       ],

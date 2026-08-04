@@ -61,8 +61,25 @@
   });
   applyTab("st-general");
 
+  /* 共享 API 层缺失：清空设置组/服务商 mock 内容，显示明确错误提示（幂等）；Tab 切换等纯 UI 交互保留 */
+  function renderApiUnavailable() {
+    const groups = $(".st-groups-col");
+    if (groups) groups.innerHTML = "";
+    const host = groups || document.querySelector(".main");
+    if (!host || host.querySelector(".errbar[data-api-unavailable]")) return;
+    const bar = document.createElement("div");
+    bar.className = "errbar";
+    bar.dataset.apiUnavailable = "1";
+    bar.innerHTML =
+      '<span class="errbar-icon">' +
+      (window.HZ && HZ.icon ? HZ.icon("alert", 15) : "") +
+      '</span><span class="errbar-text">共享 API 层未加载，无法显示真实数据</span>';
+    host.parentNode.insertBefore(bar, host);
+  }
+
   if (!window.HZ || !HZ.api) {
-    console.warn("api.js 未加载，停留在静态预览");
+    console.error("共享 API 层（shared/api.js）未加载，无法获取真实数据");
+    renderApiUnavailable();
     return;
   }
   const api = HZ.api;
@@ -363,6 +380,7 @@
       const err = api.errorOf(e);
       toast(err.message, { type: "error" });
       showRetry(err.message);
+      renderApiUnavailable();
     }
   }
 

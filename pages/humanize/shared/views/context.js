@@ -26,18 +26,27 @@
     });
   });
 
+  /* 共享 API 层缺失：清空 mock 静态数据，显示明确错误提示（幂等，多次调用只插一个错误条） */
+  function renderApiUnavailable() {
+    ["#cxRunList", "#cxDetail", "#cxStats"].forEach((sel) => {
+      const node = document.querySelector(sel);
+      if (node) node.innerHTML = "";
+    });
+    const host = document.querySelector(".cx-layout") || document.querySelector(".main");
+    if (!host || host.querySelector(".errbar[data-api-unavailable]")) return;
+    const bar = document.createElement("div");
+    bar.className = "errbar";
+    bar.dataset.apiUnavailable = "1";
+    bar.innerHTML =
+      '<span class="errbar-icon">' +
+      (window.HZ && HZ.icon ? HZ.icon("alert", 15) : "") +
+      '</span><span class="errbar-text">共享 API 层未加载，无法显示真实数据</span>';
+    host.parentNode.insertBefore(bar, host);
+  }
+
   if (!window.HZ || !HZ.api) {
-    console.warn("api.js 未加载，停留在静态预览");
-    /* 静态预览：运行卡仍可切换选中态 */
-    const runList = document.getElementById("cxRunList");
-    if (runList) {
-      runList.addEventListener("click", (e) => {
-        const card = e.target.closest(".cx-run");
-        if (!card) return;
-        runList.querySelectorAll(".cx-run").forEach((r) => r.classList.remove("active"));
-        card.classList.add("active");
-      });
-    }
+    console.error("共享 API 层（shared/api.js）未加载，无法获取真实数据");
+    renderApiUnavailable();
     return;
   }
   const api = HZ.api;
@@ -165,6 +174,7 @@
       const err = api.errorOf(e);
       toast(err.message, { type: "error" });
       if (initErrbar) initErrbar({ message: err.message });
+      renderApiUnavailable();
     } finally {
       busy = false;
     }

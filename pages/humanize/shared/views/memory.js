@@ -1,6 +1,6 @@
 /**
  * View: Memory — 长期记忆页真实交互（对接 HZ.api）。
- * 依赖：shared/icons.js, shared/ui.js, shared/api.js（缺失时降级为静态预览）
+ * 依赖：shared/icons.js, shared/ui.js, shared/api.js（缺失时清空 mock 并提示）
  */
 (function () {
   HZ.renderSidebar("memory");
@@ -12,9 +12,45 @@
   });
   HZ.initReveal();
 
-  /* ========== api.js 缺失降级：停留在静态预览 ========== */
+  /* ========== api.js 缺失降级：清空 mock 并提示 ========== */
+  function renderApiUnavailable() {
+    /* 清空带 mock 数据的数据容器（列表/统计/详情等） */
+    const ids = [
+      "badgeMemories", "badgeJobs",
+      "scopeSeg", "agentSeg",
+      "memList", "memPager",
+      "statActive", "statCandidate", "statSuperseded", "statRejected", "statWorker", "statRecall",
+      "jobMiniList", "recallScopeSeg", "recallAgent", "recallResult",
+      "jobStatusSeg", "jobList", "jobPager",
+      "detailTypeTag", "detailStatusTag",
+      "dAbstract", "dOverview", "dContent", "dStruct", "dChips",
+      "confVal", "confBar", "impVal", "impBar",
+      "eviLabel", "eviRows", "revRows", "auditRows", "dUri",
+    ];
+    ids.forEach((id) => {
+      const el = document.getElementById(id);
+      if (el) el.innerHTML = "";
+    });
+    /* 幂等：只插入一个错误条 */
+    if (document.querySelector(".errbar[data-api-unavailable]")) return;
+    const main = document.querySelector(".main");
+    const bar = document.createElement("div");
+    bar.className = "errbar";
+    bar.dataset.apiUnavailable = "1";
+    const icon = document.createElement("span");
+    icon.className = "errbar-icon";
+    icon.innerHTML = window.HZ && HZ.icon ? HZ.icon("alert", 15) : "";
+    const text = document.createElement("span");
+    text.className = "errbar-text";
+    text.textContent = "共享 API 层未加载，无法显示真实数据";
+    bar.appendChild(icon);
+    bar.appendChild(text);
+    if (main) main.insertBefore(bar, main.firstChild);
+  }
+
   if (!window.HZ || !HZ.api) {
-    console.warn("api.js 未加载，停留在静态预览");
+    console.error("共享 API 层（shared/api.js）未加载，无法获取真实数据");
+    renderApiUnavailable(); // 清空 mock 内容 + 显示错误提示
     return;
   }
 
@@ -145,6 +181,7 @@
     } catch (e) {
       failToast(e);
       showGuide({ reason: "load_error", openviking_state: "error" });
+      renderApiUnavailable(); // 清空 mock 内容 + 显示错误提示，防止假数据误导
     }
   }
 

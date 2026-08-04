@@ -2,7 +2,7 @@
  * View: Dashboard — 仪表盘（真实接口版）
  * 依赖：shared/icons.js, shared/ui.js, shared/api.js
  * 接口：GET overview（pending_items 可能未落地，字段缺失时容错为默认值）
- * 降级：api.js 未加载时停留在静态预览（页面骨架与 mock 数据仍可见）。
+ * 降级：api.js 未加载时清空 mock 内容并显示明确错误提示。
  * 安全：所有渲染一律通过 textContent / data 属性写入，禁止拼入 innerHTML。
  */
 (function () {
@@ -36,8 +36,45 @@
   });
 
   /* ---------- 降级保护 ---------- */
+  function renderApiUnavailable() {
+    /* 清空带 mock 数据的数据容器 */
+    const ids = [
+      "heroDesc", "heroTagRate", "heroTagPending",
+      "statTrendPending", "statLearned", "statTrendSamples", "statRate",
+      "statTrendOmitted", "statRuns", "statTrendBlocked", "statTokens",
+      "actionRing", "actionNum", "actionReplyCount", "actionNoReplyCount",
+      "trendChart", "scopeList", "pendingList",
+    ];
+    ids.forEach((id) => {
+      const el = document.getElementById(id);
+      if (!el) return;
+      el.innerHTML = "";
+      /* 移除计数动画数据源与参数，防止 initCounters 的观察器把假数字写回 */
+      el.removeAttribute("data-count");
+      el.removeAttribute("data-count-parent");
+      el.removeAttribute("data-decimal");
+      el.removeAttribute("data-suffix");
+    });
+    /* 幂等：只插入一个错误条 */
+    if (document.querySelector(".errbar[data-api-unavailable]")) return;
+    const main = document.querySelector(".main");
+    const bar = document.createElement("div");
+    bar.className = "errbar";
+    bar.dataset.apiUnavailable = "1";
+    const icon = document.createElement("span");
+    icon.className = "errbar-icon";
+    icon.innerHTML = window.HZ && HZ.icon ? HZ.icon("alert", 15) : "";
+    const text = document.createElement("span");
+    text.className = "errbar-text";
+    text.textContent = "共享 API 层未加载，无法显示真实数据";
+    bar.appendChild(icon);
+    bar.appendChild(text);
+    if (main) main.insertBefore(bar, main.firstChild);
+  }
+
   if (!window.HZ || !HZ.api) {
-    console.warn("api.js 未加载，停留在静态预览");
+    console.error("共享 API 层（shared/api.js）未加载，无法获取真实数据");
+    renderApiUnavailable(); // 清空 mock 内容 + 显示错误提示
     return;
   }
   const api = HZ.api;
@@ -287,6 +324,7 @@
       const err = api.errorOf(e);
       toast(err.message, { type: "error" });
       showError(err.message);
+      renderApiUnavailable(); // 清空 mock 内容 + 显示错误提示，防止假数据误导
     }
   }
 

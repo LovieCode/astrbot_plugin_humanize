@@ -3,7 +3,7 @@
  * 依赖：shared/icons.js, shared/ui.js, shared/api.js
  * 接口：GET reply-examples / GET reply-example-detail / GET memory-overview / GET memory-agent-options
  *       POST reply-example-action / POST reply-example-recall-debug
- * 降级：api.js 未加载时停留在静态预览（页面骨架仍可见）。
+ * 降级：api.js 未加载时清空 mock 内容并显示明确错误提示。
  * 安全：所有持久化内容（turns content/ideal_reply/conditions/usage reason/召回 XML 等）
  *       一律通过 textContent 写入，禁止拼入 innerHTML。
  */
@@ -17,8 +17,27 @@
   });
   HZ.initReveal();
 
+  /** api.js 缺失时的明确降级：清空 mock 数据容器并插入错误提示条。 */
+  function renderApiUnavailable() {
+    ["exList", "exPager"].forEach((id) => {
+      const node = document.getElementById(id);
+      if (node) node.innerHTML = "";
+    });
+    if (document.querySelector(".errbar[data-api-unavailable]")) return;
+    const bar = document.createElement("div");
+    bar.className = "errbar";
+    bar.dataset.apiUnavailable = "1";
+    bar.innerHTML =
+      '<span class="errbar-icon">' +
+      (window.HZ && HZ.icon ? HZ.icon("alert", 15) : "") +
+      '</span><span class="errbar-text">共享 API 层未加载，无法显示真实数据</span>';
+    const anchor = document.querySelector(".ex-list") || document.querySelector(".main");
+    if (anchor && anchor.parentNode) anchor.parentNode.insertBefore(bar, anchor);
+  }
+
   if (!window.HZ || !HZ.api) {
-    console.warn("api.js 未加载，停留在静态预览");
+    console.error("共享 API 层（shared/api.js）未加载，无法获取真实数据");
+    renderApiUnavailable();
     return;
   }
   const api = HZ.api;
@@ -168,6 +187,7 @@
       const err = api.errorOf(e);
       toast(err.message, { type: "error" });
       if (initErrbar) initErrbar({ message: err.message });
+      renderApiUnavailable();
     } finally {
       busy = false;
     }

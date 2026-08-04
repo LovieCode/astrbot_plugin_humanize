@@ -63,8 +63,35 @@
     });
   });
 
+  /* 共享 API 层缺失：清空 mock 模板内容，显示明确错误提示（幂等）；列表高亮/字数统计/脏标记/芯片复制等纯 UI 交互保留 */
+  function renderApiUnavailable() {
+    if (listEl) listEl.innerHTML = "";
+    if (editorName) editorName.innerHTML = "";
+    if (editorDesc) editorDesc.innerHTML = "";
+    if (varsEl) varsEl.innerHTML = "";
+    if (auditList) auditList.innerHTML = "";
+    if (diffNote) diffNote.style.display = "none";
+    if (textarea) {
+      textarea.value = "";
+      baseContent = "";
+      refreshCount();
+    }
+    if (dirtyEl) dirtyEl.classList.remove("on");
+    const host = document.querySelector(".pt-layout") || document.querySelector(".main");
+    if (!host || host.querySelector(".errbar[data-api-unavailable]")) return;
+    const bar = document.createElement("div");
+    bar.className = "errbar";
+    bar.dataset.apiUnavailable = "1";
+    bar.innerHTML =
+      '<span class="errbar-icon">' +
+      (window.HZ && HZ.icon ? HZ.icon("alert", 15) : "") +
+      '</span><span class="errbar-text">共享 API 层未加载，无法显示真实数据</span>';
+    host.parentNode.insertBefore(bar, host);
+  }
+
   if (!window.HZ || !HZ.api) {
-    console.warn("api.js 未加载，停留在静态预览");
+    console.error("共享 API 层（shared/api.js）未加载，无法获取真实数据");
+    renderApiUnavailable();
     return;
   }
   const api = HZ.api;
@@ -226,6 +253,7 @@
       loadAudit();
     } catch (e) {
       toast(api.errorOf(e).message, { type: "error" });
+      renderApiUnavailable();
     }
   }
 
