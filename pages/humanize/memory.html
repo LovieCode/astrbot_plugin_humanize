@@ -30,24 +30,16 @@
 
     <!-- 数据源 Tab -->
     <div class="source-tabs reveal">
-      <span class="source-tab active" data-source="memories" data-icon="memory">长期记忆 <span class="nav-badge" id="badgeMemories">128</span></span>
-      <span class="source-tab" data-source="jobs" data-icon="history">后台任务 <span class="nav-badge" id="badgeJobs">0</span></span>
+      <span class="source-tab active" data-source="memories" data-icon="memory">长期记忆 <span class="nav-badge" id="badgeMemories"></span></span>
+      <span class="source-tab" data-source="jobs" data-icon="history">后台任务 <span class="nav-badge" id="badgeJobs"></span></span>
     </div>
 
     <!-- 记忆筛选 -->
     <div id="memoryFilters">
       <div class="filter-bar reveal">
         <div class="scope-seg" id="scopeSeg">
-          <span class="seg-item active">全部作用域 <span class="seg-count">128</span></span>
-          <span class="seg-item">私聊 <span class="seg-count">46</span></span>
-          <span class="seg-item">群聊 <span class="seg-count">38</span></span>
-          <span class="seg-item">群成员 <span class="seg-count">32</span></span>
-          <span class="seg-item">全局 <span class="seg-count">12</span></span>
         </div>
         <div class="scope-seg agent-seg" id="agentSeg">
-          <span class="seg-item active">全部 Agent</span>
-          <span class="seg-item">洛薇</span>
-          <span class="seg-item">小洛</span>
         </div>
       </div>
       <div class="type-pills reveal" id="typePills">
@@ -70,25 +62,12 @@
       <div class="mem-main reveal">
         <!-- 记忆服务未就绪引导卡 -->
         <div id="memGuide" style="display:none">
-          <div class="card guide-card">
-            <div class="guide-icon" data-icon="alert"></div>
-            <div class="guide-title">记忆服务未就绪</div>
-            <div class="guide-text" id="guideReason"></div>
-            <div class="guide-meta" id="guideMeta"></div>
-          </div>
         </div>
         <div class="mem-list" id="memList">
           <!-- 记忆卡片由 shared/views/memory.js 动态渲染 -->
         </div>
 
         <div class="pager" id="memPager">
-          <button class="pg-btn" disabled><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.4" stroke-linecap="round" stroke-linejoin="round"><polyline points="15 18 9 12 15 6"/></svg></button>
-          <button class="pg-btn active" data-page="1">1</button>
-          <button class="pg-btn" data-page="2">2</button>
-          <button class="pg-btn" data-page="3">3</button>
-          <span style="color:var(--muted);font-size:12px;padding:0 4px">…</span>
-          <button class="pg-btn" data-page="7">7</button>
-          <button class="pg-btn"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.4" stroke-linecap="round" stroke-linejoin="round"><polyline points="9 18 15 12 9 6"/></svg></button>
         </div>
       </div>
 
@@ -126,32 +105,7 @@
 
         <div class="card">
           <div class="card-head"><span class="card-dot"></span><span class="card-title">后台任务</span><a class="section-link" href="#" id="jobAllLink">全部 →</a></div>
-          <div class="side-block" id="jobMiniList">
-            <div class="job-row">
-              <div class="job-icon i-pink" data-icon="refresh"></div>
-              <div class="job-main">
-                <span class="job-name">记忆提取 · 私聊会话</span>
-                <span class="job-sub">运行中 · 已处理 24 条消息</span>
-              </div>
-              <span class="job-spin"></span>
-            </div>
-            <div class="job-row">
-              <div class="job-icon i-violet" data-icon="file"></div>
-              <div class="job-main">
-                <span class="job-name">后台任务示例</span>
-                <span class="job-sub">排队中 · 待执行</span>
-              </div>
-              <span class="tag tag-candidate">排队</span>
-            </div>
-            <div class="job-row">
-              <div class="job-icon i-green" data-icon="check"></div>
-              <div class="job-main">
-                <span class="job-name">每日记忆衰减检查</span>
-                <span class="job-sub">今天 06:00 · 已完成</span>
-              </div>
-              <span class="tag tag-ok">完成</span>
-            </div>
-          </div>
+          <div class="side-block" id="jobMiniList"></div>
         </div>
 
         <div class="card" id="recallCard">
@@ -159,8 +113,6 @@
           <div style="display:flex;flex-direction:column;gap:10px" id="recallCardBody">
             <div class="input-box"><input type="text" id="recallQuery" placeholder="输入一句话，测试召回…" /></div>
             <div class="scope-seg" style="align-self:flex-start" id="recallScopeSeg">
-              <span class="seg-item active">私聊 · 阿茶</span>
-              <span class="seg-item">群聊</span>
             </div>
             <select class="form-select" id="recallAgent"></select>
             <button class="btn btn-tonal btn-sm" style="align-self:flex-start" data-icon="search" id="recallBtn">测试召回</button>
@@ -232,105 +184,6 @@
     <button class="drawer-close" id="drawerClose">✕</button>
   </div>
   <div class="drawer-body" id="drawerBody">
-
-    <div>
-      <div class="d-label"><span class="layer-chip">L0</span>abstract · 召回匹配层</div>
-      <div class="d-abstract" id="dAbstract">阿茶的饮食偏好：不吃香菜，奶茶三分糖去冰，火锅必点虾滑</div>
-    </div>
-
-    <div>
-      <div class="d-label"><span class="layer-chip l1">L1</span>overview · 命中展开层</div>
-      <div class="d-overview" id="dOverview">{"drink":"奶茶三分糖去冰","dislike":"香菜"} · 阿茶不吃香菜，奶茶固定三分糖去冰，吃火锅必点虾滑。多次在点单与聚餐场景中得到验证。</div>
-    </div>
-
-    <div>
-      <div class="d-label"><span class="layer-chip l2">L2</span>content · 完整内容</div>
-      <div class="d-content" id="dContent">阿茶不吃香菜，奶茶固定三分糖去冰，吃火锅必点虾滑。点外卖时会主动备注「不要香菜」；聚餐吃火锅时虾滑是必点菜，其余菜品不挑。</div>
-    </div>
-
-    <div>
-      <div class="d-label" data-icon="file">structured_value</div>
-      <div class="d-struct" id="dStruct">{
-  "drink": "奶茶三分糖去冰",
-  "dislike": "香菜",
-  "hotpot_must": "虾滑"
-}</div>
-    </div>
-
-    <div>
-      <div class="d-label" data-icon="pin">归属与标识</div>
-      <div class="d-chips" id="dChips">
-        <span class="tag tag-lg tag-scope">私聊 · 阿茶</span>
-        <span class="tag tag-lg tag-alias">Agent · 洛薇</span>
-        <span class="tag tag-lg tag-pink">memory_key · diet.acha</span>
-      </div>
-    </div>
-
-    <div>
-      <div class="d-label" data-icon="spark">置信度与重要性</div>
-      <div class="d-conf" style="margin-bottom:8px">
-        <span class="d-conf-label" id="confVal">conf 0.94</span>
-        <div class="bar" style="flex:1"><i id="confBar" style="width:94%"></i></div>
-      </div>
-      <div class="d-conf">
-        <span class="d-conf-label" id="impVal">imp 0.80</span>
-        <div class="bar" style="flex:1"><i id="impBar" style="width:80%"></i></div>
-      </div>
-    </div>
-
-    <div id="drawerEvidence">
-      <div class="d-label" data-icon="quote" id="eviLabel">证据（3 条）</div>
-      <div id="eviRows">
-      <div class="evi-item">
-        <div class="evi-icon" data-icon="quote"></div>
-        <div class="evi-text">
-          「我不吃香菜！奶茶三分糖去冰谢谢」
-          <div class="evi-time">2026-03-28 12:40 · source_complete: true</div>
-        </div>
-      </div>
-      <div class="evi-item">
-        <div class="evi-icon" data-icon="quote"></div>
-        <div class="evi-text">
-          「火锅必点虾滑，谁懂」
-          <div class="evi-time">2026-03-21 19:02 · source_complete: true</div>
-        </div>
-      </div>
-      <div class="evi-item">
-        <div class="evi-icon" data-icon="quote"></div>
-        <div class="evi-text">
-          「帮我点奶茶，老样子」
-          <div class="evi-time">2026-03-15 15:22 · source_complete: true</div>
-        </div>
-      </div>
-      </div>
-    </div>
-
-    <div id="drawerRevisions">
-      <div class="d-label" data-icon="history">版本与来源</div>
-      <div id="revRows">
-      <div class="ver-row">
-        <span class="ver-tag now">v2 当前</span>
-        <span class="ver-text">补充「火锅必点虾滑」· 源自 commit 9f3a…e1</span>
-        <span class="ver-time">今天 09:58</span>
-      </div>
-      <div class="ver-row">
-        <span class="ver-tag">v1</span>
-        <span class="ver-text">首次创建 · 源自 commit 2d81…b0</span>
-        <span class="ver-time">3月28日</span>
-      </div>
-      </div>
-    </div>
-
-    <div id="drawerAudit">
-      <div class="d-label" data-icon="pin">审计记录</div>
-      <div id="auditRows"></div>
-    </div>
-
-    <div>
-      <div class="d-label" data-icon="pin">URI</div>
-      <div class="d-uri" id="dUri">viking://agent/lovie/memories/private_user/9c2f…/8a1b…/preference/3fa9…e2</div>
-    </div>
-
   </div>
   <div class="drawer-foot">
     <button class="btn btn-primary" style="flex:1" data-icon="edit" id="btnEditMem">编辑记忆</button>
