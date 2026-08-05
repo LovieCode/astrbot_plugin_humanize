@@ -179,6 +179,7 @@ def build() -> str:
     shared_css = "\n".join(
         f'<link rel="stylesheet" href="shared/{f}" />' for f in SHARED_CSS
     )
+    font_css = '<link rel="stylesheet" href="fonts/fonts.css" />'
     view_css = "\n".join(
         f'<link rel="stylesheet" href="shared/views/{v}.css" />' for v in VIEWS
     )
@@ -196,8 +197,7 @@ def build() -> str:
 <meta charset="UTF-8" />
 <meta name="viewport" content="width=device-width, initial-scale=1.0" />
 <title>洛薇 Humanize</title>
-<link rel="preconnect" href="https://fonts.googleapis.com" />
-<link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Nunito:wght@400;600;700;800&family=Noto+Sans+SC:wght@400;500;700&display=swap" />
+{font_css}
 {shared_css}
 {view_css}
 <style>
@@ -248,6 +248,13 @@ document.querySelectorAll("[data-icon]").forEach((el) => {{
 
 def copy_assets() -> None:
     (OUT / "shared" / "views").mkdir(parents=True, exist_ok=True)
+    # local fonts (self-hosted, no Google Fonts CDN dependency)
+    src_fonts = SRC / "_fonts"
+    if src_fonts.is_dir():
+        (OUT / "fonts").mkdir(exist_ok=True)
+        for f in src_fonts.iterdir():
+            if f.is_file():
+                (OUT / "fonts" / f.name).write_bytes(f.read_bytes())
     # shared css
     for f in SHARED_CSS:
         (OUT / "shared" / f).write_bytes(

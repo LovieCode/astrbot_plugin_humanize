@@ -1,0 +1,53 @@
+/* 本地字体（自托管，避免依赖 Google Fonts CDN）。
+ * Noto Sans SC：npmmirror @fontsource 子集（chinese-simplified）。
+ * Nunito：npmmirror @fontsource 子集（latin）。
+ * 由 scripts/build_spa.py 复制到产物 pages/humanize/fonts/。 */
+@font-face {
+  font-family: 'Nunito';
+  font-style: normal;
+  font-weight: 400;
+  font-display: swap;
+  src: url('./nunito-400.woff2') format('woff2');
+}
+@font-face {
+  font-family: 'Nunito';
+  font-style: normal;
+  font-weight: 600;
+  font-display: swap;
+  src: url('./nunito-600.woff2') format('woff2');
+}
+@font-face {
+  font-family: 'Nunito';
+  font-style: normal;
+  font-weight: 700;
+  font-display: swap;
+  src: url('./nunito-700.woff2') format('woff2');
+}
+@font-face {
+  font-family: 'Nunito';
+  font-style: normal;
+  font-weight: 800;
+  font-display: swap;
+  src: url('./nunito-800.woff2') format('woff2');
+}
+@font-face {
+  font-family: 'Noto Sans SC';
+  font-style: normal;
+  font-weight: 400;
+  font-display: swap;
+  src: url('./noto-sans-sc-400.woff2') format('woff2');
+}
+@font-face {
+  font-family: 'Noto Sans SC';
+  font-style: normal;
+  font-weight: 500;
+  font-display: swap;
+  src: url('./noto-sans-sc-500.woff2') format('woff2');
+}
+@font-face {
+  font-family: 'Noto Sans SC';
+  font-style: normal;
+  font-weight: 700;
+  font-display: swap;
+  src: url('./noto-sans-sc-700.woff2') format('woff2');
+}
