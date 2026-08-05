@@ -112,6 +112,14 @@
   function renderSidebar(activeId) {
     const host = document.getElementById("sidebar");
     if (!host) return;
+    const avatarSrc = (() => {
+      const path = String(window.location.pathname || "");
+      const match = path.match(/^\/api\/plugin\/page\/content\/([^/]+)\/([^/]+)\//);
+      if (match) {
+        return "/api/plugin/page/content/" + match[1] + "/" + match[2] + "/assets/lovie_avatar.png";
+      }
+      return "assets/lovie_avatar.png";
+    })();
     const nav = NAV_GROUPS.map((group) => {
       const items = group.items
         .map((item) => {
@@ -125,7 +133,7 @@
 
     host.innerHTML = `
       <div class="brand">
-        <img class="brand-avatar" src="assets/lovie_avatar.png" alt="洛薇" />
+        <img class="brand-avatar" src="${avatarSrc}" alt="洛薇" />
         <div>
           <div class="brand-name">洛薇 Lovie</div>
           <div class="brand-sub">Humanize v0.2.0</div>
