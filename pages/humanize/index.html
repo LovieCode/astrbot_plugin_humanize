@@ -1004,6 +1004,7 @@
           <div class="st-row">
             <div class="st-row-main">
               <span class="st-row-label">提取服务商 <span class="st-row-key">memory_extraction_provider_id</span></span>
+              <span class="st-row-desc">用于从对话中自动提取记忆（当前：siliconflow / DeepSeek-V4-Flash）。未配置时提取不可用。</span>
             </div>
             <div class="st-row-control">
               <select class="st-select" data-key="memory_extraction_provider_id"></select>
@@ -1012,6 +1013,7 @@
           <div class="st-row">
             <div class="st-row-main">
               <span class="st-row-label">向量服务商 <span class="st-row-key">memory_embedding_provider_id</span></span>
+              <span class="st-row-desc">用于记忆向量化与语义召回。当前环境为 siliconflow / BAAI/bge-m3（1024 维）；未配置时回退为纯关键词召回。配置后需保存并重载插件生效。</span>
             </div>
             <div class="st-row-control">
               <select class="st-select" data-key="memory_embedding_provider_id"></select>
@@ -1020,6 +1022,7 @@
           <div class="st-row">
             <div class="st-row-main">
               <span class="st-row-label">重排服务商 <span class="st-row-key">memory_rerank_provider_id</span></span>
+              <span class="st-row-desc">用于记忆召回结果重排（可选，vllm_rerank）。未配置时跳过重排。</span>
             </div>
             <div class="st-row-control">
               <select class="st-select" data-key="memory_rerank_provider_id"></select>

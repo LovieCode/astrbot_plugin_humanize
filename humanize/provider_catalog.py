@@ -205,11 +205,15 @@ class ProviderCatalog:
         for provider in raw:
             try:
                 meta = provider.meta()
+                model = str(getattr(meta, "model", "") or "") or None
+                if not model:
+                    provider_config = getattr(provider, "provider_config", {}) or {}
+                    model = str(provider_config.get("embedding_model") or "") or None
                 items.append(
                     {
                         "id": str(getattr(meta, "id", "") or ""),
                         "adapter": str(getattr(meta, "type", "") or ""),
-                        "model": str(getattr(meta, "model", "") or "") or None,
+                        "model": model,
                         "provider_type": str(
                             getattr(getattr(meta, "provider_type", None), "value", "")
                             or ""

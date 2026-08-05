@@ -699,12 +699,6 @@ class ChatMemoryService:
             )
         if self._openviking_management is None:
             raise RuntimeError("OpenViking management is unavailable")
-        logger.info(
-            "[Humanize] memory-action clean: action=%s id=%r keys=%s",
-            clean.get("action"),
-            clean.get("id"),
-            sorted(clean),
-        )
         result = await asyncio.to_thread(
             self._openviking_management.apply_memory_action,
             clean,
