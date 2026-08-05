@@ -257,9 +257,9 @@
         "hint": "记忆只作为临时用户上下文注入，并保持回复协议位于最后。"
       },
       "memory_extract_batch_turns": {
-        "description": "记忆提取批次回合数",
+        "description": "记忆提取批次回合数（越大越省 LLM 调用，延迟提取）",
         "type": "int",
-        "default": 4,
+        "default": 8,
         "minimum": 1,
         "maximum": 20,
         "slider": {"min": 1, "max": 20, "step": 1},

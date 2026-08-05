@@ -97,7 +97,7 @@ class PluginConfig:
     memory_recall_limit: int = 5
     memory_recall_score_threshold: float = 0.2
     memory_recall_max_chars: int = 2_500
-    memory_extract_batch_turns: int = 4
+    memory_extract_batch_turns: int = 8
     memory_extract_idle_seconds: int = 180
     memory_job_max_attempts: int = 5
     reply_examples_enabled: bool = True
@@ -191,7 +191,7 @@ class PluginConfig:
                 data.get("memory_recall_max_chars"), 2_500, 256, 20_000
             ),
             memory_extract_batch_turns=_as_int(
-                data.get("memory_extract_batch_turns"), 4, 1, 20
+                data.get("memory_extract_batch_turns"), 8, 1, 20
             ),
             memory_extract_idle_seconds=_as_int(
                 data.get("memory_extract_idle_seconds"), 180, 15, 3_600
