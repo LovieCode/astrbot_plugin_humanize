@@ -7,7 +7,18 @@
  *   - 失败：{ status: "error", message: "...", data: ... }（HTTP 非 2xx）
  */
 (function (global) {
-  const DEFAULT_BASE = "/api/v1/plugins/extensions/astrbot_plugin_humanize/";
+  /* Dashboard 插件页（iframe）内走 /api/plug/（JWT cookie 认证，由父页面代理）；
+     独立访问走 /api/v1/plugins/extensions/（X-API-Key）。 */
+  const IN_IFRAME = (() => {
+    try {
+      return global.window && window.self !== window.top;
+    } catch (e) {
+      return false;
+    }
+  })();
+  const DEFAULT_BASE = IN_IFRAME
+    ? "/api/plug/astrbot_plugin_humanize/"
+    : "/api/v1/plugins/extensions/astrbot_plugin_humanize/";
 
   /* ---------- 基础请求 ---------- */
   /**
@@ -21,19 +32,21 @@
     const method = (opts.method || (opts.body !== undefined ? "POST" : "GET")).toUpperCase();
     const cleanPath = String(path).replace(/^\/+/, "");
 
-    /* AstrBot Dashboard 插件页面（iframe）内：优先走 bridge，由父页面带登录态代发 */
+    /* AstrBot Dashboard 插件页面内：优先走 bridge，endpoint 为插件内相对路径，
+       由父页面带登录态转发到 /api/v1/plugins/extensions/<plugin>/<path>。 */
     const bridge =
-      (global.window && window.AstrBotPluginPage && typeof window.AstrBotPluginPage.apiGet === "function" &&
+      (global.window && window.AstrBotPluginPage &&
+        typeof window.AstrBotPluginPage.apiGet === "function" &&
         typeof window.AstrBotPluginPage.apiPost === "function")
         ? window.AstrBotPluginPage
         : null;
-    if (bridge && global.window && window.self !== window.top) {
-      const endpoint = "/api/v1/plugins/extensions/astrbot_plugin_humanize/" + cleanPath;
+    if (bridge) {
       try {
         const payload =
           method === "GET"
-            ? await bridge.apiGet(endpoint, opts.query || {})
-            : await bridge.apiPost(endpoint, opts.body || {});
+            ? await bridge.apiGet(cleanPath, opts.query || {})
+            : await bridge.apiPost(cleanPath, opts.body || {});
+        /* bridge 兼容规则：{status:ok,data}→data；{status:error,message}→reject */
         if (payload && payload.success === false) {
           const err = new Error(String(payload.message || "操作失败"));
           err.status = 400;
@@ -50,6 +63,7 @@
       }
     }
 
+    /* 无 bridge（独立预览）：走 fetch，X-API-Key 由外部注入 */
     const url = new URL(HZ.api.baseUrl + cleanPath, location.origin);
     if (opts.query) {
       Object.entries(opts.query).forEach(([k, v]) => {

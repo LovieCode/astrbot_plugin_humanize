@@ -1,0 +1,54 @@
+/* ============================================
+   Humanize Design Tokens — 洛薇 Lovie
+   所有页面唯一的设计变量来源
+   ============================================ */
+:root {
+  /* Primary pink scale（调淡版） */
+  --pink: #f4719d;
+  --pink-strong: #ec5c8c;
+  --pink-mid: #f9a8c5;
+  --pink-soft: #fdf1f6;
+  --pink-soft-2: #fbe3ee;
+  --pink-line: #fbdfeb;
+
+  /* Neutrals */
+  --bg: #fdfbfc;
+  --card: #ffffff;
+  --line: #f4e9ee;
+  --text: #473a41;
+  --text-2: #8d7a83;
+  --muted: #c3aeb8;
+
+  /* Semantic */
+  --green: #4fc08d;       --green-soft: #e8f7f0;   --green-text: #2e8b62;
+  --amber: #e9a23b;       --amber-soft: #fdf3e3;   --amber-text: #c07f18;
+  --blue: #5aa9e6;        --blue-soft: #eaf4fd;
+  --violet: #8b7bd8;      --violet-soft: #f1eefb;
+
+  /* Radius */
+  --r-sm: 10px;
+  --r-md: 14px;
+  --r-lg: 20px;
+  --r-xl: 26px;
+  --r-full: 999px;
+
+  /* Shadow：扁平优先，极淡粉色调 */
+  --shadow: 0 2px 8px rgba(226, 118, 158, 0.06), 0 12px 28px rgba(226, 118, 158, 0.07);
+  --shadow-hover: 0 6px 16px rgba(226, 118, 158, 0.12), 0 18px 40px rgba(226, 118, 158, 0.12);
+  --shadow-pink: 0 4px 14px rgba(244, 113, 157, 0.32);
+  --shadow-pink-hover: 0 8px 20px rgba(244, 113, 157, 0.4);
+
+  /* Motion */
+  --ease-spring: cubic-bezier(0.34, 1.56, 0.64, 1);
+  --ease-out: cubic-bezier(0.22, 1, 0.36, 1);
+  --dur-fast: 150ms;
+  --dur-mid: 250ms;
+  --dur-slow: 400ms;
+
+  /* Typography */
+  --font: "Nunito", "Noto Sans SC", "PingFang SC", "Microsoft YaHei", sans-serif;
+  --font-mono: "JetBrains Mono", "SF Mono", Consolas, monospace;
+
+  /* Layout */
+  --sidebar-w: 232px;
+}

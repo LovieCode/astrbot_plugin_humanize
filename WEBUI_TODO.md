@@ -325,3 +325,21 @@
 - [ ] 新增 `GET prompt-template-audit`（审计查询路由，阻塞 P01 审计区）。
 - [ ] 仪表盘「导出」按钮：改为跳转 jargon 导出页或移除（阻塞 D02）。
 - [ ] 黑话 `delete` 约束：确认是否限制为从未注入/未使用的词条，按需加后端校验（J02 备注）。
+
+---
+
+## 9. 单入口 SPA 重构（2026-08 当前）
+
+### 背景：AstrBot 插件页面机制研究结论
+- **多文件完全支持**：一个 Page 目录 = index.html 入口 + 任意相对资源（css/js/img），官方文档示例 `bridge-demo/` 即 index.html + app.js + style.css + assets/。
+- **一个 Page 嵌套加载另一个 Page 的 HTML 不是官方模式**：Dashboard 前端只加载入口页（content_path 带 asset_token），嵌套 iframe 子页无 token、JS 动态 src 也不重写 → 401。JWT cookie 虽 SameSite=strict 同站可带，但嵌套 iframe 会破坏 bridge 的 postMessage 目标。
+- **多页 = 多个 Page 目录**（pages/<name>/index.html）。但用户要「单入口」，故用**构建式 SPA**：7 个独立页保持源码，构建脚本合并生成单一 index.html。
+- **官方认证链路**：页面 HTML 自动注入 bridge-sdk.js；API 调用走 `window.AstrBotPluginPage.apiGet/apiPost(endpoint)`（endpoint 为插件内相对路径，如 `stats`），父页面带登录态转发到 `/api/v1/plugins/extensions/<plugin>/<path>`，匹配 `register_web_api(f"{PLUGIN_NAME}/<path:subpath>")`。后端 `json_response(data)` → bridge resolve 完整 JSON；`error_response(msg)` → bridge reject Error。**禁用原生 fetch/EventSource**（不带认证）。
+
+### 方案（构建式 SPA）
+- `scripts/build_spa.py`（已写）：从 7 个 HTML 提取 `<main>` 内容 → 合并生成 `pages/humanize/index.html`；跨页重复 id 自动检测（FATAL 阻止构建）；共享 CSS/script 只保留 1 份；注入 `.view` 显隐 + app.js。
+- `pages/humanize/app.js`（已写）：侧边栏渲染一次 + 视图切换（`HZ.views.<name>.init()` 按需调用、防重复）。
+- `shared/api.js`：bridge 优先（endpoint 相对路径），无 bridge fallback fetch（独立预览）。
+- 视图 JS 双模式：IIFE 包进 `init()`，`HZ.views` 存在则注册、否则立即执行（独立页可单独打开）。
+- id 前缀：drawer/recall 系跨页冲突加 `mem-`/`jg-`/`ex-` 前缀（HTML + JS 同步）。
+- `scripts/serve_spa.py`（已写）：本地模拟 AstrBot 页面机制（重写资源 + mock bridge 代理真实后端），用于端到端验证。

@@ -85,22 +85,22 @@
   const NAV_GROUPS = [
     {
       label: "总览",
-      items: [{ id: "dashboard", name: "仪表盘", icon: "dashboard", href: "dashboard.html" }],
+      items: [{ id: "dashboard", name: "仪表盘", icon: "dashboard", href: "/plugin-page/astrbot_plugin_humanize/dashboard" }],
     },
     {
       label: "能力",
       items: [
-        { id: "memory", name: "长期记忆", icon: "memory", href: "memory.html" },
-        { id: "jargon", name: "黑话词库", icon: "jargon", href: "jargon.html" },
-        { id: "examples", name: "回复样例", icon: "chat", href: "examples.html" },
-        { id: "context", name: "上下文追踪", icon: "file", href: "context.html" },
+        { id: "memory", name: "长期记忆", icon: "memory", href: "/plugin-page/astrbot_plugin_humanize/memory" },
+        { id: "jargon", name: "黑话词库", icon: "jargon", href: "/plugin-page/astrbot_plugin_humanize/jargon" },
+        { id: "examples", name: "回复样例", icon: "chat", href: "/plugin-page/astrbot_plugin_humanize/examples" },
+        { id: "context", name: "上下文追踪", icon: "file", href: "/plugin-page/astrbot_plugin_humanize/context" },
       ],
     },
     {
       label: "管理",
       items: [
-        { id: "prompts", name: "提示词模板", icon: "edit", href: "prompts.html" },
-        { id: "settings", name: "设置", icon: "settings", href: "settings.html" },
+        { id: "prompts", name: "提示词模板", icon: "edit", href: "/plugin-page/astrbot_plugin_humanize/prompts" },
+        { id: "settings", name: "设置", icon: "settings", href: "/plugin-page/astrbot_plugin_humanize/settings" },
       ],
     },
   ];
