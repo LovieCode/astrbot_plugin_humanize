@@ -346,3 +346,122 @@ def test_trusted_migration_can_replace_higher_confidence_memory(tmp_path: Path) 
     assert replaced.operation == "replace"
     assert "迁移后的当前快照" in content
     assert '"confidence": 0.2' in content
+
+
+def _write_canonical(
+    tmp_path: Path, context_ref: str, turn_ref: str, payload: dict[str, object]
+) -> None:
+    """Write the context_l2 canonical record the adapter requires for context_ref."""
+    canonical_dir = (
+        tmp_path
+        / "plugin-data"
+        / "openviking"
+        / "sessions"
+        / str(payload["agent_id"])
+        / str(payload["scope_type"])
+        / str(payload["scope_hash"])
+        / str(payload["conversation_hash"])
+        / "context_l2"
+    )
+    canonical_dir.mkdir(parents=True, exist_ok=True)
+    (canonical_dir / f"{context_ref}.json").write_text(
+        json.dumps(
+            {
+                "action": payload["action"],
+                "context_ref": context_ref,
+                "created_at": payload["occurred_at"],
+                "l0": " ".join(str(payload["user_text"]).split())[:160],
+                "messages": [
+                    {"role": "user", "content": payload["user_text"]},
+                    {
+                        "role": "assistant",
+                        "content": payload["assistant_messages"][0],
+                    },
+                ],
+                "source_complete": True,
+                "turn_ref": turn_ref,
+                "version": 1,
+            },
+            ensure_ascii=True,
+            indent=2,
+        )
+        + "\n",
+        encoding="utf-8",
+    )
+
+
+def test_commit_canonical_then_extraction_resubmit_is_idempotent(
+    tmp_path: Path,
+) -> None:
+    """The canonical path commits with context_ref; the extraction path re-submits
+    the same turn without it. The conflict must resolve as idempotent instead of
+    failing the extraction job."""
+    adapter = _adapter(tmp_path)
+    payload = _payload()
+    payload["context_ref"] = "ctx-ABCD2345"
+    _write_canonical(tmp_path, "ctx-ABCD2345", "a" * 64, payload)
+    canonical = adapter.commit_turn(dict(payload))
+
+    payload.pop("context_ref")
+    retried = adapter.commit_turn(payload)
+
+    assert canonical.duplicate is False
+    assert retried.duplicate is True
+    assert retried.commit_count == 1
+    conflicts = list(
+        (tmp_path / "plugin-data" / "openviking" / "memory_admin" / "conflicts").glob(
+            "*.json"
+        )
+    )
+    assert len(conflicts) == 1
+    record = json.loads(conflicts[0].read_text(encoding="utf-8"))
+    assert record["resolved"] == "idempotent"
+    assert record["commit_id"] == "a" * 64
+
+
+def test_commit_extraction_then_canonical_resubmit_is_idempotent(
+    tmp_path: Path,
+) -> None:
+    """The reverse ordering (extraction path first, canonical path second) must
+    also stay idempotent while keeping the richer canonical reference."""
+    adapter = _adapter(tmp_path)
+    payload = _payload()
+    first = adapter.commit_turn(dict(payload))
+
+    payload["context_ref"] = "ctx-ABCD2345"
+    _write_canonical(tmp_path, "ctx-ABCD2345", "a" * 64, payload)
+    retried = adapter.commit_turn(payload)
+
+    assert first.duplicate is False
+    assert retried.duplicate is True
+    assert retried.commit_count == 1
+    conflicts = list(
+        (tmp_path / "plugin-data" / "openviking" / "memory_admin" / "conflicts").glob(
+            "*.json"
+        )
+    )
+    assert len(conflicts) == 1
+    record = json.loads(conflicts[0].read_text(encoding="utf-8"))
+    assert record["resolved"] == "idempotent"
+
+
+def test_commit_genuine_conflict_is_rejected_and_recorded(tmp_path: Path) -> None:
+    """A real collision (same commit id, different turn content) must still fail
+    loudly and leave an observability record."""
+    adapter = _adapter(tmp_path)
+    adapter.commit_turn(_payload())
+
+    conflicting = _payload()
+    conflicting["user_text"] = "完全不同的一句话"
+    with pytest.raises(RuntimeError, match="conflicting content"):
+        adapter.commit_turn(conflicting)
+
+    conflicts = list(
+        (tmp_path / "plugin-data" / "openviking" / "memory_admin" / "conflicts").glob(
+            "*.json"
+        )
+    )
+    assert len(conflicts) == 1
+    record = json.loads(conflicts[0].read_text(encoding="utf-8"))
+    assert record["resolved"] == "rejected"
+    assert record["existing"]["l0"] != record["incoming"]["l0"]

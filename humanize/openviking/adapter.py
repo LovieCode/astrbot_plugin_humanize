@@ -18,7 +18,7 @@ from ..vendor.openviking_core.session.memory.utils.memory_file_utils import (
     MemoryFileUtils,
     next_memory_version,
 )
-from .workspace import OpenVikingWorkspace
+from .workspace import OpenVikingWorkspace, WorkspaceTransaction
 
 _DIGEST_PATTERN = re.compile(r"^[0-9a-f]{64}$")
 _SCOPE_TYPES = frozenset({"global", "private_user", "group", "group_member"})
@@ -262,7 +262,32 @@ class OpenVikingMemoryAdapter:
                     )
                 except json.JSONDecodeError as exc:
                     raise RuntimeError("OpenViking session commit is corrupt") from exc
-                if existing_commit != commit_payload:
+                if existing_commit == commit_payload:
+                    pass
+                elif self._commit_core_matches(existing_commit, commit_payload):
+                    # The same logical turn was committed twice from two paths: the
+                    # canonical context-window path attaches ``context_ref`` while the
+                    # background extraction path omits it. The difference is limited to
+                    # ``context_ref``/``l2_uri`` (derived from the reference), so the
+                    # existing richer commit wins and the re-submit is idempotent.
+                    self._record_commit_conflict(
+                        transaction,
+                        commit_id,
+                        existing_commit,
+                        commit_payload,
+                        resolved="idempotent",
+                    )
+                else:
+                    # A genuine content conflict: the same commit id was derived from
+                    # different turn content. Persist the diff for observability and
+                    # still fail loudly so real duplicates are never silently merged.
+                    self._record_commit_conflict(
+                        transaction,
+                        commit_id,
+                        existing_commit,
+                        commit_payload,
+                        resolved="rejected",
+                    )
                     raise RuntimeError("OpenViking commit id has conflicting content")
             else:
                 transaction.atomic_write(
@@ -316,6 +341,71 @@ class OpenVikingMemoryAdapter:
             duplicate=duplicate,
             message_count=message_count,
             commit_count=commit_count,
+        )
+
+    @staticmethod
+    def _commit_core_matches(
+        existing: dict[str, Any], incoming: dict[str, Any]
+    ) -> bool:
+        """Compare two commits for the same logical turn, ignoring the reference.
+
+        The canonical context-window path and the background extraction path derive
+        the same ``commit_id`` for one turn, but only the canonical path attaches
+        ``context_ref`` (which also changes ``l2_uri``, leaves ``l1`` empty, and
+        leaves ``message_ids`` empty because the turn lives in the canonical record
+        instead of the JSONL stream). A match on every remaining core field proves
+        the commits describe the same turn, so the conflict is a harmless re-submit
+        rather than a genuine collision.
+
+        Args:
+            existing: The stored commit payload.
+            incoming: The payload attempted in this call.
+
+        Returns:
+            ``True`` when both commits describe the same turn.
+        """
+        return all(
+            str(existing.get(key) or "") == str(incoming.get(key) or "")
+            for key in (
+                "action",
+                "created_at",
+                "l0",
+                "session_uri",
+                "source_complete",
+                "summary_source",
+            )
+        )
+
+    def _record_commit_conflict(
+        self,
+        transaction: WorkspaceTransaction,
+        commit_id: str,
+        existing: dict[str, Any],
+        incoming: dict[str, Any],
+        *,
+        resolved: str,
+    ) -> None:
+        """Persist one commit conflict record for observability.
+
+        Args:
+            transaction: Active workspace transaction.
+            commit_id: Conflicting commit identifier.
+            existing: Stored commit payload.
+            incoming: Re-submitted payload that differed.
+            resolved: Outcome of the conflict (``idempotent`` or ``rejected``).
+        """
+        record = {
+            "commit_id": commit_id,
+            "created_at": datetime.now(UTC).isoformat(),
+            "existing": existing,
+            "incoming": incoming,
+            "resolved": resolved,
+            "session_uri": str(incoming.get("session_uri") or ""),
+        }
+        conflict_path = Path("memory_admin") / "conflicts" / f"{commit_id}.json"
+        transaction.atomic_write(
+            conflict_path,
+            f"{json.dumps(record, ensure_ascii=True, indent=2, sort_keys=True)}\n",
         )
 
     def upsert_memory(
