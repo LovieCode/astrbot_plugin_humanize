@@ -226,15 +226,25 @@
       return;
     }
     const max = Math.max(...list.map((s) => s.count || 0), 1);
+    /* 作用域 id 常为「来源:类型:群号」结构（如 听澜:FriendMessage:3273963933），
+       群号在末尾且是区分关键——截断时保留尾部，避免所有项看起来一样。 */
+    function clipScopeId(value) {
+      const raw = String(value || "");
+      if (raw.length <= 18) return raw;
+      const head = raw.slice(0, 10);
+      const tail = raw.slice(-8);
+      return head + "…" + tail;
+    }
     list.forEach((s) => {
       const row = document.createElement("div");
       row.className = "scope-row";
       const main = document.createElement("div");
       main.className = "scope-main";
+      const fullLabel = (SCOPE_LABEL[s.scope_type] || s.scope_type || "未分类") + (s.scope_id ? " · " + s.scope_id : "");
       const name = document.createElement("div");
       name.className = "scope-name";
-      name.textContent = (SCOPE_LABEL[s.scope_type] || s.scope_type || "未分类") + (s.scope_id ? " · " + s.scope_id : "");
-      name.title = name.textContent;
+      name.textContent = (SCOPE_LABEL[s.scope_type] || s.scope_type || "未分类") + (s.scope_id ? " · " + clipScopeId(s.scope_id) : "");
+      name.title = fullLabel;
       const sub = document.createElement("div");
       sub.className = "scope-sub";
       sub.textContent = SCOPE_SUB[s.scope_type] || "作用域";
