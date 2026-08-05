@@ -259,7 +259,11 @@ class OpenVikingManagementAdapter:
             "scope_type",
             "subject_hash",
         ):
-            incoming = payload.get("type") if key == "memory_type" else payload.get(key)
+            incoming = (
+                payload.get("memory_type") or payload.get("type")
+                if key == "memory_type"
+                else payload.get(key)
+            )
             identity[key] = str(
                 incoming
                 if incoming not in (None, "")
