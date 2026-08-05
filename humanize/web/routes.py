@@ -609,6 +609,11 @@ class WebApi:
                 and not str(body.get("scope_token") or "").strip()
             ):
                 raise ValueError("新增记忆必须明确选择作用域")
+            logger.info(
+                "[Humanize] memory-action body keys: %s action=%r",
+                sorted(body) if isinstance(body, dict) else type(body).__name__,
+                body.get("action") if isinstance(body, dict) else None,
+            )
             return self._ok(
                 await self._memory.apply_memory_action(body, actor="web_admin")
             )
