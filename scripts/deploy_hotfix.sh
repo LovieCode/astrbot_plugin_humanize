@@ -133,7 +133,7 @@ esac
 
 if "$needs_build"; then
     printf 'Rebuilding SPA from webui/ sources...\n'
-    uv run python scripts/build_spa.py
+    python scripts/build_spa.py
     # Generated artifacts must be committed for the manifest check.
     git add pages/humanize
     if ! git diff --cached --quiet -- pages/humanize; then
@@ -185,7 +185,7 @@ stamp="$(date +%Y%m%d-%H%M%S)"
 remote_stage="/home/$remote_user/.humanize-hotfix-$revision-$stamp"
 
 if "$dry_run"; then
-    printf 'dry-run: target=%s port=%s restart=%s reload=%s\n' "$target" "$port" "$needs_restart"
+    printf 'dry-run: target=%s port=%s restart=%s reload=%s\n' "$target" "$port" "$needs_restart" "$needs_reload"
     printf 'dry-run: files=%s\n' "${files[*]}"
     printf 'dry-run: pytest=%s\n' "${tests[*]}"
     exit 0

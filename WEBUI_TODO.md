@@ -343,3 +343,27 @@
 - 视图 JS 双模式：IIFE 包进 `init()`，`HZ.views` 存在则注册、否则立即执行（独立页可单独打开）。
 - id 前缀：drawer/recall 系跨页冲突加 `mem-`/`jg-`/`ex-` 前缀（HTML + JS 同步）。
 - `scripts/serve_spa.py`（已写）：本地模拟 AstrBot 页面机制（重写资源 + mock bridge 代理真实后端），用于端到端验证。
+
+---
+
+## 10. 单入口 SPA 构建与部署规范（定稿）
+
+### 结构（源码/产物分离）
+- `webui/<view>/`（7 个独立页源码，编程改这里，可独立预览）
+- `pages/humanize/`（**构建产物**，唯一部署物，AstrBot 只发现这一个页面）
+- `scripts/build_spa.py`（源码 → 产物；`--check` 校验产物不过期）
+- `scripts/smoke_spa.py`（Playwright + mock bridge 端到端冒烟）
+- `.astrbot-plugin/i18n/zh-CN.json`（页面显示名）
+
+### 构建规则（build_spa.py 自动处理）
+1. 提取每页 `<main>` + body 级弹层（drawer/modal）→ 7 个 `<section class="view" id="view-<name>">`
+2. **跨页重复 id 自动加前缀**（`mem-`/`jg-`/`ex-`/`db-`/`cx-`/`pt-`/`st-`），HTML/JS/CSS 同步（含 `$("id")` 形式）；`sidebar`/`topbar` 全局唯一保留
+3. 视图 JS IIFE 自动包装为 `HZ.views["<name>"].init`（懒加载）；删除视图内 `renderSidebar` 调用（app.js 统一渲染）
+4. `shared/ui.js` 的 nav href 中和为 `#`（app.js 事件委托切换）
+5. `webui/app.js` → 产物 `app.js`（侧边栏一次 + 视图切换 + 防重复 init）
+
+### 部署规范（deploy_hotfix.sh）
+- 改 `webui/` 或 `scripts/build_spa.py` → 脚本**自动重建产物**并纳入部署清单
+- 部署后**插件热重载**（`POST /api/v1/plugins/reload` + API key，`.deploy.local.md` 的 `API key` 字段），**不重启 AstrBot**（除非 `--restart`）
+- 改后端 `.py` → 自动热重载；`--restart` 才重启服务
+- 使用：`bash scripts/deploy_hotfix.sh --pytest <相关测试> -- <改动文件...> [<测试文件>]`
