@@ -150,13 +150,23 @@ def view_main(view: str, mapping: dict[str, dict[str, str]]) -> str:
     # Body-level overlays outside <main> (drawers/modals) must be kept too.
     rest = body_html.replace(m.group(0), "")
     rest = re.sub(r"<script.*?</script>", "", rest, flags=re.S)
-    rest = re.sub(r'<div class="bg-decor">.*?</div>', "", rest, flags=re.S)
-    rest = re.sub(r"<aside class=\"sidebar\".*?</aside>", "", rest, flags=re.S)
-    # Drop the .app wrapper itself (kept in the SPA shell) but keep overlays.
-    rest = re.sub(r"<div class=\"app\">|</div>\s*$", "", rest, count=2, flags=re.S)
-    rest = rest.strip()
-    if rest:
-        content += "\n\n    " + rest
+    # Keep only standalone overlay elements (drawer-mask / aside.drawer /
+    # modal-mask blocks); discard the bg-decor and app wrappers entirely.
+    overlay_parts = re.findall(
+        r'<div class="(?:drawer-mask|modal-mask)".*?</div>|<aside class="drawer".*?</aside>',
+        rest,
+        re.S,
+    )
+    # Also capture any remaining element that carries an overlay id/class.
+    if not overlay_parts:
+        overlay_parts = re.findall(
+            r'<(?:div|aside)[^>]*(?:id="(?:mem-|jg-|ex-)?(?:drawer|modal)[^"]*"|class="[^"]*(?:drawer|modal)[^"]*")[^>]*>.*?</(?:div|aside)>',
+            rest,
+            re.S,
+        )
+    overlays = "\n\n    ".join(p.strip() for p in overlay_parts)
+    if overlays:
+        content += "\n\n    " + overlays
 
     content = rename_html(content, mapping, view)
     # Remove the per-view topbar (the SPA has a single shared topbar).
@@ -203,7 +213,7 @@ def build() -> str:
 <style>
 /* 单页应用：一次只显示一个视图 */
 .view {{ display: none; }}
-.view.active {{ display: block; }}
+.view.active {{ display: flex; flex-direction: column; flex: 0 0 auto; }}
 </style>
 </head>
 <body>

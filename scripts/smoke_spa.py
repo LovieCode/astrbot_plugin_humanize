@@ -33,16 +33,33 @@ FIXTURES = {
     "overview": {
         "success": True,
         "data": {
-            "stats": {"messages_total": 42, "protocol_rate": 0.952, "memory_hits": 248, "jargon_injected": 12},
+            "stats": {
+                "messages_total": 42,
+                "protocol_rate": 0.952,
+                "memory_hits": 248,
+                "jargon_injected": 12,
+            },
             "scopes": [{"scope_type": "group", "scope_hash": "abc", "label": "测试群"}],
             "pending_items": [],
         },
     },
     "memory-status": {"success": True, "data": {"state": "ready", "memories": 1500}},
-    "memory-overview": {"success": True, "data": {"total": 1500, "layers": {"L0": 10, "L1": 200, "L2": 1290}}},
-    "jargons": {"success": True, "data": {"total": 0, "items": [], "page": 1, "page_size": 20}},
-    "examples": {"success": True, "data": {"total": 0, "items": [], "page": 1, "page_size": 20}},
-    "context-runs": {"success": True, "data": {"total": 0, "items": [], "page": 1, "page_size": 20}},
+    "memory-overview": {
+        "success": True,
+        "data": {"total": 1500, "layers": {"L0": 10, "L1": 200, "L2": 1290}},
+    },
+    "jargons": {
+        "success": True,
+        "data": {"total": 0, "items": [], "page": 1, "page_size": 20},
+    },
+    "examples": {
+        "success": True,
+        "data": {"total": 0, "items": [], "page": 1, "page_size": 20},
+    },
+    "context-runs": {
+        "success": True,
+        "data": {"total": 0, "items": [], "page": 1, "page_size": 20},
+    },
     "prompt-templates": {"success": True, "data": {"templates": [], "active": ""}},
     "settings": {"success": True, "data": {"enabled": True, "memory_enabled": True}},
 }
@@ -100,7 +117,7 @@ class Handler(BaseHTTPRequestHandler):
             return
         prefix = f"/api/plugin/page/content/{PLUGIN}/humanize/"
         if path.startswith(prefix):
-            rel = path[len(prefix):]
+            rel = path[len(prefix) :]
         else:
             self._send(404, "text/plain", b"not found")
             return
@@ -142,23 +159,28 @@ def main() -> int:
 
     failures = []
     with sync_playwright() as p:
-        browser = p.chromium.launch(headless=True, channel='msedge')
+        browser = p.chromium.launch(headless=True, channel="msedge")
         page = browser.new_page()
         errors = []
-        page.on("console", lambda msg: errors.append(msg.text) if msg.type == "error" else None)
-        page.goto(f"http://127.0.0.1:18777/api/plugin/page/content/{PLUGIN}/humanize/index.html")
+        page.on(
+            "console",
+            lambda msg: errors.append(msg.text) if msg.type == "error" else None,
+        )
+        page.goto(
+            f"http://127.0.0.1:18777/api/plugin/page/content/{PLUGIN}/humanize/index.html"
+        )
         page.wait_for_timeout(1500)
 
         # 1. dashboard active by default
-        active = page.evaluate(
-            "document.querySelector('.view.active')?.id || ''")
+        active = page.evaluate("document.querySelector('.view.active')?.id || ''")
         print("active view:", active)
         if active != "view-dashboard":
             failures.append(f"expected view-dashboard, got {active}")
 
         # 2. duplicate ids
         dupes = page.evaluate(
-            "() => { const c = {}; document.querySelectorAll('[id]').forEach(e => c[e.id]=(c[e.id]||0)+1); return Object.entries(c).filter(([,n])=>n>1).map(([i])=>i); }")
+            "() => { const c = {}; document.querySelectorAll('[id]').forEach(e => c[e.id]=(c[e.id]||0)+1); return Object.entries(c).filter(([,n])=>n>1).map(([i])=>i); }"
+        )
         print("dup ids:", dupes or "none")
         if dupes:
             failures.append(f"duplicate ids: {dupes}")
@@ -181,7 +203,8 @@ def main() -> int:
         page.click('.nav-item[data-nav="dashboard"]')
         page.wait_for_timeout(300)
         inited = page.evaluate(
-            "Object.fromEntries(['dashboard','memory'].map(n => [n, document.getElementById('view-'+n)?.dataset.inited || '0']))")
+            "Object.fromEntries(['dashboard','memory'].map(n => [n, document.getElementById('view-'+n)?.dataset.inited || '0']))"
+        )
         print("inited flags:", inited)
         if inited.get("memory") != "1":
             failures.append("memory view not marked inited")

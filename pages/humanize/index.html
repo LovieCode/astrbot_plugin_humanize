@@ -20,7 +20,7 @@
 <style>
 /* 单页应用：一次只显示一个视图 */
 .view { display: none; }
-.view.active { display: block; }
+.view.active { display: flex; flex-direction: column; flex: 0 0 auto; }
 </style>
 </head>
 <body>
@@ -236,13 +236,6 @@
     </div>
 
   
-
-    <div class="blob blob-2"></div>
-</div>
-
-
-
-  <!-- 侧边栏由 shared/ui.js 渲染 -->
     </section>
     <section class="view" id="view-memory">
 
@@ -399,19 +392,9 @@
 
   
 
-    <div class="blob blob-2"></div>
-</div>
+    <div class="drawer-mask" id="mem-drawerMask"></div>
 
-
-
-  
-
-  
-</div>
-
-<!-- 记忆详情抽屉：L0/L1/L2 分层 -->
-<div class="drawer-mask" id="mem-drawerMask"></div>
-<aside class="drawer" id="mem-drawer">
+    <aside class="drawer" id="mem-drawer">
   <div class="drawer-head">
     <span class="tag tag-pink" id="detailTypeTag">preference</span>
     <span class="tag tag-active" id="detailStatusTag"><span class="tag-dot"></span>active</span>
@@ -426,9 +409,9 @@
   </div>
 </aside>
 
-<!-- 新建记忆弹窗 -->
-<div class="drawer-mask" id="modalMask"></div>
-<aside class="drawer" id="memModal">
+    <div class="drawer-mask" id="modalMask"></div>
+
+    <aside class="drawer" id="memModal">
   <div class="drawer-head">
     <span class="tag tag-pink">新建记忆</span>
     <span class="drawer-title" id="modalTitle">创建一条长期记忆</span>
@@ -550,19 +533,9 @@
 
   
 
-    <div class="blob blob-2"></div>
-</div>
+    <div class="drawer-mask" id="jg-drawerMask"></div>
 
-
-
-  
-
-  
-</div>
-
-<!-- 词条详情抽屉 -->
-<div class="drawer-mask" id="jg-drawerMask"></div>
-<aside class="drawer" id="jg-drawer">
+    <aside class="drawer" id="jg-drawer">
   <div class="drawer-head">
     <span class="drawer-title" id="jg-drawerTitle"></span>
     <span class="drawer-status" id="jg-drawerStatus">
@@ -652,19 +625,9 @@
 
   
 
-    <div class="blob blob-2"></div>
-</div>
+    <div class="drawer-mask" id="ex-drawerMask"></div>
 
-
-
-  
-
-  
-</div>
-
-<!-- 样例详情抽屉 -->
-<div class="drawer-mask" id="ex-drawerMask"></div>
-<aside class="drawer" id="ex-drawer">
+    <aside class="drawer" id="ex-drawer">
   <div class="drawer-head">
     <span class="drawer-title" id="ex-drawerTitle">被夸时的害羞回应</span>
     <span class="drawer-status" id="ex-drawerStatus">
@@ -717,9 +680,6 @@
     </div>
 
   
-
-    <div class="blob blob-2"></div>
-</div>
     </section>
     <section class="view" id="view-prompts">
 
@@ -881,9 +841,6 @@
     </div>
 
   
-
-    <div class="blob blob-2"></div>
-</div>
     </section>
     <section class="view" id="view-settings">
 
@@ -1201,9 +1158,6 @@
     </div>
 
   
-
-    <div class="blob blob-2"></div>
-</div>
     </section>
 
   </main>
