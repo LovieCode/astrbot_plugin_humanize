@@ -191,6 +191,10 @@ esac
 if "$needs_build"; then
     printf 'Rebuilding SPA from webui/ sources...\n'
     python scripts/build_spa.py
+    # The build tool must ship with the plugin so remote --check works.
+    build_tool_deployed=false
+    for file in "${files[@]}"; do [[ "$file" == "scripts/build_spa.py" ]] && build_tool_deployed=true; done
+    "$build_tool_deployed" || files+=("scripts/build_spa.py")
     # Generated artifacts must be committed for the manifest check.
     git add pages/humanize
     if ! git diff --cached --quiet -- pages/humanize; then

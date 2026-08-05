@@ -104,7 +104,16 @@ def _read_shared_js() -> str:
 
 
 def test_webui_sources_are_complete_and_built_page_serves_every_view() -> None:
-    """Every view source exists; the built SPA contains all views and assets."""
+    """Every view source exists; the built SPA contains all views and assets.
+
+    Requires the webui/ sources locally; skipped when they are not deployed
+    (e.g. the remote plugin copy only ships pages/humanize/).
+    """
+    if not (WEBUI_ROOT / "dashboard" / "index.html").is_file():
+        import pytest
+
+        pytest.skip("webui sources not present (remote deployment)")
+
     # Source views with their per-view stylesheet/script and shared layer.
     for view in VIEWS:
         html = _read_view(view, "index.html")
@@ -194,9 +203,18 @@ def test_webui_renders_persisted_content_as_text() -> None:
 
 
 def test_webui_build_is_reproducible() -> None:
-    """The built SPA matches a fresh build from sources (scripts/build_spa.py)."""
+    """The built SPA matches a fresh build from sources (scripts/build_spa.py).
+
+    Requires the webui/ sources locally; skipped when they are not deployed
+    (e.g. the remote plugin copy only ships pages/humanize/).
+    """
     import subprocess
     import sys
+
+    if not (WEBUI_ROOT / "dashboard" / "index.html").is_file():
+        import pytest
+
+        pytest.skip("webui sources not present (remote deployment)")
 
     subprocess.run(
         [sys.executable, str(PLUGIN_ROOT / "scripts/build_spa.py"), "--check"],
