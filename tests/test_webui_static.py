@@ -91,7 +91,9 @@ def _view_files(pattern: str) -> list[Path]:
 def _read_shared_css() -> str:
     """Merge all built shared and per-view stylesheets."""
     chunks = [_read_built(f"shared/{p.name}") for p in _view_files("*.css")]
-    chunks += [_read_built(f"shared/views/{p.name}") for p in _view_files("views/*.css")]
+    chunks += [
+        _read_built(f"shared/views/{p.name}") for p in _view_files("views/*.css")
+    ]
     return "\n".join(chunks)
 
 
