@@ -8,10 +8,18 @@ Usage:
 
 Options:
   --pytest <path>       Relevant pytest path. Repeat for multiple paths.
-  --restart             Always restart AstrBot after remote checks pass.
-  --no-restart          Never restart AstrBot.
+  --restart             Always restart the AstrBot service after install.
+  --no-restart          Never restart; hot reload is still used when needed.
   --remote-root <path>  Remote AstrBot root. Default: /home/<ssh-user>/AstrBot.
   --dry-run             Validate the manifest and print the selected operation only.
+  --delete              Also delete the listed files on the remote (requires the
+                        local file to be gone or marked for removal).
+  --full                Full release: rebuild SPA, tar the whole plugin
+                        (excluding data/.git/__pycache__), back up the remote
+                        copy, and replace it. Ignores the file list.
+  --skip-remote-checks  Skip remote pytest/ruff checks (faster iteration).
+  --skip-local-checks   Skip local pytest/ruff/node checks.
+  --smoke               Run the Playwright SPA smoke test locally after build.
   -h, --help            Show this help.
 
 The script reads target, port, password, and (optionally) API key from
@@ -23,7 +31,8 @@ Plugin pages: if any file under webui/ or scripts/build_spa.py is listed,
 the SPA is rebuilt locally first and the generated pages/humanize/ is
 included in the deployment. After install, the plugin is hot-reloaded via
 POST /api/v1/plugins/reload (API key from config) instead of a full restart
-unless --restart is given.
+unless --restart is given. Python changes also hot reload; a full restart is
+only used with --restart or when the service is not healthy.
 EOF
 }
 
@@ -45,6 +54,11 @@ files=()
 restart_mode="auto"
 dry_run=false
 remote_root=""
+delete_files=false
+full_release=false
+skip_remote_checks=false
+skip_local_checks=false
+run_smoke=false
 
 while (( $# )); do
     case "$1" in
@@ -70,6 +84,26 @@ while (( $# )); do
             dry_run=true
             shift
             ;;
+        --delete)
+            delete_files=true
+            shift
+            ;;
+        --full)
+            full_release=true
+            shift
+            ;;
+        --skip-remote-checks)
+            skip_remote_checks=true
+            shift
+            ;;
+        --skip-local-checks)
+            skip_local_checks=true
+            shift
+            ;;
+        --smoke)
+            run_smoke=true
+            shift
+            ;;
         -h|--help)
             usage
             exit 0
@@ -85,47 +119,70 @@ while (( $# )); do
     esac
 done
 
-(( ${#files[@]} > 0 )) || die "at least one tracked file is required after --"
-(( ${#tests[@]} > 0 )) || die "at least one --pytest path is required"
+if "$full_release"; then
+    "$dry_run" || true  # dry-run handled later
+    needs_restart=false
+    needs_build=true
+    needs_reload=true
+else
+    (( ${#files[@]} > 0 )) || die "at least one tracked file is required after --"
+    (( ${#tests[@]} > 0 )) || die "at least one --pytest path is required"
+fi
 
-validate_relative_path() {
-    local path="$1"
-    [[ "$path" =~ ^[A-Za-z0-9._/-]+$ ]] || die "unsafe path: $path"
-    [[ "$path" != /* && "$path" != *..* ]] || die "unsafe path: $path"
-}
+if "$full_release"; then
+    # Full release: everything under the plugin root except data/.git/caches.
+    needs_restart=false
+    needs_build=true
+    needs_reload=true
+    full_files="$(git ls-files)"
+    mapfile -t files <<< "$full_files"
+    [[ "${#files[@]}" -gt 0 ]] || die "no tracked files to deploy"
+else
+    validate_relative_path() {
+        local path="$1"
+        [[ "$path" =~ ^[A-Za-z0-9._/-]+$ ]] || die "unsafe path: $path"
+        [[ "$path" != /* && "$path" != *..* ]] || die "unsafe path: $path"
+    }
 
-for file in "${files[@]}"; do
-    validate_relative_path "$file"
-    [[ -f "$file" ]] || die "file not found: $file"
-    git ls-files --error-unmatch -- "$file" >/dev/null
-    git diff --quiet -- "$file" || die "file must be committed before deployment: $file"
-    git diff --cached --quiet -- "$file" || die "file must be committed before deployment: $file"
-done
-
-for test_path in "${tests[@]}"; do
-    validate_relative_path "$test_path"
-    [[ -f "$test_path" ]] || die "pytest path not found: $test_path"
-    git ls-files --error-unmatch -- "$test_path" >/dev/null
-    git diff --quiet -- "$test_path" || die "test must be committed: $test_path"
-    git diff --cached --quiet -- "$test_path" || die "test must be committed: $test_path"
-    test_is_deployed=false
     for file in "${files[@]}"; do
-        [[ "$file" == "$test_path" ]] && test_is_deployed=true && break
+        validate_relative_path "$file"
+        [[ -f "$file" ]] || die "file not found: $file"
+        git ls-files --error-unmatch -- "$file" >/dev/null
+        git diff --quiet -- "$file" || die "file must be committed before deployment: $file"
+        git diff --cached --quiet -- "$file" || die "file must be committed before deployment: $file"
     done
-    "$test_is_deployed" || die "pytest path must also be listed for deployment: $test_path"
-done
+
+    for test_path in "${tests[@]}"; do
+        validate_relative_path "$test_path"
+        [[ -f "$test_path" ]] || die "pytest path not found: $test_path"
+        git ls-files --error-unmatch -- "$test_path" >/dev/null
+        git diff --quiet -- "$test_path" || die "test must be committed: $test_path"
+        git diff --cached --quiet -- "$test_path" || die "test must be committed: $test_path"
+        test_is_deployed=false
+        for file in "${files[@]}"; do
+            [[ "$file" == "$test_path" ]] && test_is_deployed=true && break
+        done
+        "$test_is_deployed" || die "pytest path must also be listed for deployment: $test_path"
+    done
+fi
 
 needs_restart=false
 needs_build=false
 needs_reload=false
-for file in "${files[@]}"; do
-    [[ "$file" == *.py && "$file" != tests/* ]] && needs_restart=true
-    [[ "$file" == webui/* || "$file" == scripts/build_spa.py || "$file" == pages/humanize/* ]] && needs_build=true
-    [[ "$file" == webui/* || "$file" == pages/humanize/* || "$file" == scripts/build_spa.py ]] && needs_reload=true
-    [[ "$file" == *.py && "$file" != tests/* ]] && needs_reload=true
-    [[ "$file" == pages/* ]] && needs_reload=true
-    [[ "$file" == main.py || "$file" == metadata.yaml || "$file" == .astrbot-plugin/* ]] && needs_reload=true
-done
+if "$full_release"; then
+    needs_build=true
+    needs_reload=true
+else
+    for file in "${files[@]}"; do
+        [[ "$file" == webui/* || "$file" == scripts/build_spa.py || "$file" == pages/humanize/* ]] && needs_build=true
+        # Hot reload is enough for plugin code and pages; full restart is only
+        # forced by --restart or when the service is unhealthy.
+        [[ "$file" == webui/* || "$file" == pages/* || "$file" == scripts/build_spa.py \
+           || "$file" == *.py && "$file" != tests/* \
+           || "$file" == main.py || "$file" == metadata.yaml \
+           || "$file" == .astrbot-plugin/* ]] && needs_reload=true
+    done
+fi
 case "$restart_mode" in
     always) needs_restart=true ;;
     never) needs_restart=false ;;
@@ -254,22 +311,49 @@ for file in "${files[@]}"; do
 done
 
 printf 'Running local targeted checks...\n'
-uv run pytest -q "${tests[@]}"
-(( ${#py_files[@]} > 0 )) && uvx ruff format --check "${py_files[@]}"
-(( ${#py_files[@]} > 0 )) && uvx ruff check "${py_files[@]}"
-for js in "${js_files[@]}"; do
-    node --check "$js"
-done
+if "$skip_local_checks"; then
+    printf '(local checks skipped)\n'
+elif "$full_release"; then
+    uv run pytest -q
+    uvx ruff format --check .
+    uvx ruff check .
+    node --check pages/humanize/app.js
+else
+    uv run pytest -q "${tests[@]}"
+    (( ${#py_files[@]} > 0 )) && uvx ruff format --check "${py_files[@]}"
+    (( ${#py_files[@]} > 0 )) && uvx ruff check "${py_files[@]}"
+    for js in "${js_files[@]}"; do
+        node --check "$js"
+    done
+fi
 git diff --check
+
+if "$run_smoke"; then
+    printf 'Running SPA smoke test...\n'
+    python scripts/smoke_spa.py || die "smoke test failed"
+fi
 
 printf 'Staging selected files remotely...\n'
 ssh_no_stdin "mkdir -p -- '$remote_stage'"
-for file in "${files[@]}"; do
-    remote_directory="$(dirname "$file")"
-    ssh_no_stdin "mkdir -p -- '$remote_stage/$remote_directory'"
-    scp_no_stdin "$file" "$target:$remote_stage/$file"
-done
-scp_no_stdin "$manifest" "$target:$remote_stage/manifest.sha256"
+if "$full_release"; then
+    # Full release: ship a tarball of the whole plugin (excluding local-only
+    # directories) and let the remote side replace the plugin root.
+    tar_pkg="/tmp/humanize-full-$revision-$stamp.tar.gz"
+    tar czf "$tar_pkg" \
+        --exclude='data' --exclude='.git' --exclude='.agents' --exclude='.pi' \
+        --exclude='__pycache__' --exclude='*.pyc' --exclude='*.log' \
+        --exclude='.pytest_cache' --exclude='.pytest-tmp-current' --exclude='.trae' \
+        --exclude='docs' --exclude='.venv' --exclude='.deploy.local.md' .
+    scp_no_stdin "$tar_pkg" "$target:$remote_stage/release.tar.gz"
+    rm -f "$tar_pkg"
+else
+    for file in "${files[@]}"; do
+        remote_directory="$(dirname "$file")"
+        ssh_no_stdin "mkdir -p -- '$remote_stage/$remote_directory'"
+        scp_no_stdin "$file" "$target:$remote_stage/$file"
+    done
+    scp_no_stdin "$manifest" "$target:$remote_stage/manifest.sha256"
+fi
 
 {
     printf 'remote_stage=%q\n' "$remote_stage"
@@ -283,6 +367,9 @@ scp_no_stdin "$manifest" "$target:$remote_stage/manifest.sha256"
     printf 'needs_restart=%q\n' "$needs_restart"
     printf 'needs_reload=%q\n' "$needs_reload"
     printf 'deploy_api_key=%q\n' "$deploy_api_key"
+    printf 'full_release=%q\n' "$full_release"
+    printf 'skip_remote_checks=%q\n' "$skip_remote_checks"
+    printf 'delete_files=%q\n' "$delete_files"
     printf 'files=(\n'
     for file in "${files[@]}"; do
         printf '    %q\n' "$file"
@@ -317,23 +404,54 @@ cleanup_stage() {
 trap cleanup_stage EXIT
 
 cd "$remote_stage"
-sha256sum -c manifest.sha256
+if "$full_release"; then
+    # Full release: back up the current plugin, unpack the tarball over it,
+    # and keep the runtime data directory.
+    sudo_run mkdir -p "$remote_plugin"
+    backup_dir="/home/$remote_user/.humanize-backup-$stamp"
+    sudo_run cp -r "$remote_plugin" "$backup_dir"
+    printf 'backup created: %s\n' "$backup_dir"
+    sudo_run tar xzf "$remote_stage/release.tar.gz" -C "$remote_plugin" --strip-components=0
+    # Restore runtime data (excluded from the tarball).
+    if [[ -d "$backup_dir/data" ]]; then
+        sudo_run cp -rn "$backup_dir/data" "$remote_plugin/" 2>/dev/null || true
+    fi
+    sudo_run chown -R "$remote_user:$remote_user" "$remote_plugin" 2>/dev/null || \
+        sudo_run chown -R "$remote_user" "$remote_plugin"
+else
+    sha256sum -c manifest.sha256
 
-for file in "${files[@]}"; do
-    sudo_run mkdir -p -- "$(dirname "$remote_plugin/$file")"
-    sudo_run install -m 0644 -- "$remote_stage/$file" "$remote_plugin/$file"
-done
+    for file in "${files[@]}"; do
+        sudo_run mkdir -p -- "$(dirname "$remote_plugin/$file")"
+        sudo_run install -m 0644 -- "$remote_stage/$file" "$remote_plugin/$file"
+    done
 
-for file in "${files[@]}"; do
-    expected="$(awk -v path="$file" '$2 == path {print $1}' manifest.sha256)"
-    actual="$(sha256sum "$remote_plugin/$file" | awk '{print $1}')"
-    [[ "$actual" == "$expected" ]] || die "installed checksum mismatch: $file"
-done
+    for file in "${files[@]}"; do
+        expected="$(awk -v path="$file" '$2 == path {print $1}' manifest.sha256)"
+        actual="$(sha256sum "$remote_plugin/$file" | awk '{print $1}')"
+        [[ "$actual" == "$expected" ]] || die "installed checksum mismatch: $file"
+    done
 
-cd "$remote_plugin"
-sudo_run "$remote_python" -m pytest -q "${tests[@]}"
-(( ${#py_files[@]} > 0 )) && sudo_run "$remote_ruff" format --check "${py_files[@]}"
-(( ${#py_files[@]} > 0 )) && sudo_run "$remote_ruff" check "${py_files[@]}"
+    if "$delete_files"; then
+        for file in "${files[@]}"; do
+            sudo_run rm -f -- "$remote_plugin/$file" || true
+        done
+    fi
+fi
+
+if "$skip_remote_checks"; then
+    printf '(remote checks skipped)\n'
+elif "$full_release"; then
+    cd "$remote_plugin"
+    sudo_run "$remote_python" -m pytest -q
+    sudo_run "$remote_ruff" format --check .
+    sudo_run "$remote_ruff" check .
+else
+    cd "$remote_plugin"
+    sudo_run "$remote_python" -m pytest -q "${tests[@]}"
+    (( ${#py_files[@]} > 0 )) && sudo_run "$remote_ruff" format --check "${py_files[@]}"
+    (( ${#py_files[@]} > 0 )) && sudo_run "$remote_ruff" check "${py_files[@]}"
+fi
 
 if "$needs_restart"; then
     old_session="$(tmux list-sessions -F '#{session_name}' 2>/dev/null | awk '/^astrbot-service-/{value=$0} END {print value}')"
