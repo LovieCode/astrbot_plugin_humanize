@@ -1,0 +1,35 @@
+{
+  "metadata": {
+    "display_name": "Bot 拟人化"
+  },
+  "pages": {
+    "00-dashboard": {
+      "title": "仪表盘",
+      "description": "运行状态、协议统计与待审核词条总览"
+    },
+    "01-memory": {
+      "title": "长期记忆",
+      "description": "记忆分层、召回测试与后台任务"
+    },
+    "02-jargon": {
+      "title": "黑话词库",
+      "description": "LLM 词条审核、验证与注入记录"
+    },
+    "03-examples": {
+      "title": "回复样例",
+      "description": "样例管理、召回测试与命中统计"
+    },
+    "04-context": {
+      "title": "上下文追踪",
+      "description": "协议运行记录与上下文窗口详情"
+    },
+    "05-prompts": {
+      "title": "提示词模板",
+      "description": "模板编辑、启用切换与审计记录"
+    },
+    "06-settings": {
+      "title": "设置",
+      "description": "插件配置、服务商与模型选择"
+    }
+  }
+}

@@ -1,0 +1,100 @@
+/* ============================================
+   View: Prompts — 提示词模板页独有样式
+   数据结构对齐 humanize_prompt_templates（单行 5 模板）
+   + humanize_prompt_template_audit（update/reset 审计）
+   依赖：shared/tokens.css, components.css, layout.css, motion.css
+   ============================================ */
+
+/* ---------- 布局：左模板列表 + 右编辑器 ---------- */
+.pt-layout { display: flex; gap: 16px; margin-top: 16px; align-items: flex-start; }
+.pt-list-col { width: 340px; flex-shrink: 0; display: flex; flex-direction: column; gap: 10px; }
+.pt-editor-col { flex: 1; min-width: 0; display: flex; flex-direction: column; gap: 16px; }
+
+/* ---------- 模板项 ---------- */
+.pt-item {
+  background: var(--card); border: 1px solid var(--line); border-radius: var(--r-md);
+  box-shadow: var(--shadow); padding: 14px 16px; cursor: pointer;
+  display: flex; flex-direction: column; gap: 7px;
+  transition: transform var(--dur-mid) var(--ease-spring), box-shadow var(--dur-mid), border-color var(--dur-mid);
+}
+.pt-item:hover { transform: translateY(-2px); box-shadow: var(--shadow-hover); }
+.pt-item.active { border-color: var(--pink); box-shadow: 0 0 0 3px var(--pink-soft); }
+.pt-item-top { display: flex; align-items: center; gap: 8px; }
+.pt-item-name { font-size: 13.5px; font-weight: 800; }
+.pt-item-key { font-family: var(--font-mono); font-size: 10.5px; color: var(--muted); font-weight: 700; }
+.pt-item-desc { font-size: 12px; color: var(--text-2); line-height: 1.6; }
+.pt-item-foot { display: flex; align-items: center; gap: 6px; flex-wrap: wrap; }
+.pt-var {
+  font-family: var(--font-mono); font-size: 10.5px; font-weight: 800;
+  padding: 2px 8px; border-radius: var(--r-full);
+  background: var(--blue-soft); color: var(--blue);
+}
+.pt-var.required { background: var(--pink-soft); color: var(--pink-strong); }
+.tag-custom { background: var(--amber-soft); color: var(--amber-text); }
+.tag-default { background: var(--bg); color: var(--muted); }
+
+/* ---------- 编辑器 ---------- */
+.pt-editor-head { display: flex; align-items: center; gap: 10px; flex-wrap: wrap; }
+.pt-editor-title { flex: 1; min-width: 0; display: flex; flex-direction: column; gap: 3px; }
+.pt-editor-name { font-size: 15.5px; font-weight: 800; display: flex; align-items: center; gap: 8px; }
+.pt-editor-name .k { font-family: var(--font-mono); font-size: 11px; color: var(--muted); font-weight: 700; }
+.pt-editor-desc { font-size: 12px; color: var(--text-2); }
+
+.pt-vars { display: flex; align-items: center; gap: 8px; flex-wrap: wrap; }
+.pt-vars-label { font-size: 11px; font-weight: 800; letter-spacing: 1.5px; color: var(--muted); text-transform: uppercase; }
+.pt-var-chip {
+  font-family: var(--font-mono); font-size: 11px; font-weight: 800;
+  padding: 4px 10px; border-radius: var(--r-full); cursor: pointer;
+  background: var(--blue-soft); color: var(--blue); border: 1px dashed transparent;
+  transition: all var(--dur-fast) var(--ease-spring);
+}
+.pt-var-chip:hover { transform: translateY(-1px); border-color: var(--blue); }
+.pt-var-chip.required { background: var(--pink-soft); color: var(--pink-strong); }
+.pt-var-chip.required:hover { border-color: var(--pink); }
+.pt-var-note { font-size: 11px; color: var(--muted); }
+
+/* 文本编辑区 */
+.pt-textarea {
+  width: 100%; min-height: 320px; resize: vertical;
+  font-family: var(--font-mono); font-size: 12.5px; line-height: 1.75;
+  color: var(--text); background: var(--bg);
+  border: 1px solid var(--line); border-radius: var(--r-md);
+  padding: 14px 16px; outline: none;
+  transition: border-color var(--dur-mid), box-shadow var(--dur-mid);
+}
+.pt-textarea:focus { border-color: var(--pink); box-shadow: 0 0 0 3px var(--pink-soft); background: var(--card); }
+.pt-editor-foot { display: flex; align-items: center; gap: 10px; flex-wrap: wrap; }
+.pt-char-count { font-size: 11.5px; color: var(--muted); font-variant-numeric: tabular-nums; font-weight: 700; }
+.pt-dirty { display: none; align-items: center; gap: 5px; font-size: 11.5px; font-weight: 800; color: var(--amber-text); }
+.pt-dirty.on { display: flex; }
+.pt-dirty .dot { width: 7px; height: 7px; border-radius: 50%; background: var(--amber); }
+
+/* 与默认对比 */
+.pt-diff-note {
+  display: flex; gap: 10px; align-items: flex-start;
+  background: var(--amber-soft); border: 1px solid #f0ddba; border-radius: var(--r-md);
+  padding: 11px 14px; font-size: 12.5px; line-height: 1.7; color: var(--amber-text);
+}
+.pt-diff-note svg { width: 14px; height: 14px; flex-shrink: 0; margin-top: 3px; }
+
+/* ---------- 审计记录 ---------- */
+.audit-row { display: flex; align-items: center; gap: 10px; padding: 9px 0; font-size: 12.5px; }
+.audit-row + .audit-row { border-top: 1px dashed var(--line); }
+.audit-tag { font-size: 10.5px; font-weight: 800; padding: 2px 9px; border-radius: var(--r-full); flex-shrink: 0; }
+.audit-tag.update { background: var(--blue-soft); color: var(--blue); }
+.audit-tag.reset { background: var(--amber-soft); color: var(--amber-text); }
+.audit-text { flex: 1; min-width: 0; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; color: var(--text-2); }
+.audit-text b { color: var(--text); }
+.audit-time { font-size: 11px; color: var(--muted); flex-shrink: 0; }
+
+/* 审计空态 / 更多提示 */
+.pt-audit-empty {
+  padding: 16px 0; font-size: 12.5px; color: var(--muted); text-align: center;
+}
+.pt-audit-more { padding-top: 8px; font-size: 11px; color: var(--muted); }
+
+/* ---------- 响应式 ---------- */
+@media (max-width: 1080px) {
+  .pt-layout { flex-direction: column; }
+  .pt-list-col { width: 100%; }
+}

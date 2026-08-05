@@ -14,9 +14,16 @@ Options:
   --dry-run             Validate the manifest and print the selected operation only.
   -h, --help            Show this help.
 
-The script reads target, port, and password from .deploy.local.md. It deploys only
-the listed committed files, verifies checksums, runs local and remote targeted
-checks, and performs one controlled restart only when required.
+The script reads target, port, password, and (optionally) API key from
+.deploy.local.md. It deploys only the listed committed files, verifies
+checksums, runs local and remote targeted checks, and performs one
+controlled restart only when required.
+
+Plugin pages: if any file under webui/ or scripts/build_spa.py is listed,
+the SPA is rebuilt locally first and the generated pages/humanize/ is
+included in the deployment. After install, the plugin is hot-reloaded via
+POST /api/v1/plugins/reload (API key from config) instead of a full restart
+unless --restart is given.
 EOF
 }
 
@@ -109,13 +116,36 @@ for test_path in "${tests[@]}"; do
 done
 
 needs_restart=false
+needs_build=false
+needs_reload=false
 for file in "${files[@]}"; do
     [[ "$file" == *.py && "$file" != tests/* ]] && needs_restart=true
+    [[ "$file" == webui/* || "$file" == scripts/build_spa.py || "$file" == pages/humanize/* ]] && needs_build=true
+    [[ "$file" == webui/* || "$file" == pages/humanize/* || "$file" == scripts/build_spa.py ]] && needs_reload=true
+    [[ "$file" == *.py && "$file" != tests/* ]] && needs_reload=true
+    [[ "$file" == pages/* ]] && needs_reload=true
+    [[ "$file" == main.py || "$file" == metadata.yaml || "$file" == .astrbot-plugin/* ]] && needs_reload=true
 done
 case "$restart_mode" in
     always) needs_restart=true ;;
     never) needs_restart=false ;;
 esac
+
+if "$needs_build"; then
+    printf 'Rebuilding SPA from webui/ sources...\n'
+    uv run python scripts/build_spa.py
+    # Generated artifacts must be committed for the manifest check.
+    git add pages/humanize
+    if ! git diff --cached --quiet -- pages/humanize; then
+        die "build changed pages/humanize; please commit the generated files and re-run"
+    fi
+    # Include generated artifacts in the deployment.
+    for generated in $(git ls-files pages/humanize); do
+        already=false
+        for file in "${files[@]}"; do [[ "$file" == "$generated" ]] && already=true; done
+        "$already" || files+=("$generated")
+    done
+fi
 
 config_file="${HUMANIZE_DEPLOY_CONFIG:-$plugin_root/.deploy.local.md}"
 [[ -f "$config_file" ]] || die "deployment config not found: $config_file"
@@ -138,6 +168,7 @@ read_config_value() {
 target="$(read_config_value "Target")"
 port="$(read_config_value "SSH port")"
 password="$(read_config_value "Password")"
+deploy_api_key="$(read_config_value "API key")"
 [[ "$target" =~ ^[A-Za-z0-9._-]+@[A-Za-z0-9._:-]+$ ]] || die "invalid Target in deployment config"
 [[ "$port" =~ ^[0-9]{1,5}$ ]] || die "invalid SSH port in deployment config"
 [[ -n "$password" ]] || die "empty deployment password"
@@ -154,7 +185,7 @@ stamp="$(date +%Y%m%d-%H%M%S)"
 remote_stage="/home/$remote_user/.humanize-hotfix-$revision-$stamp"
 
 if "$dry_run"; then
-    printf 'dry-run: target=%s port=%s restart=%s\n' "$target" "$port" "$needs_restart"
+    printf 'dry-run: target=%s port=%s restart=%s reload=%s\n' "$target" "$port" "$needs_restart"
     printf 'dry-run: files=%s\n' "${files[*]}"
     printf 'dry-run: pytest=%s\n' "${tests[*]}"
     exit 0
@@ -250,6 +281,8 @@ scp_no_stdin "$manifest" "$target:$remote_stage/manifest.sha256"
     printf 'revision=%q\n' "$revision"
     printf 'stamp=%q\n' "$stamp"
     printf 'needs_restart=%q\n' "$needs_restart"
+    printf 'needs_reload=%q\n' "$needs_reload"
+    printf 'deploy_api_key=%q\n' "$deploy_api_key"
     printf 'files=(\n'
     for file in "${files[@]}"; do
         printf '    %q\n' "$file"
@@ -332,6 +365,15 @@ if "$needs_restart"; then
         sleep 1
     done
     [[ "$status" == "200" ]] || die "service did not become healthy after restart"
+elif "$needs_reload"; then
+    [[ -n "$deploy_api_key" ]] || die "hot reload requires an API key (add '- API key:' to .deploy.local.md)"
+    reload_body="$(curl -sS --max-time 15 -X POST \
+        -H "X-API-Key: $deploy_api_key" \
+        -H "Content-Type: application/json" \
+        -d '{"plugin_id":"astrbot_plugin_humanize"}' \
+        http://127.0.0.1:6185/api/v1/plugins/reload)"
+    printf '%s' "$reload_body" | grep -q '"status":"ok"' || die "plugin hot reload failed: $reload_body"
+    printf 'plugin hot reloaded\n'
 fi
 
 printf 'deployment=ok\n'

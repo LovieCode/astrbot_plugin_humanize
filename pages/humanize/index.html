@@ -1,0 +1,1232 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+<meta charset="UTF-8" />
+<meta name="viewport" content="width=device-width, initial-scale=1.0" />
+<title>洛薇 Humanize</title>
+<link rel="preconnect" href="https://fonts.googleapis.com" />
+<link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Nunito:wght@400;600;700;800&family=Noto+Sans+SC:wght@400;500;700&display=swap" />
+<link rel="stylesheet" href="shared/tokens.css" />
+<link rel="stylesheet" href="shared/base.css" />
+<link rel="stylesheet" href="shared/components.css" />
+<link rel="stylesheet" href="shared/layout.css" />
+<link rel="stylesheet" href="shared/motion.css" />
+<link rel="stylesheet" href="shared/views/dashboard.css" />
+<link rel="stylesheet" href="shared/views/memory.css" />
+<link rel="stylesheet" href="shared/views/jargon.css" />
+<link rel="stylesheet" href="shared/views/examples.css" />
+<link rel="stylesheet" href="shared/views/context.css" />
+<link rel="stylesheet" href="shared/views/prompts.css" />
+<link rel="stylesheet" href="shared/views/settings.css" />
+<style>
+/* 单页应用：一次只显示一个视图 */
+.view { display: none; }
+.view.active { display: block; }
+</style>
+</head>
+<body>
+
+<div class="bg-decor">
+  <div class="blob blob-1"></div>
+  <div class="blob blob-2"></div>
+</div>
+
+<div class="app">
+
+  <aside class="sidebar" id="sidebar"></aside>
+
+  <main class="main">
+
+    <div class="topbar" id="topbar"></div>
+
+    <section class="view" id="view-dashboard">
+
+
+    <!-- 顶栏由 shared/ui.js 渲染 -->
+    
+
+    <!-- Hero -->
+    <section class="hero reveal">
+      <div class="hero-text">
+        <div class="hero-hello">GOOD MORNING</div>
+        <div class="hero-title">早上好，管理员～<br />我是<em>洛薇</em>，今天状态很好哦</div>
+        <p class="hero-desc" id="heroDesc"></p>
+      </div>
+      <div class="hero-figure">
+        <img src="assets/lovie.jpg" alt="洛薇 Lovie" />
+        <span class="hero-tag hero-tag-1">
+          <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.4" stroke-linecap="round" stroke-linejoin="round"><path d="M22 11.08V12a10 10 0 1 1-5.93-9.14"/><polyline points="22 4 12 14.01 9 11.01"/></svg>
+          <span id="heroTagRate"></span>
+        </span>
+        <span class="hero-tag hero-tag-2">
+          <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.4" stroke-linecap="round" stroke-linejoin="round"><path d="M4 19.5A2.5 2.5 0 0 1 6.5 17H20"/><path d="M6.5 2H20v20H6.5A2.5 2.5 0 0 1 4 19.5v-15A2.5 2.5 0 0 1 6.5 2z"/></svg>
+          <span id="heroTagPending"></span>
+        </span>
+        <svg class="sparkle sparkle-1" width="18" height="18" viewBox="0 0 24 24" fill="currentColor"><path d="M12 2l2.4 7.6L22 12l-7.6 2.4L12 22l-2.4-7.6L2 12l7.6-2.4z"/></svg>
+        <svg class="sparkle sparkle-2" width="13" height="13" viewBox="0 0 24 24" fill="currentColor"><path d="M12 2l2.4 7.6L22 12l-7.6 2.4L12 22l-2.4-7.6L2 12l7.6-2.4z"/></svg>
+      </div>
+    </section>
+
+    <!-- 概览加载失败重试条 -->
+    <div class="overview-error" id="overviewError" style="display:none">
+      <span data-icon="alert"></span>
+      <span id="overviewErrorText">概览加载失败</span>
+      <button class="btn btn-sm" type="button" data-act="retry">重试</button>
+    </div>
+
+    <!-- 统计卡 -->
+    <div class="stats-row reveal" data-count-parent>
+      <div class="stat-card">
+        <div class="stat-top">
+          <div class="stat-icon i-pink" data-icon="jargon"></div>
+          <span class="stat-trend" id="statTrendPending"></span>
+        </div>
+        <div class="stat-value" id="statLearned"></div>
+        <div class="stat-label">已学词条</div>
+      </div>
+      <div class="stat-card">
+        <div class="stat-top">
+          <div class="stat-icon i-green" data-icon="check"></div>
+          <span class="stat-trend" id="statTrendSamples"></span>
+        </div>
+        <div class="stat-value" id="statRate"></div>
+        <div class="stat-label">协议通过率 · 7 天</div>
+      </div>
+      <div class="stat-card">
+        <div class="stat-top">
+          <div class="stat-icon i-blue" data-icon="file"></div>
+          <span class="stat-trend" id="statTrendOmitted"></span>
+        </div>
+        <div class="stat-value" id="statRuns"></div>
+        <div class="stat-label">上下文运行 · 7 天</div>
+      </div>
+      <div class="stat-card">
+        <div class="stat-top">
+          <div class="stat-icon i-violet" data-icon="spark"></div>
+          <span class="stat-trend" id="statTrendBlocked"></span>
+        </div>
+        <div class="stat-value" id="statTokens"></div>
+        <div class="stat-label">平均 tokens</div>
+      </div>
+    </div>
+
+    <!-- 协议趋势 + 动作分布 -->
+    <div class="row two-col reveal">
+      <div class="col-main">
+        <div class="card" data-bars>
+          <div class="card-head">
+            <span class="card-dot"></span>
+            <span class="card-title">协议通过率 · 近 7 天</span>
+            <a class="section-link" href="/plugin-page/astrbot_plugin_humanize/context">上下文追踪 →</a>
+          </div>
+          <div class="trend" id="trendChart"></div>
+          <div class="trend-legend">
+            <span><i style="background:var(--pink)"></i>通过率</span>
+            <span style="margin-left:auto;color:var(--muted)">柱高 = 当日通过率 %</span>
+          </div>
+        </div>
+      </div>
+
+      <div class="col-side">
+        <div class="card" data-count-parent>
+          <div class="card-head">
+            <span class="card-dot"></span>
+            <span class="card-title">回复占比 · 近 7 天</span>
+          </div>
+          <div class="action-wrap">
+            <div class="action-donut">
+              <svg width="140" height="140" viewBox="0 0 140 140">
+                <circle class="donut-bg" cx="70" cy="70" r="58" />
+                <circle class="donut-val" id="actionRing" cx="70" cy="70" r="58" />
+              </svg>
+              <div class="action-center">
+                <div class="action-num" id="actionNum"></div>
+                <div class="action-name">回复占比</div>
+              </div>
+            </div>
+            <div class="action-legend">
+              <div class="action-item">
+                <span class="action-dot" style="background:var(--pink)"></span>
+                <span class="action-label">Reply</span>
+                <span class="action-count" id="actionReplyCount"></span>
+              </div>
+              <div class="action-item">
+                <span class="action-dot" style="background:var(--line-strong)"></span>
+                <span class="action-label">No Reply</span>
+                <span class="action-count" id="actionNoReplyCount"></span>
+              </div>
+              <div class="action-note">静默也是协议的正常决策，说明洛薇学会了看场合。</div>
+            </div>
+          </div>
+        </div>
+      </div>
+    </div>
+
+    <!-- 词库作用域 + 待审核 -->
+    <div class="section-head reveal">
+      <span class="section-title">词库概况</span>
+      <span class="section-hint">按作用域隔离 · LLM 词条需审核后才可信</span>
+    </div>
+    <div class="row two-col reveal">
+      <div class="col-main">
+        <div class="card">
+          <div class="card-head">
+            <span class="card-dot"></span>
+            <span class="card-title">词库作用域分布</span>
+            <a class="section-link" href="/plugin-page/astrbot_plugin_humanize/jargon">黑话词库 →</a>
+          </div>
+          <div id="scopeList"></div>
+        </div>
+      </div>
+
+      <div class="col-side">
+        <div class="card">
+          <div class="card-head">
+            <span class="card-dot"></span>
+            <span class="card-title">待审核词条</span>
+            <a class="section-link" href="/plugin-page/astrbot_plugin_humanize/jargon">审核 →</a>
+          </div>
+          <div id="pendingList"></div>
+        </div>
+      </div>
+    </div>
+
+    <!-- 协议预览 -->
+    <div class="card protocol-card reveal">
+      <div class="card-head">
+        <span class="card-dot"></span>
+        <span class="card-title">回复协议 · 格式预览</span>
+        <div class="protocol-tabs">
+          <span class="p-tab active" data-tab="reply">普通回复</span>
+          <span class="p-tab" data-tab="noreply">不回复</span>
+        </div>
+      </div>
+      <div class="protocol-body" id="protocolReply">
+        <span class="tk tk-action">&lt;Action&gt;Reply&lt;/Action&gt;</span><br />
+        <span class="tk tk-unknown">&lt;UnknownTerms&gt;[]&lt;/UnknownTerms&gt;</span><br />
+        <span class="tk tk-reply">&lt;Reply&gt;</span>
+        <span class="bubble">早呀～</span>
+        <span class="bubble">昨晚睡得好吗</span>
+        <span class="tk tk-reply">&lt;/Reply&gt;</span>
+      </div>
+      <div class="protocol-body" id="protocolNoreply" style="display:none">
+        <span class="tk tk-action">&lt;Action&gt;No Reply&lt;/Action&gt;</span><br />
+        <span class="tk tk-unknown">&lt;UnknownTerms&gt;[]&lt;/UnknownTerms&gt;</span><br />
+        <span style="color:var(--text-2);font-size:12.5px">（保持安静，本轮不发送任何消息）</span>
+      </div>
+      <div class="protocol-note">
+        <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round"><circle cx="12" cy="12" r="10"/><line x1="12" y1="16" x2="12" y2="12"/><line x1="12" y1="8" x2="12.01" y2="8"/></svg>
+        标签只用于插件校验，发送前会被剥离，用户永远看不到它们。
+      </div>
+    </div>
+
+    <!-- 上下文追踪引导卡 -->
+    <div class="card ctx-guide reveal">
+      <div class="card-head">
+        <span class="card-dot"></span>
+        <span class="card-title">上下文追踪</span>
+        <a class="section-link" href="/plugin-page/astrbot_plugin_humanize/context">查看完整上下文追踪 →</a>
+      </div>
+      <p class="ctx-guide-text">每轮 Provider 请求的完整快照（区块组装、token 预算、协议校验结果）不在此页展示，请前往上下文追踪页按请求 ID 或作用域筛选查看。</p>
+    </div>
+
+    <div class="footer">
+      Made with
+      <svg viewBox="0 0 24 24" fill="currentColor"><path d="M20.8 4.6a5.5 5.5 0 0 0-7.8 0L12 5.6l-1-1a5.5 5.5 0 0 0-7.8 7.8l1 1L12 21l7.8-7.6 1-1a5.5 5.5 0 0 0 0-7.8z"/></svg>
+      by LovieCode · astrbot_plugin_humanize v0.2.0
+    </div>
+
+  
+
+    <div class="blob blob-2"></div>
+</div>
+
+
+
+  <!-- 侧边栏由 shared/ui.js 渲染 -->
+    </section>
+    <section class="view" id="view-memory">
+
+
+    
+
+    <!-- 数据源 Tab -->
+    <div class="source-tabs reveal">
+      <span class="source-tab active" data-source="memories" data-icon="memory">长期记忆 <span class="nav-badge" id="badgeMemories"></span></span>
+      <span class="source-tab" data-source="jobs" data-icon="history">后台任务 <span class="nav-badge" id="badgeJobs"></span></span>
+    </div>
+
+    <!-- 记忆筛选 -->
+    <div id="memoryFilters">
+      <div class="filter-bar reveal">
+        <div class="scope-seg" id="scopeSeg">
+        </div>
+        <div class="scope-seg agent-seg" id="agentSeg">
+        </div>
+      </div>
+      <div class="type-pills reveal" id="typePills">
+        <span class="pill active" data-group="type" data-icon="filter" data-value="">全部类型</span>
+        <span class="pill" data-group="type" data-value="preference"><span class="pill-dot" style="background:var(--pink)"></span>preference</span>
+        <span class="pill" data-group="type" data-value="profile"><span class="pill-dot" style="background:var(--blue)"></span>profile</span>
+        <span class="pill" data-group="type" data-value="entity"><span class="pill-dot" style="background:var(--violet)"></span>entity</span>
+        <span class="pill" data-group="type" data-value="event"><span class="pill-dot" style="background:var(--green)"></span>event</span>
+        <span class="pill active" data-group="status" data-value="">全部状态</span>
+        <span class="pill" data-group="status" data-value="active"><span class="pill-dot" style="background:var(--green)"></span>active</span>
+        <span class="pill" data-group="status" data-value="candidate"><span class="pill-dot" style="background:var(--amber)"></span>candidate</span>
+        <span class="pill" data-group="status" data-value="superseded"><span class="pill-dot" style="background:var(--muted)"></span>superseded</span>
+        <span class="pill" data-group="status" data-value="rejected"><span class="pill-dot" style="background:#d66666"></span>rejected</span>
+      </div>
+    </div>
+
+    <!-- ============ 长期记忆面板 ============ -->
+    <div class="mem-layout" id="panelMemories">
+
+      <div class="mem-main reveal">
+        <!-- 记忆服务未就绪引导卡 -->
+        <div id="memGuide" style="display:none">
+        </div>
+        <div class="mem-list" id="memList">
+          <!-- 记忆卡片由 shared/views/memory.js 动态渲染 -->
+        </div>
+
+        <div class="pager" id="memPager">
+        </div>
+      </div>
+
+      <div class="mem-aside reveal">
+
+        <div class="card">
+          <div class="card-head"><span class="card-dot"></span><span class="card-title">记忆状态</span></div>
+          <div class="side-block">
+            <div class="side-stat-row">
+              <span class="side-stat-name"><span class="pill-dot" style="background:var(--green)"></span>active 生效中</span>
+              <span class="side-stat-num" id="statActive">0</span>
+            </div>
+            <div class="side-stat-row">
+              <span class="side-stat-name"><span class="pill-dot" style="background:var(--amber)"></span>candidate 候选</span>
+              <span class="side-stat-num" id="statCandidate">0</span>
+            </div>
+            <div class="side-stat-row">
+              <span class="side-stat-name"><span class="pill-dot" style="background:var(--muted)"></span>superseded 被取代</span>
+              <span class="side-stat-num" id="statSuperseded">0</span>
+            </div>
+            <div class="side-stat-row">
+              <span class="side-stat-name"><span class="pill-dot" style="background:#d66666"></span>rejected 被拒</span>
+              <span class="side-stat-num" id="statRejected">0</span>
+            </div>
+            <div class="side-stat-row">
+              <span class="side-stat-name">工作线程</span>
+              <span class="side-stat-sub" id="statWorker">—</span>
+            </div>
+            <div class="side-stat-row">
+              <span class="side-stat-name">上次召回</span>
+              <span class="side-stat-sub" id="statRecall">—</span>
+            </div>
+          </div>
+        </div>
+
+        <div class="card">
+          <div class="card-head"><span class="card-dot"></span><span class="card-title">后台任务</span><a class="section-link" href="#" id="jobAllLink">全部 →</a></div>
+          <div class="side-block" id="jobMiniList"></div>
+        </div>
+
+        <div class="card" id="recallCard">
+          <div class="card-head"><span class="card-dot"></span><span class="card-title">召回测试</span></div>
+          <div style="display:flex;flex-direction:column;gap:10px" id="recallCardBody">
+            <div class="input-box"><input type="text" id="mem-recallQuery" placeholder="输入一句话，测试召回…" /></div>
+            <div class="scope-seg" style="align-self:flex-start" id="recallScopeSeg">
+            </div>
+            <select class="form-select" id="mem-recallAgent"></select>
+            <button class="btn btn-tonal btn-sm" style="align-self:flex-start" data-icon="search" id="mem-recallBtn">测试召回</button>
+            <div id="mem-recallResult"></div>
+            <div style="font-size:11.5px;color:var(--text-2);line-height:1.6">
+              召回先对 L0 abstract / L1 overview 打分，命中后展开 L2 全文；
+              同时合并当前会话的近期提交。对应 memory-recall-debug。
+            </div>
+          </div>
+        </div>
+
+      </div>
+    </div>
+
+    <!-- ============ 后台任务面板 ============ -->
+    <div id="panelJobs" style="display:none">
+      <div class="mem-layout">
+        <div class="mem-main">
+
+          <div class="scope-seg" id="jobStatusSeg" style="align-self:flex-start">
+            <span class="seg-item active" data-value="">全部</span>
+            <span class="seg-item" data-value="pending">排队中</span>
+            <span class="seg-item" data-value="running">运行中</span>
+            <span class="seg-item" data-value="retry">重试</span>
+            <span class="seg-item" data-value="completed">已完成</span>
+            <span class="seg-item" data-value="dead">失败</span>
+          </div>
+
+          <div class="job-list" id="jobList" style="display:flex;flex-direction:column;gap:10px;margin-top:14px">
+            <!-- 任务卡片由 shared/views/memory.js 动态渲染 -->
+          </div>
+
+          <div class="pager" id="jobPager" style="display:none">
+            <button class="pg-btn" disabled><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.4" stroke-linecap="round" stroke-linejoin="round"><polyline points="15 18 9 12 15 6"/></svg></button>
+            <button class="pg-btn" disabled><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.4" stroke-linecap="round" stroke-linejoin="round"><polyline points="9 18 15 12 9 6"/></svg></button>
+          </div>
+
+        </div>
+
+        <div class="mem-aside">
+          <div class="card">
+            <div class="card-head"><span class="card-dot"></span><span class="card-title">关于后台任务</span></div>
+            <div style="font-size:12.5px;color:var(--text-2);line-height:1.8;display:flex;flex-direction:column;gap:8px">
+              <div>记忆提取（extract_turn）与示例嵌入（embed_example）任务由后台调度器异步执行。</div>
+              <div>重试任务会按策略延后执行，超过最大尝试次数后标记为 dead。</div>
+              <div>运行中的任务持有租约，崩溃重启后会自动过期回收。</div>
+            </div>
+          </div>
+        </div>
+      </div>
+    </div>
+
+    <div class="footer">
+      Made with
+      <svg viewBox="0 0 24 24" fill="currentColor"><path d="M20.8 4.6a5.5 5.5 0 0 0-7.8 0L12 5.6l-1-1a5.5 5.5 0 0 0-7.8 7.8l1 1L12 21l7.8-7.6 1-1a5.5 5.5 0 0 0 0-7.8z"/></svg>
+      by LovieCode · astrbot_plugin_humanize v0.2.0
+    </div>
+
+  
+
+    <div class="blob blob-2"></div>
+</div>
+
+
+
+  
+
+  
+</div>
+
+<!-- 记忆详情抽屉：L0/L1/L2 分层 -->
+<div class="drawer-mask" id="mem-drawerMask"></div>
+<aside class="drawer" id="mem-drawer">
+  <div class="drawer-head">
+    <span class="tag tag-pink" id="detailTypeTag">preference</span>
+    <span class="tag tag-active" id="detailStatusTag"><span class="tag-dot"></span>active</span>
+    <span class="drawer-title">记忆详情</span>
+    <button class="drawer-close" id="mem-drawerClose">✕</button>
+  </div>
+  <div class="drawer-body" id="mem-drawerBody">
+  </div>
+  <div class="drawer-foot">
+    <button class="btn btn-primary" style="flex:1" data-icon="edit" id="btnEditMem">编辑记忆</button>
+    <button class="btn btn-ghost" data-icon="trash" id="btnRejectMem">标记 rejected</button>
+  </div>
+</aside>
+
+<!-- 新建记忆弹窗 -->
+<div class="drawer-mask" id="modalMask"></div>
+<aside class="drawer" id="memModal">
+  <div class="drawer-head">
+    <span class="tag tag-pink">新建记忆</span>
+    <span class="drawer-title" id="modalTitle">创建一条长期记忆</span>
+    <button class="drawer-close" id="modalClose">✕</button>
+  </div>
+  <div class="drawer-body" id="modalBody">
+    <div>
+      <div class="d-label">作用域（必选）</div>
+      <select class="form-select" id="mScope"></select>
+    </div>
+    <div>
+      <div class="d-label">Agent（共享记忆可选）</div>
+      <select class="form-select" id="mAgent"></select>
+    </div>
+    <div class="row">
+      <div style="flex:1">
+        <div class="d-label">类型</div>
+        <select class="form-select" id="mType">
+          <option value="preference">preference</option>
+          <option value="profile">profile</option>
+          <option value="entity">entity</option>
+          <option value="event">event</option>
+        </select>
+      </div>
+      <div style="flex:1">
+        <div class="d-label">memory_key</div>
+        <input class="form-input" type="text" id="mKey" placeholder="如 diet.acha" />
+      </div>
+    </div>
+    <div>
+      <div class="d-label">content（L2 完整内容）</div>
+      <textarea class="form-input" id="mContent" rows="4" placeholder="记忆的完整内容…"></textarea>
+    </div>
+    <div class="row">
+      <div style="flex:1">
+        <div class="d-label">conf 置信度（0-1）</div>
+        <input class="form-input" type="number" id="mConf" min="0" max="1" step="0.01" value="0.9" />
+      </div>
+      <div style="flex:1">
+        <div class="d-label">imp 重要性（0-1）</div>
+        <input class="form-input" type="number" id="mImp" min="0" max="1" step="0.01" value="0.5" />
+      </div>
+    </div>
+  </div>
+  <div class="drawer-foot">
+    <button class="btn btn-primary" style="flex:1" data-icon="plus" id="mSubmit">创建记忆</button>
+  </div>
+</aside>
+    </section>
+    <section class="view" id="view-jargon">
+
+
+    
+
+    <!-- 筛选：作用域 + 状态 -->
+    <div class="jg-filter reveal">
+      <div class="scope-seg">
+        <span class="seg-item active" data-scope="">全部 <span class="seg-count"></span></span>
+        <span class="seg-item" data-scope="private_user">私聊 <span class="seg-count"></span></span>
+        <span class="seg-item" data-scope="group">群聊 <span class="seg-count"></span></span>
+        <span class="seg-item" data-scope="global">全局 <span class="seg-count"></span></span>
+      </div>
+      <div class="scope-seg status-seg">
+        <span class="seg-item active" data-status="">全部状态</span>
+        <span class="seg-item" data-status="pending">待审</span>
+        <span class="seg-item" data-status="verified">verified</span>
+        <span class="seg-item" data-status="candidate">candidate</span>
+        <span class="seg-item" data-status="ambiguous">ambiguous</span>
+        <span class="seg-item" data-status="conflict">冲突</span>
+        <span class="seg-item" data-status="disabled">停用</span>
+        <span class="seg-item" data-status="rejected">被拒</span>
+      </div>
+    </div>
+
+    <div class="jg-layout">
+
+      <!-- 词条列表 -->
+      <div class="jg-main reveal">
+        <div class="jg-list" id="jgList"></div>
+
+        <div class="pager" id="jgPager">
+        </div>
+      </div>
+
+      <!-- 侧栏 -->
+      <div class="jg-aside reveal">
+
+        <div class="card">
+          <div class="card-head"><span class="card-dot"></span><span class="card-title">词条统计</span></div>
+          <div class="jg-side-stat">
+            <span class="jg-side-name"><span class="pill-dot" style="background:var(--green)"></span>总词条数</span>
+            <span class="jg-side-num" id="statTotal">—</span>
+          </div>
+          <div class="jg-side-stat">
+            <span class="jg-side-name"><span class="pill-dot" style="background:var(--amber)"></span>待审核（候选 + 临时）</span>
+            <span class="jg-side-num" id="statPending">—</span>
+          </div>
+          <div class="jg-side-note">细分状态（verified / ambiguous / rejected 等）暂无统计接口，这里仅展示总数与待审核数。</div>
+        </div>
+
+
+        <div class="card">
+          <div class="card-head"><span class="card-dot"></span><span class="card-title">注入规则</span></div>
+          <div style="font-size:12.5px;color:var(--text-2);line-height:1.8;display:flex;flex-direction:column;gap:8px">
+            <div>仅 <b style="color:var(--text)">enabled + 非 rejected + 置信度达标</b> 的词条参与注入。</div>
+            <div>优先使用 verified 义项；无 verified 时，单条 provisional 高置信义项才可临时注入。</div>
+            <div>ambiguous 词条必须人工指定首选义项后才会注入。</div>
+          </div>
+        </div>
+
+      </div>
+    </div>
+
+    <div class="footer">
+      Made with
+      <svg viewBox="0 0 24 24" fill="currentColor"><path d="M20.8 4.6a5.5 5.5 0 0 0-7.8 0L12 5.6l-1-1a5.5 5.5 0 0 0-7.8 7.8l1 1L12 21l7.8-7.6 1-1a5.5 5.5 0 0 0 0-7.8z"/></svg>
+      by LovieCode · astrbot_plugin_humanize v0.2.0
+    </div>
+
+  
+
+    <div class="blob blob-2"></div>
+</div>
+
+
+
+  
+
+  
+</div>
+
+<!-- 词条详情抽屉 -->
+<div class="drawer-mask" id="jg-drawerMask"></div>
+<aside class="drawer" id="jg-drawer">
+  <div class="drawer-head">
+    <span class="drawer-title" id="jg-drawerTitle"></span>
+    <span class="drawer-status" id="jg-drawerStatus">
+    </span>
+    <button class="drawer-close" id="jg-drawerClose">✕</button>
+  </div>
+  <div class="drawer-body" id="jg-drawerBody">
+  </div>
+  <div class="drawer-foot">
+    <button class="btn btn-primary" data-action="edit_entry" data-icon="edit">编辑词条</button>
+    <button class="btn btn-ghost" data-action="create_sense" data-icon="plus">新增义项</button>
+    <button class="btn btn-ghost" data-action="manage_aliases" data-icon="link">管理别名</button>
+    <button class="btn btn-ghost" data-action="toggle_enable" data-icon="zap_off">停用</button>
+    <button class="btn btn-ghost" data-action="reject_entry" data-icon="alert">拒绝词条</button>
+    <button class="btn btn-ghost jg-danger" data-action="delete_entry" data-icon="trash">删除词条</button>
+  </div>
+</aside>
+    </section>
+    <section class="view" id="view-examples">
+
+
+    
+
+    <!-- 筛选 -->
+    <div class="ex-filter reveal">
+      <div class="scope-seg status-seg">
+        <span class="seg-item active" data-status="">全部状态</span>
+        <span class="seg-item" data-status="approved">approved</span>
+        <span class="seg-item" data-status="draft">draft</span>
+        <span class="seg-item" data-status="rejected">rejected</span>
+        <span class="seg-item" data-status="tombstoned">tombstoned</span>
+      </div>
+      <select class="ex-select" id="exScopeSel">
+        <option value="-1">全部作用域</option>
+      </select>
+      <select class="ex-select" id="exAgentSel">
+        <option value="-1">全部 Agent</option>
+      </select>
+      <div class="input-box" style="width:150px">
+        <input type="text" id="exTopicInput" placeholder="话题…" />
+      </div>
+      <div class="input-box" style="width:150px">
+        <input type="text" id="exIntentInput" placeholder="意图…" />
+      </div>
+    </div>
+
+    <!-- 样例卡片流 -->
+    <div class="ex-list reveal" id="exList"></div>
+
+    <div class="pager" id="exPager"></div>
+
+    <!-- 召回测试 -->
+    <div class="ex-recall-card reveal">
+      <div class="ex-recall-head">
+        <span class="card-dot"></span>
+        <span class="card-title">召回测试</span>
+        <span style="font-size:11.5px;color:var(--text-2)">模拟一次实时召回，查看候选命中与注入 XML</span>
+      </div>
+      <div class="ex-recall-controls">
+        <div class="input-box" style="flex:1;min-width:200px">
+          <input type="text" id="ex-recallQuery" placeholder="输入一句话，测试召回…" />
+        </div>
+        <select class="ex-select" id="recallScope" style="min-width:150px">
+          <option value="-1">选择作用域（必填）</option>
+        </select>
+        <select class="ex-select" id="ex-recallAgent" style="min-width:150px">
+          <option value="-1">选择 Agent（必填）</option>
+        </select>
+        <button class="btn btn-tonal btn-sm" id="ex-recallBtn">测试召回</button>
+      </div>
+      <div class="ex-recall-result" id="ex-recallResult" style="display:none">
+        <div class="ex-recall-bar">
+          <span class="tag" id="recallIncluded"></span>
+          <span style="font-size:11.5px;color:var(--text-2)" id="recallMeta"></span>
+        </div>
+        <div id="recallItems"></div>
+        <div class="d-label" data-icon="file" style="margin-top:12px">注入内容（Examples XML）</div>
+        <pre class="ex-code" id="recallContent"></pre>
+      </div>
+    </div>
+
+    <div class="footer">
+      Made with
+      <svg viewBox="0 0 24 24" fill="currentColor"><path d="M20.8 4.6a5.5 5.5 0 0 0-7.8 0L12 5.6l-1-1a5.5 5.5 0 0 0-7.8 7.8l1 1L12 21l7.8-7.6 1-1a5.5 5.5 0 0 0 0-7.8z"/></svg>
+      by LovieCode · astrbot_plugin_humanize v0.2.0
+    </div>
+
+  
+
+    <div class="blob blob-2"></div>
+</div>
+
+
+
+  
+
+  
+</div>
+
+<!-- 样例详情抽屉 -->
+<div class="drawer-mask" id="ex-drawerMask"></div>
+<aside class="drawer" id="ex-drawer">
+  <div class="drawer-head">
+    <span class="drawer-title" id="ex-drawerTitle">被夸时的害羞回应</span>
+    <span class="drawer-status" id="ex-drawerStatus">
+      <span class="tag tag-approved"><span class="tag-dot"></span>approved</span>
+    </span>
+    <button class="drawer-close" id="ex-drawerClose">✕</button>
+  </div>
+  <div class="drawer-body" id="ex-drawerBody"></div>
+  <div class="drawer-foot" id="drawerFoot"></div>
+</aside>
+    </section>
+    <section class="view" id="view-context">
+
+
+    
+
+    <!-- 筛选：scope 为后端筛选参数；注入模式仅前端高亮（后端无 protocol_mode 筛选参数） -->
+    <div class="cx-filter reveal">
+      <div class="scope-seg">
+        <span class="seg-item active" data-scope="">全部</span>
+        <span class="seg-item" data-scope="group">群聊</span>
+        <span class="seg-item" data-scope="private_user">私聊</span>
+      </div>
+      <div class="scope-seg cx-mode-seg" title="注入模式：后端无 protocol_mode 筛选参数，仅展示高亮">
+        <span class="seg-item active" data-mode="both">注入模式 both</span>
+        <span class="seg-item" data-mode="temp_user">temp_user</span>
+      </div>
+      <span class="cx-filter-hint">注入模式无筛选参数，仅展示</span>
+    </div>
+
+    <div class="cx-layout">
+
+      <!-- 左：运行列表 -->
+      <div class="cx-list-col reveal">
+        <div id="cxRunList"></div>
+        <div class="pager" id="cxPager" style="display:none"></div>
+      </div>
+
+      <!-- 右：运行详情（JS 渲染） -->
+      <div class="cx-detail-col reveal" id="cxDetail">
+        <!-- 统计（随详情流） -->
+        <div class="cx-stats-wrap reveal" id="cxStats"></div>
+      </div>
+    </div>
+
+    <div class="footer">
+      Made with
+      <svg viewBox="0 0 24 24" fill="currentColor"><path d="M20.8 4.6a5.5 5.5 0 0 0-7.8 0L12 5.6l-1-1a5.5 5.5 0 0 0-7.8 7.8l1 1L12 21l7.8-7.6 1-1a5.5 5.5 0 0 0 0-7.8z"/></svg>
+      by LovieCode · astrbot_plugin_humanize v0.2.0
+    </div>
+
+  
+
+    <div class="blob blob-2"></div>
+</div>
+    </section>
+    <section class="view" id="view-prompts">
+
+
+    
+
+    <div class="pt-layout">
+
+      <!-- 左：模板列表 -->
+      <div class="pt-list-col reveal">
+
+        <div class="pt-item active">
+          <div class="pt-item-top">
+            <span class="pt-item-name">基础规则</span>
+            <span class="pt-item-key">rule</span>
+            <span class="tag tag-custom" style="margin-left:auto">已修改</span>
+          </div>
+          <div class="pt-item-desc">根据当前聊天场景和管理员信息生成的每轮规则。</div>
+          <div class="pt-item-foot">
+            <span class="pt-var">{{scene}}</span>
+            <span class="pt-var">{{admin_name}}</span>
+            <span class="pt-var">{{admin_ids}}</span>
+          </div>
+        </div>
+
+        <div class="pt-item">
+          <div class="pt-item-top">
+            <span class="pt-item-name">回复协议</span>
+            <span class="pt-item-key">protocol</span>
+            <span class="tag tag-default" style="margin-left:auto">默认</span>
+          </div>
+          <div class="pt-item-desc">每轮注入的回复控制头、分消息和陌生词规则。</div>
+          <div class="pt-item-foot">
+            <span class="pt-var">{{version}}</span>
+            <span class="pt-var">{{max_chars}}</span>
+          </div>
+        </div>
+
+        <div class="pt-item">
+          <div class="pt-item-top">
+            <span class="pt-item-name">协议修复</span>
+            <span class="pt-item-key">repair</span>
+            <span class="tag tag-default" style="margin-left:auto">默认</span>
+          </div>
+          <div class="pt-item-desc">首次回复控制头无效时使用的隔离修复提示。</div>
+          <div class="pt-item-foot">
+            <span class="pt-var">{{version}}</span>
+            <span class="pt-var required">{{required_action}} 必填</span>
+          </div>
+        </div>
+
+        <div class="pt-item">
+          <div class="pt-item-top">
+            <span class="pt-item-name">记忆提取</span>
+            <span class="pt-item-key">memory_extraction</span>
+            <span class="tag tag-default" style="margin-left:auto">默认</span>
+          </div>
+          <div class="pt-item-desc">后台从成功聊天中生成有原文证据的结构化记忆候选。</div>
+          <div class="pt-item-foot">
+            <span class="pt-var-note">无变量</span>
+          </div>
+        </div>
+
+        <div class="pt-item">
+          <div class="pt-item-top">
+            <span class="pt-item-name">回复样例</span>
+            <span class="pt-item-key">reply_examples</span>
+            <span class="tag tag-custom" style="margin-left:auto">已修改</span>
+          </div>
+          <div class="pt-item-desc">把审核后的典型短对话作为临时 few-shot 参考注入。</div>
+          <div class="pt-item-foot">
+            <span class="pt-var required">{{examples}} 必填</span>
+          </div>
+        </div>
+
+      </div>
+
+      <!-- 右：编辑器 -->
+      <div class="pt-editor-col reveal">
+
+        <div class="card">
+          <div class="pt-editor-head">
+            <div class="pt-editor-title">
+              <span class="pt-editor-name" id="ptEditorName">基础规则 <span class="k">rule</span><span class="tag tag-custom">已修改</span></span>
+              <span class="pt-editor-desc" id="ptEditorDesc">根据当前聊天场景和管理员信息生成的每轮规则。</span>
+            </div>
+            <button class="btn btn-ghost btn-sm" id="ptResetBtn" data-icon="refresh">恢复默认</button>
+          </div>
+
+          <div class="pt-diff-note" style="margin-top:12px" data-icon="info">
+            <span>当前内容与默认模板不同。可随时「恢复默认」回到内置版本，操作会记录到下方审计日志。</span>
+          </div>
+
+          <div class="pt-vars" id="ptVars" style="margin-top:14px">
+            <span class="pt-vars-label">可用变量</span>
+            <span class="pt-var-chip" title="点击复制">{{scene}}</span>
+            <span class="pt-var-chip" title="点击复制">{{admin_name}}</span>
+            <span class="pt-var-chip" title="点击复制">{{admin_ids}}</span>
+            <span class="pt-var-note">渲染时自动替换，未知变量将原样保留</span>
+          </div>
+
+          <div style="margin-top:12px">
+<textarea class="pt-textarea" id="ptTextarea">你正在参与一场{{scene}}聊天。
+
+【场景规则】
+- 像朋友一样自然接话，不端着、不说教
+- 每条消息尽量简短，口语化
+
+【管理员】
+- 管理员昵称：{{admin_name}}
+- 管理员 ID：{{admin_ids}}
+- 管理员的话可以相信，但不要盲从</textarea>
+          </div>
+
+          <div class="pt-editor-foot" style="margin-top:12px">
+            <span class="pt-dirty" id="ptDirty"><span class="dot"></span>未保存</span>
+            <span class="pt-char-count" id="ptCharCount">0 字</span>
+            <span style="flex:1"></span>
+            <button class="btn btn-ghost btn-sm" id="ptCopyBtn" data-icon="copy">复制</button>
+            <button class="btn btn-primary btn-sm" id="ptSaveBtn" data-icon="check_simple">保存模板</button>
+          </div>
+        </div>
+
+        <!-- 审计记录 -->
+        <div class="card">
+          <div class="card-head"><span class="card-dot"></span><span class="card-title">修改审计</span></div>
+          <div id="ptAuditList">
+            <div class="audit-row">
+              <span class="audit-tag update">update</span>
+              <span class="audit-text"><b>web_admin</b> · 更新了 <b>rule</b> · 原因：补充管理员说明</span>
+              <span class="audit-time">3月29日 21:14</span>
+            </div>
+            <div class="audit-row">
+              <span class="audit-tag update">update</span>
+              <span class="audit-text"><b>web_admin</b> · 更新了 <b>reply_examples</b> · 原因：强调不得直接复用样例</span>
+              <span class="audit-time">3月28日 16:40</span>
+            </div>
+            <div class="audit-row">
+              <span class="audit-tag reset">reset</span>
+              <span class="audit-text"><b>web_admin</b> · 重置了 <b>protocol</b> · 原因：恢复默认协议模板</span>
+              <span class="audit-time">3月26日 10:02</span>
+            </div>
+            <div class="audit-row">
+              <span class="audit-tag update">update</span>
+              <span class="audit-text"><b>web_admin</b> · 更新了 <b>rule</b> · 原因：web update</span>
+              <span class="audit-time">3月25日 09:31</span>
+            </div>
+          </div>
+          <div class="pt-audit-empty" id="ptAuditEmpty" style="display:none">暂无审计记录</div>
+        </div>
+
+      </div>
+    </div>
+
+    <div class="footer">
+      Made with
+      <svg viewBox="0 0 24 24" fill="currentColor"><path d="M20.8 4.6a5.5 5.5 0 0 0-7.8 0L12 5.6l-1-1a5.5 5.5 0 0 0-7.8 7.8l1 1L12 21l7.8-7.6 1-1a5.5 5.5 0 0 0 0-7.8z"/></svg>
+      by LovieCode · astrbot_plugin_humanize v0.2.0
+    </div>
+
+  
+
+    <div class="blob blob-2"></div>
+</div>
+    </section>
+    <section class="view" id="view-settings">
+
+
+    
+
+    <div class="st-layout">
+
+      <!-- 顶部标签导航 -->
+      <div class="st-nav reveal">
+        <span class="st-nav-item active" data-target="st-general" data-icon="settings">常规</span>
+        <span class="st-nav-item" data-target="st-protocol" data-icon="protocol">回复协议</span>
+        <span class="st-nav-item" data-target="st-jargon" data-icon="jargon">黑话注入</span>
+        <span class="st-nav-item" data-target="st-memory" data-icon="memory">长期记忆</span>
+        <span class="st-nav-item" data-target="st-examples" data-icon="chat">回复样例</span>
+        <span class="st-nav-item" data-target="st-providers" data-icon="spark">服务商</span>
+      </div>
+
+      <!-- 设置组 -->
+      <div class="st-groups-col reveal">
+
+        <!-- 常规 -->
+        <div class="card" id="st-general">
+          <div class="card-head"><span class="card-dot"></span><span class="card-title">常规</span></div>
+          <div class="st-row">
+            <div class="st-row-main">
+              <span class="st-row-label">启用插件 <span class="st-row-key">enabled</span></span>
+              <span class="st-row-desc">关闭后插件完全停止介入消息流程。</span>
+            </div>
+            <div class="st-row-control"><button class="switch on" data-key="enabled"></button></div>
+          </div>
+          <div class="st-row">
+            <div class="st-row-main">
+              <span class="st-row-label">每轮注入基础规则 <span class="st-row-key">default_rule_enabled</span></span>
+              <span class="st-row-desc">根据聊天场景和管理员信息生成的基础规则。</span>
+            </div>
+            <div class="st-row-control"><button class="switch on" data-key="default_rule_enabled"></button></div>
+          </div>
+          <div class="st-row">
+            <div class="st-row-main">
+              <span class="st-row-label">管理员昵称 <span class="st-row-key">admin_name</span></span>
+              <span class="st-row-desc">用于基础规则模板中的 {{admin_name}} 变量。</span>
+            </div>
+            <div class="st-row-control"><input class="st-input wide" data-key="admin_name" /></div>
+          </div>
+          <div class="st-row">
+            <div class="st-row-main">
+              <span class="st-row-label">管理员 QQ <span class="st-row-key">admin_qq_ids</span></span>
+              <span class="st-row-desc">多个用英文逗号分隔。</span>
+            </div>
+            <div class="st-row-control"><textarea class="st-input wide st-qq-area" rows="3" data-key="admin_qq_ids"></textarea></div>
+          </div>
+          <div class="st-row">
+            <div class="st-row-main">
+              <span class="st-row-label">单条消息最大可见字符 <span class="st-row-key">max_message_chars</span></span>
+              <span class="st-row-desc">普通发言每条不超过该长度。</span>
+            </div>
+            <div class="st-row-control"><input class="st-input" data-key="max_message_chars" value="10" /><span class="st-unit">字</span></div>
+          </div>
+          <div class="st-row">
+            <div class="st-row-main">
+              <span class="st-row-label">分消息发送间隔 <span class="st-row-key">message_interval_seconds</span></span>
+            </div>
+            <div class="st-row-control"><input class="st-input" data-key="message_interval_seconds" /><span class="st-unit">秒</span></div>
+          </div>
+        </div>
+
+        <!-- 回复协议 -->
+        <div class="card" id="st-protocol">
+          <div class="card-head"><span class="card-dot"></span><span class="card-title">回复协议</span></div>
+          <div class="st-row">
+            <div class="st-row-main">
+              <span class="st-row-label">启用回复协议 <span class="st-row-key">protocol_enabled</span></span>
+              <span class="st-row-desc">严格协议校验，非工具最终文本必须通过发送闸门。</span>
+            </div>
+            <div class="st-row-control"><button class="switch on" data-key="protocol_enabled"></button></div>
+          </div>
+          <div class="st-row">
+            <div class="st-row-main">
+              <span class="st-row-label">注入模式 <span class="st-row-key">protocol_injection_mode</span></span>
+            </div>
+            <div class="st-row-control">
+              <div class="st-seg" data-key="protocol_injection_mode">
+                <span class="st-seg-item active" data-value="user">user</span>
+                <span class="st-seg-item" data-value="both">both</span>
+              </div>
+            </div>
+          </div>
+          <div class="st-row">
+            <div class="st-row-main">
+              <span class="st-row-label">协议版本 <span class="st-row-key">protocol_version</span></span>
+            </div>
+            <div class="st-row-control"><input class="st-input" data-key="protocol_version" value="1" /></div>
+          </div>
+          <div class="st-row">
+            <div class="st-row-main">
+              <span class="st-row-label">协议修复重试 <span class="st-row-key">protocol_repair_retry_enabled</span></span>
+              <span class="st-row-desc">控制头无效时使用隔离修复提示重试一次。</span>
+            </div>
+            <div class="st-row-control"><button class="switch on" data-key="protocol_repair_retry_enabled"></button></div>
+          </div>
+          <div class="st-row">
+            <div class="st-row-main">
+              <span class="st-row-label">允许静默 <span class="st-row-key">no_reply_enabled</span></span>
+              <span class="st-row-desc">允许模型选择 No Reply 不回复。</span>
+            </div>
+            <div class="st-row-control"><button class="switch on" data-key="no_reply_enabled"></button></div>
+          </div>
+          <div class="st-row">
+            <div class="st-row-main">
+              <span class="st-row-label">协议日志保留 <span class="st-row-key">protocol_log_retention_days</span></span>
+            </div>
+            <div class="st-row-control"><input class="st-input" data-key="protocol_log_retention_days" /><span class="st-unit">天</span></div>
+          </div>
+        </div>
+
+        <!-- 黑话注入 -->
+        <div class="card" id="st-jargon">
+          <div class="card-head"><span class="card-dot"></span><span class="card-title">黑话注入</span></div>
+          <div class="st-row">
+            <div class="st-row-main">
+              <span class="st-row-label">启用黑话学习 <span class="st-row-key">jargon_enabled</span></span>
+            </div>
+            <div class="st-row-control"><button class="switch on" data-key="jargon_enabled"></button></div>
+          </div>
+          <div class="st-row">
+            <div class="st-row-main">
+              <span class="st-row-label">注入最低置信度 <span class="st-row-key">min_confidence_for_injection</span></span>
+            </div>
+            <div class="st-row-control">
+              <div class="st-slider" data-key="min_confidence_for_injection">
+                <input type="range" min="0" max="100" value="85" />
+                <span class="st-slider-val">0.85</span>
+              </div>
+            </div>
+          </div>
+          <div class="st-row">
+            <div class="st-row-main">
+              <span class="st-row-label">单次最多注入词条 <span class="st-row-key">max_injected_jargons</span></span>
+            </div>
+            <div class="st-row-control"><input class="st-input" data-key="max_injected_jargons" value="5" /><span class="st-unit">条</span></div>
+          </div>
+        </div>
+
+        <!-- 长期记忆 -->
+        <div class="card" id="st-memory">
+          <div class="card-head"><span class="card-dot"></span><span class="card-title">长期记忆</span></div>
+          <div class="st-row">
+            <div class="st-row-main">
+              <span class="st-row-label">启用记忆召回 <span class="st-row-key">memory_enabled</span></span>
+            </div>
+            <div class="st-row-control"><button class="switch on" data-key="memory_enabled"></button></div>
+          </div>
+          <div class="st-row">
+            <div class="st-row-main">
+              <span class="st-row-label">自动提取记忆 <span class="st-row-key">memory_auto_extract_enabled</span></span>
+              <span class="st-row-desc">从成功聊天中后台生成结构化记忆候选。</span>
+            </div>
+            <div class="st-row-control"><button class="switch on" data-key="memory_auto_extract_enabled"></button></div>
+          </div>
+          <div class="st-row">
+            <div class="st-row-main">
+              <span class="st-row-label">提取服务商 <span class="st-row-key">memory_extraction_provider_id</span></span>
+            </div>
+            <div class="st-row-control">
+              <select class="st-select" data-key="memory_extraction_provider_id"></select>
+            </div>
+          </div>
+          <div class="st-row">
+            <div class="st-row-main">
+              <span class="st-row-label">向量服务商 <span class="st-row-key">memory_embedding_provider_id</span></span>
+            </div>
+            <div class="st-row-control">
+              <select class="st-select" data-key="memory_embedding_provider_id"></select>
+            </div>
+          </div>
+          <div class="st-row">
+            <div class="st-row-main">
+              <span class="st-row-label">重排服务商 <span class="st-row-key">memory_rerank_provider_id</span></span>
+            </div>
+            <div class="st-row-control">
+              <select class="st-select" data-key="memory_rerank_provider_id"></select>
+            </div>
+          </div>
+          <div class="st-row">
+            <div class="st-row-main">
+              <span class="st-row-label">身份密钥环境变量 <span class="st-row-key">memory_identity_secret_env</span></span>
+              <span class="st-row-desc">HMAC 派生作用域哈希的密钥来源，仅显示变量名，不显示值。</span>
+            </div>
+            <div class="st-row-control">
+              <span class="st-secret" data-icon="shield" id="stSecretEnv"><code>HUMANIZE_IDENTITY_SECRET</code>环境变量（不显示值）</span>
+            </div>
+          </div>
+          <div class="st-row">
+            <div class="st-row-main">
+              <span class="st-row-label">自动激活置信度 <span class="st-row-key">memory_auto_activate_confidence</span></span>
+            </div>
+            <div class="st-row-control">
+              <div class="st-slider" data-key="memory_auto_activate_confidence">
+                <input type="range" min="0" max="100" value="90" />
+                <span class="st-slider-val">0.90</span>
+              </div>
+            </div>
+          </div>
+          <div class="st-row">
+            <div class="st-row-main">
+              <span class="st-row-label">候选最低置信度 <span class="st-row-key">memory_candidate_min_confidence</span></span>
+            </div>
+            <div class="st-row-control">
+              <div class="st-slider" data-key="memory_candidate_min_confidence">
+                <input type="range" min="0" max="100" value="60" />
+                <span class="st-slider-val">0.60</span>
+              </div>
+            </div>
+          </div>
+          <div class="st-row">
+            <div class="st-row-main">
+              <span class="st-row-label">召回条数上限 <span class="st-row-key">memory_recall_limit</span></span>
+            </div>
+            <div class="st-row-control"><input class="st-input" data-key="memory_recall_limit" /><span class="st-unit">条</span></div>
+          </div>
+          <div class="st-row">
+            <div class="st-row-main">
+              <span class="st-row-label">召回内容最大字符 <span class="st-row-key">memory_recall_max_chars</span></span>
+            </div>
+            <div class="st-row-control"><input class="st-input" data-key="memory_recall_max_chars" /><span class="st-unit">字</span></div>
+          </div>
+          <div class="st-row">
+            <div class="st-row-main">
+              <span class="st-row-label">召回超时 <span class="st-row-key">memory_recall_timeout_seconds</span></span>
+            </div>
+            <div class="st-row-control"><input class="st-input" data-key="memory_recall_timeout_seconds" /><span class="st-unit">秒</span></div>
+          </div>
+        </div>
+
+        <!-- 回复样例 -->
+        <div class="card" id="st-examples">
+          <div class="card-head"><span class="card-dot"></span><span class="card-title">回复样例</span></div>
+          <div class="st-row">
+            <div class="st-row-main">
+              <span class="st-row-label">启用样例召回 <span class="st-row-key">reply_examples_enabled</span></span>
+            </div>
+            <div class="st-row-control"><button class="switch on" data-key="reply_examples_enabled"></button></div>
+          </div>
+          <div class="st-row">
+            <div class="st-row-main">
+              <span class="st-row-label">注入条数上限 <span class="st-row-key">reply_examples_limit</span></span>
+            </div>
+            <div class="st-row-control"><input class="st-input" data-key="reply_examples_limit" value="3" /><span class="st-unit">条</span></div>
+          </div>
+          <div class="st-row">
+            <div class="st-row-main">
+              <span class="st-row-label">注入内容最大字符 <span class="st-row-key">reply_examples_max_chars</span></span>
+            </div>
+            <div class="st-row-control"><input class="st-input" data-key="reply_examples_max_chars" /><span class="st-unit">字</span></div>
+          </div>
+          <div class="st-row">
+            <div class="st-row-main">
+              <span class="st-row-label">最低质量分 <span class="st-row-key">reply_examples_min_quality</span></span>
+            </div>
+            <div class="st-row-control">
+              <div class="st-slider" data-key="reply_examples_min_quality">
+                <input type="range" min="0" max="100" value="70" />
+                <span class="st-slider-val">0.70</span>
+              </div>
+            </div>
+          </div>
+          <div class="st-row">
+            <div class="st-row-main">
+              <span class="st-row-label">召回相似度阈值 <span class="st-row-key">reply_examples_recall_score_threshold</span></span>
+            </div>
+            <div class="st-row-control">
+              <div class="st-slider" data-key="reply_examples_recall_score_threshold">
+                <input type="range" min="0" max="100" value="62" />
+                <span class="st-slider-val">0.62</span>
+              </div>
+            </div>
+          </div>
+        </div>
+
+        <!-- 服务商能力 -->
+        <div class="card" id="st-providers">
+          <div class="card-head"><span class="card-dot"></span><span class="card-title">对话服务商（prompt 缓存能力）</span></div>
+          <div class="pv-grid" id="pvChatGrid">
+          </div>
+        </div>
+
+        <!-- 记忆服务商 -->
+        <div class="card" data-tab="st-providers">
+          <div class="card-head"><span class="card-dot"></span><span class="card-title">记忆服务商</span></div>
+          <div class="pv-group">
+            <div class="pv-group-title">对话（chat）</div>
+            <div class="pv-grid" id="pvMemChat">
+            </div>
+          </div>
+          <div class="pv-group">
+            <div class="pv-group-title">向量嵌入（embedding）</div>
+            <div class="pv-grid" id="pvMemEmbedding">
+            </div>
+          </div>
+          <div class="pv-group">
+            <div class="pv-group-title">重排（rerank）</div>
+            <div class="pv-grid" id="pvMemRerank">
+            </div>
+          </div>
+        </div>
+
+      </div>
+    </div>
+
+    <div class="footer">
+      Made with
+      <svg viewBox="0 0 24 24" fill="currentColor"><path d="M20.8 4.6a5.5 5.5 0 0 0-7.8 0L12 5.6l-1-1a5.5 5.5 0 0 0-7.8 7.8l1 1L12 21l7.8-7.6 1-1a5.5 5.5 0 0 0 0-7.8z"/></svg>
+      by LovieCode · astrbot_plugin_humanize v0.2.0
+    </div>
+
+  
+
+    <div class="blob blob-2"></div>
+</div>
+    </section>
+
+  </main>
+</div>
+
+<script src="shared/icons.js"></script>
+<script src="shared/ui.js"></script>
+<script src="shared/api.js"></script>
+<script>
+/* 将 data-icon 占位替换为共享图标 */
+document.querySelectorAll("[data-icon]").forEach((el) => {
+  const svg = HZ.icon(el.dataset.icon);
+  if (el.classList.contains("cx-sec-dot") || el.classList.contains("icon-btn")) {
+    el.innerHTML = svg;
+  } else {
+    el.insertAdjacentHTML("afterbegin", svg);
+  }
+});
+</script>
+<script>window.HZ = window.HZ || {}; HZ.views = HZ.views || {};</script>
+<script src="shared/views/dashboard.js"></script>
+<script src="shared/views/memory.js"></script>
+<script src="shared/views/jargon.js"></script>
+<script src="shared/views/examples.js"></script>
+<script src="shared/views/context.js"></script>
+<script src="shared/views/prompts.js"></script>
+<script src="shared/views/settings.js"></script>
+<script src="app.js"></script>
+</body>
+</html>
