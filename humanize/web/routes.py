@@ -2,6 +2,7 @@ from __future__ import annotations
 
 import json
 import logging
+import traceback
 import re
 from pathlib import Path
 from typing import Any
@@ -207,10 +208,11 @@ class WebApi:
             return error_response("不支持的请求方法", status_code=405)
         except ValueError as exc:
             logger.exception(
-                "[Humanize] Web API bad request: %s %s: %s",
+                "[Humanize] Web API bad request: %s %s: %s\n%s",
                 request.method,
                 path,
                 exc,
+                traceback.format_exc(),
             )
             return error_response(str(exc), status_code=400)
         except PermissionError as exc:
