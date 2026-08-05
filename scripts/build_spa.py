@@ -46,7 +46,9 @@ SHARED_JS = ["icons.js", "ui.js", "api.js"]
 
 MAIN_RE = re.compile(r"<main\b[^>]*>(.*?)</main>", re.S)
 ID_ATTR_RE = re.compile(r'id="([^"]+)"')
-JS_ID_RE = re.compile(r'(["\'])id["\']?\s*[\)\],]\s*|getElementById\(\s*["\']([^"\']+)["\']|querySelector(?:All)?\(\s*["\']#([A-Za-z0-9_-]+)')
+JS_ID_RE = re.compile(
+    r'(["\'])id["\']?\s*[\)\],]\s*|getElementById\(\s*["\']([^"\']+)["\']|querySelector(?:All)?\(\s*["\']#([A-Za-z0-9_-]+)'
+)
 CSS_ID_RE = re.compile(r"(?<![\w-])#([A-Za-z_][A-Za-z0-9_-]*)")
 
 
@@ -107,11 +109,11 @@ def wrap_view_js(js: str, view: str) -> str:
     if end < 0 or end < start:
         raise SystemExit(f"FATAL: no closing IIFE in {view}.js")
     head = js[:start] + f'HZ.views["{view}"] = {{ init: function () {{\n'
-    body = js[start + len("(function () {"):end]
+    body = js[start + len("(function () {") : end]
     # The sidebar is rendered once by app.js; drop per-view renders (they
     # would re-render the shared sidebar on every init and lose delegates).
     body = re.sub(r"HZ\.renderSidebar\([^)]*\);\s*", "", body, count=1)
-    tail = "\n} };\n" + js[end + len("})();"):]
+    tail = "\n} };\n" + js[end + len("})();") :]
     return head + body + tail
 
 
@@ -161,7 +163,8 @@ def view_main(view: str, mapping: dict[str, dict[str, str]]) -> str:
     # section-link navigation: relative page links become plugin-page routes.
     for target in VIEWS:
         content = content.replace(
-            f'href="{target}.html"', f'href="/plugin-page/astrbot_plugin_humanize/{target}"'
+            f'href="{target}.html"',
+            f'href="/plugin-page/astrbot_plugin_humanize/{target}"',
         )
     return content
 
@@ -172,11 +175,17 @@ def build() -> str:
         f'    <section class="view" id="view-{v}">\n{view_main(v, mapping)}\n    </section>'
         for v in VIEWS
     )
-    shared_css = "\n".join(f'<link rel="stylesheet" href="shared/{f}" />' for f in SHARED_CSS)
-    view_css = "\n".join(f'<link rel="stylesheet" href="shared/views/{v}.css" />' for v in VIEWS)
+    shared_css = "\n".join(
+        f'<link rel="stylesheet" href="shared/{f}" />' for f in SHARED_CSS
+    )
+    view_css = "\n".join(
+        f'<link rel="stylesheet" href="shared/views/{v}.css" />' for v in VIEWS
+    )
     shared_js = "\n".join(f'<script src="shared/{f}"></script>' for f in SHARED_JS)
     view_js = "\n".join(f'<script src="shared/views/{v}.js"></script>' for v in VIEWS)
-    views_init = "<script>window.HZ = window.HZ || {}; HZ.views = HZ.views || {};</script>"
+    views_init = (
+        "<script>window.HZ = window.HZ || {}; HZ.views = HZ.views || {};</script>"
+    )
 
     return f"""<!DOCTYPE html>
 <html lang="zh-CN">
@@ -238,7 +247,9 @@ def copy_assets() -> None:
     (OUT / "shared" / "views").mkdir(parents=True, exist_ok=True)
     # shared css
     for f in SHARED_CSS:
-        (OUT / "shared" / f).write_bytes((SRC / "dashboard" / "shared" / f).read_bytes())
+        (OUT / "shared" / f).write_bytes(
+            (SRC / "dashboard" / "shared" / f).read_bytes()
+        )
     # shared js (view-agnostic, take dashboard copy); SPA nav is handled by
     # app.js, so hrefs are neutralized to avoid navigating away.
     for f in SHARED_JS:
@@ -254,9 +265,7 @@ def copy_assets() -> None:
         (OUT / "shared" / "views" / f"{v}.css").write_text(
             rename_css(css, mapping, v), encoding="utf-8"
         )
-        (OUT / "shared" / "views" / f"{v}.js").write_text(
-            views_js[v], encoding="utf-8"
-        )
+        (OUT / "shared" / "views" / f"{v}.js").write_text(views_js[v], encoding="utf-8")
     # assets (from dashboard, the only view that uses them)
     src_assets = SRC / "dashboard" / "assets"
     if src_assets.is_dir():
