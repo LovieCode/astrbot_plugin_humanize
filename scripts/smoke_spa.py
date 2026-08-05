@@ -17,6 +17,7 @@ Usage:
 
 from __future__ import annotations
 
+import json
 import re
 import sys
 import threading
@@ -69,6 +70,7 @@ def rewrite_html(html: str, path: str) -> str:
 BRIDGE_SDK = """
 (function () {
   window.__apiCalls = [];
+  window.__fixtures = window.__fixtures || %(fixtures)s;
   window.AstrBotPluginPage = {
     ready: () => Promise.resolve({ pluginName: "%(plugin)s", pageName: "humanize",
       displayName: "Humanize", locale: "zh-CN", i18n: {}, isDark: false }),
@@ -84,7 +86,7 @@ BRIDGE_SDK = """
     },
   };
 })();
-""" % {"plugin": PLUGIN}
+""" % {"plugin": PLUGIN, "fixtures": json.dumps(FIXTURES)}
 
 
 class Handler(BaseHTTPRequestHandler):

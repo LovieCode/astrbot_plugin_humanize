@@ -130,9 +130,9 @@
 /* ---------- 词库作用域 ---------- */
 .scope-row { display: flex; align-items: center; gap: 14px; padding: 10px 2px; }
 .scope-row + .scope-row { border-top: 1px dashed var(--line); }
-.scope-main { width: 150px; flex-shrink: 0; }
-.scope-name { font-size: 13px; font-weight: 800; }
-.scope-sub { font-size: 11px; color: var(--muted); margin-top: 1px; }
+.scope-main { width: 150px; flex-shrink: 0; min-width: 0; }
+.scope-name { font-size: 13px; font-weight: 800; line-height: 1.35; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.scope-sub { font-size: 11px; color: var(--muted); margin-top: 1px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
 .scope-bar { flex: 1; height: 8px; border-radius: var(--r-full); background: var(--pink-soft); overflow: hidden; }
 .scope-bar i { display: block; height: 100%; border-radius: var(--r-full); background: linear-gradient(90deg, var(--pink-mid), var(--pink)); }
 .scope-count { width: 52px; text-align: right; font-size: 12.5px; font-weight: 800; font-variant-numeric: tabular-nums; flex-shrink: 0; }

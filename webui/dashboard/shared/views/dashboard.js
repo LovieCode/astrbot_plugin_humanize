@@ -234,6 +234,7 @@
       const name = document.createElement("div");
       name.className = "scope-name";
       name.textContent = (SCOPE_LABEL[s.scope_type] || s.scope_type || "未分类") + (s.scope_id ? " · " + s.scope_id : "");
+      name.title = name.textContent;
       const sub = document.createElement("div");
       sub.className = "scope-sub";
       sub.textContent = SCOPE_SUB[s.scope_type] || "作用域";
