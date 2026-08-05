@@ -206,6 +206,12 @@ class WebApi:
                 return await self._handle_post(path)
             return error_response("不支持的请求方法", status_code=405)
         except ValueError as exc:
+            logger.exception(
+                "[Humanize] Web API bad request: %s %s: %s",
+                request.method,
+                path,
+                exc,
+            )
             return error_response(str(exc), status_code=400)
         except PermissionError as exc:
             return error_response(str(exc), status_code=403)
