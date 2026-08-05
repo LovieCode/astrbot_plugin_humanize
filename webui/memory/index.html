@@ -62,6 +62,11 @@
       <div class="mem-main reveal">
         <!-- 记忆服务未就绪引导卡 -->
         <div id="memGuide" style="display:none">
+          <div class="mem-guide">
+            <p id="guideReason" class="mem-guide-reason"></p>
+            <p id="guideMeta" class="mem-guide-meta"></p>
+            <button class="btn btn-primary" data-act="retry-mem">重试</button>
+          </div>
         </div>
         <div class="mem-list" id="memList">
           <!-- 记忆卡片由 shared/views/memory.js 动态渲染 -->

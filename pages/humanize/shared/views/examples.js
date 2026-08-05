@@ -64,9 +64,9 @@ HZ.views["examples"] = { init: function () {
 
   const listEl = $("#exList");
   const pagerEl = $("#exPager");
-  const drawer = $("#drawer");
-  const mask = $("#drawerMask");
-  const drawerBody = $("#drawerBody");
+  const drawer = $("#ex-drawer");
+  const mask = $("#ex-drawerMask");
+  const drawerBody = $("#ex-drawerBody");
   const footEl = $("#drawerFoot");
 
   /* ---------- 状态 ---------- */
@@ -376,8 +376,8 @@ HZ.views["examples"] = { init: function () {
       toast(err.message, { type: "error" });
       drawerBody.innerHTML = "";
       drawerBody.appendChild(el("div", "ex-empty", "详情加载失败：" + err.message));
-      $("#drawerTitle").textContent = "回复样例详情";
-      $("#drawerStatus").innerHTML = "";
+      $("#ex-drawerTitle").textContent = "回复样例详情";
+      $("#ex-drawerStatus").innerHTML = "";
     }
   }
 
@@ -387,8 +387,8 @@ HZ.views["examples"] = { init: function () {
     drawerBody.innerHTML = "";
 
     /* 头部：标题 + 状态 */
-    $("#drawerTitle").textContent = item.title || "回复样例";
-    const st = $("#drawerStatus");
+    $("#ex-drawerTitle").textContent = item.title || "回复样例";
+    const st = $("#ex-drawerStatus");
     st.innerHTML = "";
     st.appendChild(statusTagEl(item.status));
     if (!item.enabled) st.appendChild(el("span", "tag tag-disabled2", "已停用"));
@@ -869,9 +869,9 @@ HZ.views["examples"] = { init: function () {
 
   /* ---------- 召回测试 ---------- */
   async function runRecall() {
-    const query = $("#recallQuery").value.trim();
+    const query = $("#ex-recallQuery").value.trim();
     const scope = scopeOptions[parseInt($("#recallScope").value, 10)];
-    const agent = agentOptions[parseInt($("#recallAgent").value, 10)];
+    const agent = agentOptions[parseInt($("#ex-recallAgent").value, 10)];
     if (!query) return toast("请输入测试查询", { type: "error" });
     if (!scope) return toast("请选择作用域", { type: "error" });
     if (!scope.scope_token) return toast("该作用域缺少 scope_token，无法测试召回", { type: "error" });
@@ -891,7 +891,7 @@ HZ.views["examples"] = { init: function () {
   }
 
   function renderRecall(data) {
-    const result = $("#recallResult");
+    const result = $("#ex-recallResult");
     result.style.display = "";
     const inc = $("#recallIncluded");
     inc.style.display = "";
@@ -1016,7 +1016,7 @@ HZ.views["examples"] = { init: function () {
 
   /* 抽屉开关 */
   mask.addEventListener("click", closeDrawer);
-  $("#drawerClose").addEventListener("click", closeDrawer);
+  $("#ex-drawerClose").addEventListener("click", closeDrawer);
   document.addEventListener("keydown", (e) => {
     if (e.key === "Escape") closeDrawer();
   });
@@ -1029,7 +1029,7 @@ HZ.views["examples"] = { init: function () {
   });
 
   /* 召回测试 */
-  $("#recallBtn").addEventListener("click", runRecall);
+  $("#ex-recallBtn").addEventListener("click", runRecall);
 
   /* ---------- 启动 ---------- */
   loadOptions();

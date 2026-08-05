@@ -88,6 +88,7 @@ def rename_js(js: str, mapping: dict[str, dict[str, str]], view: str) -> str:
     for old, new in mapping[view].items():
         js = js.replace(f'getElementById("{old}")', f'getElementById("{new}")')
         js = js.replace(f'$("{old}")', f'$("{new}")')
+        js = js.replace(f'$("#{old}")', f'$("#{new}")')
         js = js.replace(f'querySelector("#{old}")', f'querySelector("#{new}")')
         js = js.replace(f'querySelectorAll("#{old}")', f'querySelectorAll("#{new}")')
     return js
@@ -181,7 +182,9 @@ def build() -> str:
     view_css = "\n".join(
         f'<link rel="stylesheet" href="shared/views/{v}.css" />' for v in VIEWS
     )
-    shared_js = "\n".join(f'<script src="shared/{f}"></script>' for f in SHARED_JS)
+    shared_js = '<script src="/api/plugin/page/bridge-sdk.js"></script>\n' + "\n".join(
+        f'<script src="shared/{f}"></script>' for f in SHARED_JS
+    )
     view_js = "\n".join(f'<script src="shared/views/{v}.js"></script>' for v in VIEWS)
     views_init = (
         "<script>window.HZ = window.HZ || {}; HZ.views = HZ.views || {};</script>"

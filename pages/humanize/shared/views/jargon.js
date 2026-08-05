@@ -82,9 +82,9 @@ HZ.views["jargon"] = { init: function () {
 
   const listEl = $("#jgList");
   const pagerEl = $("#jgPager");
-  const drawer = $("#drawer");
-  const mask = $("#drawerMask");
-  const drawerBody = $("#drawerBody");
+  const drawer = $("#jg-drawer");
+  const mask = $("#jg-drawerMask");
+  const drawerBody = $("#jg-drawerBody");
   const footEl = $(".drawer-foot");
 
   /* ---------- 状态 ---------- */
@@ -432,8 +432,8 @@ HZ.views["jargon"] = { init: function () {
     }
 
     /* 抽屉头部 / 底部按钮 */
-    $("#drawerTitle").textContent = entry.term || "";
-    const st = $("#drawerStatus");
+    $("#jg-drawerTitle").textContent = entry.term || "";
+    const st = $("#jg-drawerStatus");
     st.innerHTML = "";
     st.appendChild(statusTagEl(entry.status, entry.enabled));
     renderFoot(entry);
@@ -913,7 +913,7 @@ HZ.views["jargon"] = { init: function () {
 
   /* 抽屉开关 */
   mask.addEventListener("click", closeDrawer);
-  $("#drawerClose").addEventListener("click", closeDrawer);
+  $("#jg-drawerClose").addEventListener("click", closeDrawer);
   document.addEventListener("keydown", (e) => {
     if (e.key === "Escape") closeDrawer();
   });
