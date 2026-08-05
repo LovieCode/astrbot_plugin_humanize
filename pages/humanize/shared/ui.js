@@ -116,7 +116,14 @@
       const path = String(window.location.pathname || "");
       const match = path.match(/^\/api\/plugin\/page\/content\/([^/]+)\/([^/]+)\//);
       if (match) {
-        return "/api/plugin/page/content/" + match[1] + "/" + match[2] + "/assets/lovie_avatar.png";
+        const params = new URLSearchParams(window.location.search);
+        const token = params.get("asset_token") || "";
+        const theme = params.get("theme") || "";
+        const query = new URLSearchParams();
+        if (token) query.set("asset_token", token);
+        if (theme) query.set("theme", theme);
+        const qs = query.toString();
+        return "/api/plugin/page/content/" + match[1] + "/" + match[2] + "/assets/lovie_avatar.png" + (qs ? "?" + qs : "");
       }
       return "assets/lovie_avatar.png";
     })();
