@@ -196,9 +196,10 @@ def test_webui_renders_persisted_content_as_text() -> None:
 def test_webui_build_is_reproducible() -> None:
     """The built SPA matches a fresh build from sources (scripts/build_spa.py)."""
     import subprocess
+    import sys
 
     subprocess.run(
-        ["python", str(PLUGIN_ROOT / "scripts/build_spa.py"), "--check"],
+        [sys.executable, str(PLUGIN_ROOT / "scripts/build_spa.py"), "--check"],
         cwd=PLUGIN_ROOT,
         check=True,
         capture_output=True,
