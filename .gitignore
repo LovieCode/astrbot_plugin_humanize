@@ -13,3 +13,8 @@ Thumbs.db
 data/
 *.log
 /.pi/
+
+# Local-only tooling and docs
+.agents/
+.trae/
+docs/
