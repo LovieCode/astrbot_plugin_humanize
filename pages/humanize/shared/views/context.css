@@ -258,8 +258,9 @@
 .raw-reasoning b { color: var(--text-2); }
 
 /* ---------- 响应式 ---------- */
-@media (max-width: 1080px) {
+@media (max-width: 860px) {
   .cx-layout { flex-direction: column; }
   .cx-list-col { width: 100%; }
+  .cx-detail-col { width: 100%; }
   .cx-stats-row { flex-direction: column; }
 }
