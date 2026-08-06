@@ -42,7 +42,6 @@ API_ENDPOINTS = {
     "reply-example-recall-debug",
     "context-runs",
     "context-run",
-    "context-stats",
     "prompt-templates",
     "prompt-template-audit",
     "chat-providers",

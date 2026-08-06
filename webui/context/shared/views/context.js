@@ -28,7 +28,7 @@
 
   /* 共享 API 层缺失：清空 mock 静态数据，显示明确错误提示（幂等，多次调用只插一个错误条） */
   function renderApiUnavailable() {
-    ["#cxRunList", "#cxDetail", "#cxStats"].forEach((sel) => {
+    ["#cxRunList", "#cxDetail"].forEach((sel) => {
       const node = document.querySelector(sel);
       if (node) node.innerHTML = "";
     });
@@ -106,11 +106,9 @@
   const listEl = $("#cxRunList");
   const pagerEl = $("#cxPager");
   const detailEl = $("#cxDetail");
-  const statsEl = $("#cxStats");
 
   /* ---------- 状态 ---------- */
   let current = { page: 1, scope: "" };
-  let statsDays = 7;
   let detailRequestId = null; // 当前详情 request_id
   let busy = false;
   let detailBusy = false;
@@ -275,7 +273,6 @@
     detailBusy = true;
     detailRequestId = requestId;
     $$(".cx-run", listEl).forEach((c) => c.classList.toggle("active", c.dataset.requestId === requestId));
-    if (statsEl) statsEl.style.display = "none";
     detailEl.innerHTML = "";
     const loading = el("div", "cx-detail-loading");
     loading.textContent = "加载运行详情…";
@@ -335,7 +332,6 @@
     const backBtn = el("button", "cx-back", "← 返回列表");
     backBtn.addEventListener("click", (e) => {
       e.stopPropagation();
-      if (statsEl) statsEl.style.display = "";
       detailEl.innerHTML = "";
       detailRequestId = "";
       $$(".cx-run", listEl).forEach((c) => c.classList.remove("active"));
@@ -698,171 +694,10 @@
     return parts.join("\n\n");
   }
 
-  /* ---------- 底部统计 ---------- */
-  async function loadStats() {
-    try {
-      const data = await api.get("context-stats", { days: statsDays });
-      renderStats(data);
-    } catch (e) {
-      const err = api.errorOf(e);
-      toast(err.message, { type: "error" });
-      if (statsEl) {
-        statsEl.innerHTML = "";
-        statsEl.appendChild(el("div", "cx-empty", "统计加载失败"));
-      }
-    }
-  }
-
-  function renderStats(data) {
-    if (!statsEl) return;
-    statsEl.innerHTML = "";
-
-    /* 头部：标题 + days 切换 */
-    const head = el("div", "cx-stats-head");
-    head.appendChild(el("span", "card-dot"));
-    head.appendChild(el("span", "card-title", "运行统计（近 " + statsDays + " 天）"));
-    const seg = el("div", "scope-seg");
-    [7, 14, 30].forEach((d) => {
-      const item = el("span", "seg-item" + (d === statsDays ? " active" : ""), d + " 天");
-      item.dataset.days = String(d);
-      seg.appendChild(item);
-    });
-    head.appendChild(seg);
-    statsEl.appendChild(head);
-
-    const row = el("div", "cx-stats-row");
-
-    /* 区块汇总 */
-    const sCard = el("div", "card");
-    sCard.appendChild(cardHeadEl("区块汇总"));
-    const sections = data.sections || [];
-    if (!sections.length) {
-      sCard.appendChild(el("div", "cx-empty", "暂无数据"));
-    } else {
-      sections.forEach((s) => {
-        const rowEl = el("div", "cx-stat-bar-row");
-        rowEl.appendChild(el("span", "cx-sb-name", sectionLabel(s.section_key)));
-        const bar = el("div", "cx-sb-bar");
-        const barI = el("i");
-        const included = s.included || 0;
-        const occurrences = s.occurrences || 0;
-        barI.style.width = (occurrences ? Math.round((included / occurrences) * 100) : 0) + "%";
-        bar.appendChild(barI);
-        rowEl.appendChild(bar);
-        rowEl.appendChild(el("span", "cx-sb-num", fmtNum(s.average_tokens) + " tok"));
-        rowEl.appendChild(el("span", "cx-sb-num", included + "/" + occurrences));
-        sCard.appendChild(rowEl);
-      });
-    }
-    row.appendChild(sCard);
-
-    /* 省略原因 */
-    const rCard = el("div", "card");
-    rCard.appendChild(cardHeadEl("常见省略原因"));
-    const reasons = data.reasons || [];
-    if (!reasons.length) {
-      rCard.appendChild(el("div", "cx-empty", "暂无数据"));
-    } else {
-      const maxCount = Math.max(1, ...reasons.map((r) => r.count || 0));
-      reasons.forEach((r) => {
-        const rowEl = el("div", "cx-reason-row");
-        const top = el("div", "cx-reason-top");
-        const name = el("span", "cx-reason-name");
-        name.textContent = sectionLabel(r.section_key) + " · " + (OMIT_REASON_LABEL[r.reason] || r.reason || "");
-        top.appendChild(name);
-        top.appendChild(el("span", "cx-reason-count", (r.count || 0) + " 次"));
-        rowEl.appendChild(top);
-        const bar = el("div", "cx-sb-bar");
-        const barI = el("i");
-        barI.style.width = Math.round(((r.count || 0) / maxCount) * 100) + "%";
-        bar.appendChild(barI);
-        rowEl.appendChild(bar);
-        rCard.appendChild(rowEl);
-      });
-    }
-    row.appendChild(rCard);
-
-    /* 总览 */
-    const oCard = el("div", "card");
-    oCard.appendChild(cardHeadEl("总览"));
-    const oRow = el("div", "row");
-    oRow.style.marginTop = "4px";
-    oRow.appendChild(statCell(fmtNum(data.runs), "运行次数", "pink"));
-    oRow.appendChild(statCell(fmtNum(data.total_tokens), "总 tokens"));
-    oRow.appendChild(statCell(fmtNum(data.average_tokens), "平均 tokens", "green"));
-    oCard.appendChild(oRow);
-    row.appendChild(oCard);
-
-    statsEl.appendChild(row);
-  }
-
-  function cardHeadEl(title) {
-    const head = el("div", "card-head");
-    head.appendChild(el("span", "card-dot"));
-    head.appendChild(el("span", "card-title", title));
-    return head;
-  }
-
-  /* ---------- 事件绑定（委托 + 防抖） ---------- */
-
-  /* 列表点击：运行卡 */
-  listEl.addEventListener("click", (e) => {
-    const card = e.target.closest(".cx-run");
-    if (!card) return;
-    openDetail(card.dataset.requestId);
-  });
-
-  /* 分页 */
-  pagerEl.addEventListener("click", (e) => {
-    const btn = e.target.closest(".pg-btn");
-    if (!btn || btn.disabled) return;
-    const p = btn.dataset.page;
-    if (p === "prev") current.page = Math.max(1, current.page - 1);
-    else if (p === "next") current.page += 1;
-    else current.page = Number(p);
-    loadList();
-  });
-
-  /* 筛选：scope seg（触发重新请求）；注入模式仅前端高亮（静态 seg 已处理） */
-  $(".cx-filter").addEventListener("click", (e) => {
-    const seg = e.target.closest(".seg-item[data-scope]");
-    if (!seg) return;
-    current.scope = seg.dataset.scope;
-    current.page = 1;
-    loadList();
-  });
-
-  /* 顶部搜索框（防抖 350ms） */
-  const searchInput = $("#topbar input");
-  if (searchInput) {
-    let timer = null;
-    searchInput.addEventListener("input", () => {
-      clearTimeout(timer);
-      timer = setTimeout(() => {
-        toast("搜索功能开发中", { type: "info" });
-      }, 350);
-    });
-  }
-
-  /* 原始上下文消息收起/展开（事件委托） */
-  detailEl.addEventListener("click", (e) => {
-    const btn = e.target.closest(".raw-collapse");
-    if (!btn) return;
-    const box = btn.closest(".raw-msg");
-    if (!box) return;
-    const collapsed = box.classList.toggle("collapsed");
-    btn.textContent = collapsed ? "展开" : "收起";
-  });
-
-  /* 统计 days 切换（事件委托） */
-  statsEl.addEventListener("click", (e) => {
-    const seg = e.target.closest(".seg-item[data-days]");
-    if (!seg) return;
-    statsDays = Number(seg.dataset.days);
-    loadStats();
-  });
-
   /* ---------- 启动 ---------- */
-  loadList();
-  loadStats();
+  loadList().then(() => {
+    /* 默认展示最新一条运行详情 */
+    const first = listEl && listEl.querySelector(".cx-run");
+    if (first) openDetail(first.dataset.requestId);
+  });
 })();
