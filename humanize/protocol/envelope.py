@@ -37,30 +37,33 @@ class EnvelopeBuilder:
         return ET.tostring(root, encoding="unicode", short_empty_elements=True)
 
     def build_known_terms_xml(self, terms: tuple[KnownTerm, ...]) -> str:
-        root = ET.Element("KnownTerms")
+        """Build the compact known-terms block injected before each turn.
+
+        One term per line: ``词[ /别名]：释义``. No nested metadata (confidence,
+        status, scope) — those are for humans in the WebUI, not for the model;
+        injection already filtered by scope and confidence.
+
+        Args:
+            terms: Scoped terms that passed the injection filters.
+
+        Returns:
+            ``<KnownTerms>`` block with one ``<Term>`` line per term.
+        """
+        lines = []
         for term in terms:
-            node = ET.SubElement(root, "Term")
-            ET.SubElement(node, "Word").text = term.term
-            if term.aliases:
-                aliases = ET.SubElement(node, "Aliases")
-                for alias in term.aliases:
-                    ET.SubElement(aliases, "Alias").text = alias
-            senses = ET.SubElement(node, "Senses")
-            if term.senses:
-                for known_sense in term.senses:
-                    sense = ET.SubElement(senses, "Sense")
-                    ET.SubElement(sense, "Meaning").text = known_sense.meaning
-                    ET.SubElement(
-                        sense, "Confidence"
-                    ).text = f"{known_sense.confidence:.2f}"
-                    ET.SubElement(sense, "Status").text = known_sense.status.value
-            else:
-                sense = ET.SubElement(senses, "Sense")
-                ET.SubElement(sense, "Meaning").text = term.meaning
-                ET.SubElement(sense, "Confidence").text = f"{term.confidence:.2f}"
-                ET.SubElement(sense, "Status").text = term.status.value
-            ET.SubElement(node, "Scope").text = term.scope_id
-        return ET.tostring(root, encoding="unicode", short_empty_elements=True)
+            aliases = " / ".join(term.aliases) if term.aliases else ""
+            label = f"{term.term} / {aliases}" if aliases else term.term
+            meanings = [
+                sense.meaning
+                for sense in term.senses
+                if sense and getattr(sense, "meaning", "")
+            ] or ([term.meaning] if getattr(term, "meaning", "") else [])
+            for meaning in meanings:
+                lines.append(f"<Term>{label}：{meaning}</Term>")
+        body = "\n".join(lines)
+        if not body:
+            return "<KnownTerms />"
+        return f"<KnownTerms>\n{body}\n</KnownTerms>"
 
     def build_protocol_prompt(self, context: MessageContext) -> str:
         parts: list[str] = []

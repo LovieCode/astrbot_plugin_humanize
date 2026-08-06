@@ -50,13 +50,8 @@ DEFAULT_PROTOCOL_TEMPLATE = """
 <Msg>你当前的这条消息原文（有图片时以 [图片] 占位，具体含义见 ImageCache）</Msg>
 
 <KnownTerms>
-<Term>
-<Word>yyds</Word>
-<Senses>
-<Sense><Meaning>永远的神</Meaning><Confidence>0.91</Confidence><Status>verified</Status></Sense>
-</Senses>
-<Scope>global</Scope>
-</Term>
+<Term>yyds：永远的神</Term>
+<Term>开香槟：提前庆祝事情成功</Term>
 </KnownTerms>
 （无匹配词条时为空：<KnownTerms />）
 

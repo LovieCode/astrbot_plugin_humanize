@@ -58,10 +58,9 @@ def test_multiple_verified_senses_share_one_envelope_term(tmp_path: Path) -> Non
         assert len(injectable[0].senses) == 2
         assert confirmed_detail is not None
         assert confirmed_detail["entry"]["has_conflict"] is False
-        assert envelope.count("<Term>") == 1
-        assert envelope.count("<Sense>") == 2
-        assert "考试或求职成功" in envelope
-        assert "摆脱困难处境" in envelope
+        assert envelope.count("<Term>") == 2
+        assert "上岸：考试或求职成功" in envelope
+        assert "上岸：摆脱困难处境" in envelope
 
     asyncio.run(scenario())
 
