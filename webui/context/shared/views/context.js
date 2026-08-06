@@ -17,13 +17,16 @@
 HZ.renderTopbar(HZ.topbars["context"]);
   HZ.initReveal();
 
-  /* 筛选 seg 高亮（静态预览与真实模式共用） */
+  /* 筛选 seg：切换高亮 + 重新加载列表 */
   document.querySelectorAll(".scope-seg").forEach((segGroup) => {
     segGroup.addEventListener("click", (e) => {
       const seg = e.target.closest(".seg-item");
-      if (!seg) return;
+      if (!seg || !seg.dataset.scope) return;
       segGroup.querySelectorAll(".seg-item").forEach((s) => s.classList.remove("active"));
       seg.classList.add("active");
+      current.scope = seg.dataset.scope;
+      current.page = 1;
+      loadList();
     });
   });
 
@@ -89,6 +92,7 @@ HZ.renderTopbar(HZ.topbars["context"]);
   };
   const SCOPE_LABEL = {
     group: "群聊",
+    private: "私聊",
     private_user: "私聊",
     group_member: "群成员",
   };
@@ -207,6 +211,28 @@ HZ.renderTopbar(HZ.topbars["context"]);
     }
     items.forEach((item) => listEl.appendChild(runCardEl(item)));
   }
+
+  /* 列表卡片点击：事件委托到 listEl，重渲染不丢绑定 */
+  listEl.addEventListener("click", (e) => {
+    const card = e.target && e.target.closest ? e.target.closest(".cx-run") : null;
+    if (!card) return;
+    openDetail(card.dataset.requestId);
+  });
+
+  /* 分页点击：事件委托到 pagerEl，重渲染不丢绑定 */
+  pagerEl.addEventListener("click", (e) => {
+    const btn = e.target && e.target.closest ? e.target.closest(".pg-btn") : null;
+    if (!btn || btn.disabled) return;
+    const target = btn.dataset.page;
+    if (target === "prev") {
+      if (current.page > 1) current.page -= 1;
+    } else if (target === "next") {
+      current.page += 1;
+    } else {
+      current.page = Number(target);
+    }
+    loadList();
+  });
 
   function runCardEl(item) {
     const card = el("div", "cx-run");
@@ -337,12 +363,7 @@ HZ.renderTopbar(HZ.topbars["context"]);
     copyBtn.dataset.icon = "copy";
     copyBtn.addEventListener("click", async (e) => {
       e.stopPropagation();
-      try {
-        await navigator.clipboard.writeText(run.request_id || "");
-        toast("已复制", { type: "success" });
-      } catch (err) {
-        toast("复制失败", { type: "error" });
-      }
+      copyTextFallback(run.request_id || "", "已复制");
     });
     headId.appendChild(copyBtn);
     main.appendChild(headId);
@@ -474,9 +495,10 @@ HZ.renderTopbar(HZ.topbars["context"]);
     top.appendChild(right);
     inner.appendChild(top);
 
-    /* 原因 */
+    /* 原因：优先显示中文映射，未映射时保留原始 code */
     if (sec.reason) {
-      const reason = el("div", "cx-sec-reason", "原因 · " + sec.reason);
+      const label = OMIT_REASON_LABEL[sec.reason] || sec.reason;
+      const reason = el("div", "cx-sec-reason", "原因 · " + label);
       reason.setAttribute("data-icon", "spark");
       inner.appendChild(reason);
     }
@@ -536,6 +558,31 @@ HZ.renderTopbar(HZ.topbars["context"]);
     return row;
   }
 
+  /* 复制 fallback：插件 iframe 无安全上下文，navigator.clipboard 不可用，
+     改用 textarea + execCommand 选中复制；失败时提示手动复制。 */
+  function copyTextFallback(text, okMsg) {
+    if (!text) return;
+    const done = () => toast(okMsg || "已复制", { type: "success" });
+    const fallback = () => {
+      const ta = document.createElement("textarea");
+      ta.value = text;
+      ta.style.position = "fixed";
+      ta.style.opacity = "0";
+      document.body.appendChild(ta);
+      ta.select();
+      let ok = false;
+      try { ok = document.execCommand("copy"); } catch (e) { /* ignore */ }
+      ta.remove();
+      if (!ok) toast("复制失败，请手动选择文本复制", { type: "error" });
+      else done();
+    };
+    if (navigator.clipboard && navigator.clipboard.writeText) {
+      navigator.clipboard.writeText(text).then(done).catch(() => { fallback(); });
+    } else {
+      fallback();
+    }
+  }
+
   /* 原始上下文卡 */
   function rawCardEl(run, reqSnap, resSnap, protocol, response) {
     const card = el("div", "card");
@@ -562,12 +609,7 @@ HZ.renderTopbar(HZ.topbars["context"]);
     const copyBtn = el("button", "raw-copy", "复制全部");
     copyBtn.dataset.icon = "copy";
     copyBtn.addEventListener("click", async () => {
-      try {
-        await navigator.clipboard.writeText(rawAllText(run, reqSnap, resSnap, protocol));
-        toast("已复制", { type: "success" });
-      } catch (err) {
-        toast("复制失败", { type: "error" });
-      }
+      copyTextFallback(rawAllText(run, reqSnap, resSnap, protocol), "已复制全部");
     });
     head.appendChild(copyBtn);
     card.appendChild(head);
