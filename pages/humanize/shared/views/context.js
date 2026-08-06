@@ -127,6 +127,7 @@ HZ.renderTopbar(HZ.topbars["context"]);
   }
   function injectIcons(root) {
     root.querySelectorAll("[data-icon]").forEach((n) => {
+      if (n.querySelector("svg")) return; /* 幂等：已有图标不再插 */
       const svg = HZ.icon(n.dataset.icon);
       const afterbegin =
         (n.tagName === "BUTTON" && n.textContent.trim()) ||
@@ -736,7 +737,13 @@ HZ.renderTopbar(HZ.topbars["context"]);
     const content = msg.content == null ? "" : String(msg.content);
     head.appendChild(el("span", "raw-len", content.length + " 字"));
     const collapseBtn = el("button", "raw-collapse", "展开");
+    /* 直接插图标（不依赖 injectIcons 时机），点击切换时重插 */
+    const paintIcon = () => {
+      collapseBtn.querySelectorAll("svg").forEach((s) => s.remove());
+      collapseBtn.insertAdjacentHTML("afterbegin", HZ.icon(collapseBtn.dataset.icon));
+    };
     collapseBtn.dataset.icon = "arrow-down";
+    paintIcon();
     head.appendChild(collapseBtn);
     box.appendChild(head);
     const body = el("div", "raw-body", content);
@@ -747,6 +754,7 @@ HZ.renderTopbar(HZ.topbars["context"]);
       const collapsed = box.classList.toggle("collapsed");
       collapseBtn.textContent = collapsed ? "展开" : "收起";
       collapseBtn.dataset.icon = collapsed ? "arrow-down" : "arrow-up";
+      paintIcon();
     });
     box.appendChild(body);
     return box;
