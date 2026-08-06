@@ -297,7 +297,7 @@ HZ.views["context"] = { init: function () {
       null;
 
     detailEl.innerHTML = "";
-    detailEl.appendChild(headCardEl(run, durationMs));
+    detailEl.appendChild(headCardEl(run, durationMs, protocol));
     detailEl.appendChild(budgetCardEl(sections));
     detailEl.appendChild(sectionsCardEl(sections));
     detailEl.appendChild(rawCardEl(run, reqSnap, resSnap, protocol, response));
@@ -313,7 +313,7 @@ HZ.views["context"] = { init: function () {
   }
 
   /* 概览胶囊 */
-  function headCardEl(run, durationMs) {
+  function headCardEl(run, durationMs, protocol) {
     const card = el("div", "card cx-head-card");
     const row = el("div", "cx-head-row");
 
