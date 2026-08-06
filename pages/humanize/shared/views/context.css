@@ -15,6 +15,8 @@
 .cx-layout { display: flex; gap: 16px; margin-top: 16px; align-items: flex-start; min-width: 0; max-width: 100%; }
 .cx-list-col { width: 400px; flex-shrink: 0; display: flex; flex-direction: column; gap: 10px; }
 .cx-detail-col { flex: 1; min-width: 0; max-width: 100%; display: flex; flex-direction: column; gap: 16px; }
+/* 详情卡片容器：卡片直接 append 到 #cxDetail，需自带纵向间距 */
+#cxDetail { display: flex; flex-direction: column; gap: 16px; min-width: 0; }
 .cx-detail-col .card { min-width: 0; max-width: 100%; }
 
 /* ---------- 运行卡片 ---------- */
