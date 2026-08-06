@@ -363,8 +363,8 @@
 
     const stats = el("div", "cx-head-stats");
     stats.appendChild(statCell(fmtNum(run.estimated_tokens), "估算 tokens", "pink"));
-    const included = (run.included_sections || []).length;
-    const omitted = (run.omitted_sections || []).length;
+    const included = Number(run.included_sections || 0);
+    const omitted = Number(run.omitted_sections || 0);
     stats.appendChild(statCell(String(included), "纳入区块", "green"));
     stats.appendChild(statCell(String(omitted), "省略区块"));
     stats.appendChild(statCell(durationMs != null ? (durationMs / 1000).toFixed(1) + "s" : "—", "耗时"));
