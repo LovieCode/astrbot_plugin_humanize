@@ -7,6 +7,13 @@
  */
 HZ.views["prompts"] = { init: function () {
 
+  const KEY_LABEL = {
+    rule: "基础规则",
+    protocol: "回复协议",
+    repair: "修复指令",
+    memory_extraction: "记忆提取",
+    reply_examples: "回复样例",
+  };
   HZ.renderTopbar({
     title: "提示词模板",
     sub: "5 个全局模板 · 修改立即生效并记录审计",
@@ -131,7 +138,7 @@ HZ.views["prompts"] = { init: function () {
       name.textContent = item.label;
       const key = document.createElement("span");
       key.className = "pt-item-key";
-      key.textContent = item.key;
+      key.textContent = KEY_LABEL[item.key] || item.key;
       top.appendChild(name);
       top.appendChild(key);
       if (item.content !== item.default_content) {
@@ -177,7 +184,7 @@ HZ.views["prompts"] = { init: function () {
       editorName.appendChild(document.createTextNode(item.label));
       const k = document.createElement("span");
       k.className = "k";
-      k.textContent = item.key;
+      k.textContent = KEY_LABEL[item.key] || item.key;
       editorName.appendChild(k);
       if (item.content !== item.default_content) {
         const tag = document.createElement("span");

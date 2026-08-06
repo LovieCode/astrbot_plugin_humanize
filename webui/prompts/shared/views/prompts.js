@@ -6,6 +6,13 @@
  * 安全：模板内容一律通过 textarea.value 读写；审计字段一律通过 textContent 写入。
  */
 (function () {
+  const KEY_LABEL = {
+    rule: "基础规则",
+    protocol: "回复协议",
+    repair: "修复指令",
+    memory_extraction: "记忆提取",
+    reply_examples: "回复样例",
+  };
   HZ.renderSidebar("prompts");
   HZ.renderTopbar({
     title: "提示词模板",
@@ -131,7 +138,7 @@
       name.textContent = item.label;
       const key = document.createElement("span");
       key.className = "pt-item-key";
-      key.textContent = item.key;
+      key.textContent = KEY_LABEL[item.key] || item.key;
       top.appendChild(name);
       top.appendChild(key);
       if (item.content !== item.default_content) {
@@ -177,7 +184,7 @@
       editorName.appendChild(document.createTextNode(item.label));
       const k = document.createElement("span");
       k.className = "k";
-      k.textContent = item.key;
+      k.textContent = KEY_LABEL[item.key] || item.key;
       editorName.appendChild(k);
       if (item.content !== item.default_content) {
         const tag = document.createElement("span");
