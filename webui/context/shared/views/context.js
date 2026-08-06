@@ -67,6 +67,18 @@
     reply_examples: "回复样例",
     response_protocol: "回复协议",
   };
+  const OMIT_REASON_LABEL = {
+    current_user_message: "当前用户消息",
+    no_matching_trusted_term: "无匹配可信词条",
+    no_match: "无匹配",
+    required_response_protocol: "协议必选区块",
+    token_budget_exhausted: "预算超限",
+    matched_current_message: "命中当前消息",
+    matched_current_message_budgeted: "命中当前消息（限预算）",
+    jargon_disabled: "黑话功能关闭",
+    source_error: "来源异常",
+    memory_service_not_initialized: "记忆服务未初始化",
+  };
   const SOURCE_TYPE_LABEL = {
     message: "用户消息",
     repository: "词库",
@@ -756,7 +768,7 @@
         const rowEl = el("div", "cx-stat-bar-row");
         const name = el("span", "cx-sb-name");
         name.style.fontFamily = "var(--font-base)";
-        name.textContent = sectionLabel(r.section_key) + " · " + (r.reason || "");
+        name.textContent = sectionLabel(r.section_key) + " · " + (OMIT_REASON_LABEL[r.reason] || r.reason || "");
         rowEl.appendChild(name);
         const bar = el("div", "cx-sb-bar");
         const barI = el("i");
