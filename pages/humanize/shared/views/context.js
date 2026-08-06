@@ -329,14 +329,6 @@ HZ.views["context"] = { init: function () {
 
     const main = el("div", "cx-head-main");
     const headId = el("div", "cx-head-id");
-    const backBtn = el("button", "cx-back", "← 返回列表");
-    backBtn.addEventListener("click", (e) => {
-      e.stopPropagation();
-      detailEl.innerHTML = "";
-      detailRequestId = "";
-      $$(".cx-run", listEl).forEach((c) => c.classList.remove("active"));
-    });
-    headId.appendChild(backBtn);
     headId.appendChild(el("span", null, "#" + shortId(run.request_id)));
     const tag = el("span", "tag tag-required", "protocol v1");
     headId.appendChild(tag);
