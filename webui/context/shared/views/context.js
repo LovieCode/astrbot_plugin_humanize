@@ -228,8 +228,8 @@
     const inc = el("span", "cx-inc");
     const incBar = el("span", "cx-inc-bar");
     const incBarI = el("i");
-    const included = (item.included_sections || []).length;
-    const omitted = (item.omitted_sections || []).length;
+    const included = Number(item.included_sections || 0);
+    const omitted = Number(item.omitted_sections || 0);
     const total = included + omitted;
     incBarI.style.width = (total ? Math.round((included / total) * 100) : 0) + "%";
     incBar.appendChild(incBarI);

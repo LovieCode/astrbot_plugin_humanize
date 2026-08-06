@@ -12,15 +12,17 @@
 .cx-filter-hint { font-size: 11px; color: var(--muted); font-weight: 700; }
 
 /* ---------- 布局：左运行列表 + 右详情 ---------- */
-.cx-layout { display: flex; gap: 16px; margin-top: 16px; align-items: flex-start; }
+.cx-layout { display: flex; gap: 16px; margin-top: 16px; align-items: flex-start; min-width: 0; max-width: 100%; }
 .cx-list-col { width: 400px; flex-shrink: 0; display: flex; flex-direction: column; gap: 10px; }
-.cx-detail-col { flex: 1; min-width: 0; display: flex; flex-direction: column; gap: 16px; }
+.cx-detail-col { flex: 1; min-width: 0; max-width: 100%; display: flex; flex-direction: column; gap: 16px; }
+.cx-detail-col .card { min-width: 0; max-width: 100%; }
 
 /* ---------- 运行卡片 ---------- */
 .cx-run {
   background: var(--card); border: 1px solid var(--line); border-radius: var(--r-md);
   box-shadow: var(--shadow); padding: 14px 16px; cursor: pointer;
   display: flex; flex-direction: column; gap: 8px;
+  margin-bottom: 10px;
   transition: transform var(--dur-mid) var(--ease-spring), box-shadow var(--dur-mid), border-color var(--dur-mid);
 }
 .cx-run:hover { transform: translateY(-2px); box-shadow: var(--shadow-hover); }
@@ -57,6 +59,7 @@
   font-size: 12.5px; font-weight: 700; color: var(--text-2);
   background: var(--bg); border: 1px solid var(--line);
   border-radius: var(--r-full); padding: 5px 12px; white-space: nowrap;
+  max-width: 100%; overflow: hidden; text-overflow: ellipsis;
 }
 .cx-head-sub svg { width: 13px; height: 13px; color: var(--muted); }
 .cx-head-stats { display: flex; gap: 8px; flex-shrink: 0; }
@@ -220,7 +223,7 @@
 }
 .raw-copy svg { width: 12px; height: 12px; }
 .raw-copy:hover { transform: translateY(-1px); box-shadow: var(--shadow-pink); }
-.raw-list { display: flex; flex-direction: column; gap: 10px; }
+.raw-list { display: flex; flex-direction: column; gap: 10px; min-width: 0; }
 .raw-msg {
   border: 1px solid var(--line); border-radius: var(--r-md);
   overflow: hidden; background: var(--card);
