@@ -735,11 +735,19 @@ HZ.renderTopbar(HZ.topbars["context"]);
     }
     const content = msg.content == null ? "" : String(msg.content);
     head.appendChild(el("span", "raw-len", content.length + " 字"));
-    const collapseBtn = el("button", "raw-collapse", "收起");
-    collapseBtn.dataset.icon = "arrow-right";
+    const collapseBtn = el("button", "raw-collapse", "展开");
+    collapseBtn.dataset.icon = "arrow-down";
     head.appendChild(collapseBtn);
     box.appendChild(head);
     const body = el("div", "raw-body", content);
+    /* 长内容默认折叠（190px 截断），点展开显示全文 */
+    const long = content.length > 300;
+    if (long) box.classList.add("collapsed");
+    collapseBtn.addEventListener("click", () => {
+      const collapsed = box.classList.toggle("collapsed");
+      collapseBtn.textContent = collapsed ? "展开" : "收起";
+      collapseBtn.dataset.icon = collapsed ? "arrow-down" : "arrow-up";
+    });
     box.appendChild(body);
     return box;
   }
