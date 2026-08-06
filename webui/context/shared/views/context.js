@@ -657,6 +657,7 @@ HZ.renderTopbar(HZ.topbars["context"]);
     const pr = reqSnap.provider_request || {};
     const fields = pr.fields || {};
     const ctxMessages = Array.isArray(fields.contexts) ? fields.contexts : [];
+    const extraParts = Array.isArray(fields.extra_user_content_parts) ? fields.extra_user_content_parts : [];
     const systemPrompt = fields.system_prompt ? String(fields.system_prompt) : "";
     const prompt = fields.prompt ? String(fields.prompt) : "";
     let rendered = 0;
@@ -667,6 +668,13 @@ HZ.renderTopbar(HZ.topbars["context"]);
     ctxMessages.forEach((msg, i) => {
       if (msg && typeof msg === "object" && msg.content) {
         list.appendChild(rawMsgEl({ role: msg.role || "user", content: msg.content }, rendered));
+        rendered += 1;
+      }
+    });
+    extraParts.forEach((part) => {
+      const text = part && typeof part === "object" ? part.text : String(part);
+      if (text) {
+        list.appendChild(rawMsgEl({ role: "temp_user", content: text }, rendered));
         rendered += 1;
       }
     });
@@ -748,6 +756,11 @@ HZ.renderTopbar(HZ.topbars["context"]);
       if (m && typeof m === "object") {
         parts.push("[" + (m.role || "user") + "]\n" + (m.content == null ? "" : String(m.content)));
       }
+    });
+    const extraParts = Array.isArray(fields.extra_user_content_parts) ? fields.extra_user_content_parts : [];
+    extraParts.forEach((part) => {
+      const text = part && typeof part === "object" ? part.text : String(part);
+      if (text) parts.push("[temp_user]\n" + String(text));
     });
     if (prompt) parts.push("[user]\n" + prompt);
     const llmResp = (resSnap.llm_response && resSnap.llm_response.final_response) || {};
