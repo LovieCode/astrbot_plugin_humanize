@@ -680,7 +680,12 @@ HZ.renderTopbar(HZ.topbars["context"]);
       list.appendChild(empty);
     }
 
-    /* 响应分隔 + 响应消息 */
+    /* 响应分隔 + 响应消息：从 final_response.response.fields 提取文本 */
+    const llmResp = (resSnap.llm_response && resSnap.llm_response.final_response) || {};
+    const llmFields = (llmResp.response && llmResp.response.fields) || {};
+    const llmText = String(
+      llmFields.completion_text || llmFields.raw_completion || ""
+    );
     if (resSnap.llm_response) {
       list.appendChild(el("div", "raw-divider", "响应"));
       const resp = el("div", "raw-msg response");
@@ -693,9 +698,9 @@ HZ.renderTopbar(HZ.topbars["context"]);
       } else if (protocol && protocol.success !== undefined) {
         respHead.appendChild(el("span", "tag " + (protocol.success ? "tag-ok" : "tag-failed"), protocol.success ? "OK" : "失败"));
       }
-      respHead.appendChild(el("span", "raw-len", (resSnap.llm_response.length || 0) + " 字"));
+      respHead.appendChild(el("span", "raw-len", llmText.length + " 字"));
       resp.appendChild(respHead);
-      const body = el("div", "raw-body", resSnap.llm_response);
+      const body = el("div", "raw-body", llmText);
       resp.appendChild(body);
       list.appendChild(resp);
 
@@ -733,12 +738,25 @@ HZ.renderTopbar(HZ.topbars["context"]);
 
   function rawAllText(run, reqSnap, resSnap, protocol) {
     const parts = [];
-    const messages = (reqSnap.provider_request && reqSnap.provider_request.messages) || [];
-    messages.forEach((m) => {
-      parts.push("[" + (m.role || "user") + "]\n" + (m.content == null ? "" : String(m.content)));
+    const pr = reqSnap.provider_request || {};
+    const fields = pr.fields || {};
+    const ctxMessages = Array.isArray(fields.contexts) ? fields.contexts : [];
+    const prompt = fields.prompt ? String(fields.prompt) : "";
+    const systemPrompt = fields.system_prompt ? String(fields.system_prompt) : "";
+    if (systemPrompt) parts.push("[system]\n" + systemPrompt);
+    ctxMessages.forEach((m) => {
+      if (m && typeof m === "object") {
+        parts.push("[" + (m.role || "user") + "]\n" + (m.content == null ? "" : String(m.content)));
+      }
     });
-    if (resSnap.llm_response) {
-      parts.push("[response]\n" + String(resSnap.llm_response));
+    if (prompt) parts.push("[user]\n" + prompt);
+    const llmResp = (resSnap.llm_response && resSnap.llm_response.final_response) || {};
+    const llmFields = (llmResp.response && llmResp.response.fields) || {};
+    const llmText = String(
+      llmFields.completion_text || llmFields.raw_completion || ""
+    );
+    if (llmText) {
+      parts.push("[response]\n" + llmText);
     }
     if (protocol && protocol.raw_output) {
       parts.push("[raw_output]\n" + String(protocol.raw_output));
