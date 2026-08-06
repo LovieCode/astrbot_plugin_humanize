@@ -71,16 +71,16 @@
             <span class="jg-side-name"><span class="pill-dot" style="background:var(--amber)"></span>待审核（候选 + 临时）</span>
             <span class="jg-side-num" id="statPending">—</span>
           </div>
-          <div class="jg-side-note">细分状态（verified / ambiguous / rejected 等）暂无统计接口，这里仅展示总数与待审核数。</div>
+          <div class="jg-side-note">细分状态（已验证 / 歧义 / 已拒绝 等）暂无统计接口，这里仅展示总数与待审核数。</div>
         </div>
 
 
         <div class="card">
           <div class="card-head"><span class="card-dot"></span><span class="card-title">注入规则</span></div>
           <div style="font-size:12.5px;color:var(--text-2);line-height:1.8;display:flex;flex-direction:column;gap:8px">
-            <div>仅 <b style="color:var(--text)">enabled + 非 rejected + 置信度达标</b> 的词条参与注入。</div>
-            <div>优先使用 verified 义项；无 verified 时，单条 provisional 高置信义项才可临时注入。</div>
-            <div>ambiguous 词条必须人工指定首选义项后才会注入。</div>
+            <div>仅 <b style="color:var(--text)">已启用 + 非已拒绝 + 置信度达标</b> 的词条参与注入。</div>
+            <div>优先使用已验证义项；无已验证时，单条暂定高置信义项才可临时注入。</div>
+            <div>歧义词条必须人工指定首选义项后才会注入。</div>
           </div>
         </div>
 

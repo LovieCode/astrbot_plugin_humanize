@@ -466,7 +466,7 @@
       score.className = "m";
       score.innerHTML = HZ.icon("spark");
       const scoreText = document.createElement("span");
-      scoreText.textContent = `conf ${Number(m.confidence || 0).toFixed(2)} · imp ${Number(m.importance || 0).toFixed(1)}`;
+      scoreText.textContent = `置信 ${Number(m.confidence || 0).toFixed(2)} · 重要 ${Number(m.importance || 0).toFixed(1)}`;
       score.appendChild(scoreText);
       meta.appendChild(score);
       card.appendChild(meta);
