@@ -765,17 +765,18 @@
     } else {
       const maxCount = Math.max(1, ...reasons.map((r) => r.count || 0));
       reasons.forEach((r) => {
-        const rowEl = el("div", "cx-stat-bar-row");
-        const name = el("span", "cx-sb-name");
-        name.style.fontFamily = "var(--font-base)";
+        const rowEl = el("div", "cx-reason-row");
+        const top = el("div", "cx-reason-top");
+        const name = el("span", "cx-reason-name");
         name.textContent = sectionLabel(r.section_key) + " · " + (OMIT_REASON_LABEL[r.reason] || r.reason || "");
-        rowEl.appendChild(name);
+        top.appendChild(name);
+        top.appendChild(el("span", "cx-reason-count", (r.count || 0) + " 次"));
+        rowEl.appendChild(top);
         const bar = el("div", "cx-sb-bar");
         const barI = el("i");
         barI.style.width = Math.round(((r.count || 0) / maxCount) * 100) + "%";
         bar.appendChild(barI);
         rowEl.appendChild(bar);
-        rowEl.appendChild(el("span", "cx-sb-num", (r.count || 0) + " 次"));
         rCard.appendChild(rowEl);
       });
     }

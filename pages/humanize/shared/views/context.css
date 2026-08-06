@@ -202,6 +202,13 @@
 .cx-sb-bar i { display: block; height: 100%; border-radius: var(--r-full); background: linear-gradient(90deg, var(--pink-mid), var(--pink)); }
 .cx-sb-num { width: 52px; text-align: right; font-weight: 800; font-variant-numeric: tabular-nums; font-size: 12px; flex-shrink: 0; }
 
+/* 常见省略原因：两行布局（名称完整 + 进度条独立一行） */
+.cx-reason-row { display: flex; flex-direction: column; gap: 6px; padding: 8px 0; }
+.cx-reason-row + .cx-reason-row { border-top: 1px dashed var(--line); }
+.cx-reason-top { display: flex; align-items: center; gap: 10px; min-width: 0; }
+.cx-reason-name { flex: 1; min-width: 0; font-size: 12px; font-weight: 700; color: var(--text-2); overflow-wrap: anywhere; }
+.cx-reason-count { flex-shrink: 0; font-size: 11.5px; font-weight: 800; color: var(--muted); font-variant-numeric: tabular-nums; }
+
 /* 协议失败警示条 */
 .cx-alert {
   display: flex; gap: 10px; align-items: flex-start;
