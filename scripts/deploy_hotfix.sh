@@ -409,17 +409,10 @@ trap cleanup_stage EXIT
 
 cd "$remote_stage"
 if "$full_release"; then
-    # Full release: back up the current plugin, unpack the tarball over it,
-    # and keep the runtime data directory.
+    # Full release: unpack the tarball over the plugin and keep runtime data.
+    # No local backup: the plugin is versioned in git.
     sudo_run mkdir -p "$remote_plugin"
-    backup_dir="/home/$remote_user/.humanize-backup-$stamp"
-    sudo_run cp -r "$remote_plugin" "$backup_dir"
-    printf 'backup created: %s\n' "$backup_dir"
     sudo_run tar xzf "$remote_stage/release.tar.gz" -C "$remote_plugin" --strip-components=0
-    # Restore runtime data (excluded from the tarball).
-    if [[ -d "$backup_dir/data" ]]; then
-        sudo_run cp -rn "$backup_dir/data" "$remote_plugin/" 2>/dev/null || true
-    fi
     sudo_run chown -R "$remote_user:$remote_user" "$remote_plugin" 2>/dev/null || \
         sudo_run chown -R "$remote_user" "$remote_plugin"
 else
