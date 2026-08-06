@@ -342,6 +342,11 @@ class HumanizePlugin(Star):
             request_snapshot: dict[str, Any] = {}
             request_snapshot_complete = False
             prompt_replacement = prepared.message_xml
+            logger.info(
+                "[Humanize] debug sections=%s protocol_len=%s",
+                len(prepared.sections or ()),
+                len(prepared.protocol_prompt or ""),
+            )
             if prepared.sections:
                 prompt_target_count = 0
                 for section in sorted(prepared.sections, key=lambda item: item.ordinal):
