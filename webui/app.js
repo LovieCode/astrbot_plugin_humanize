@@ -17,6 +17,13 @@
 
   function show(name) {
     if (!sections[name]) return;
+    if (window.HZ && HZ.topbars && HZ.topbars[name]) {
+      try {
+        HZ.renderTopbar(HZ.topbars[name]);
+      } catch (e) {
+        console.error("Humanize topbar render failed:", name, e);
+      }
+    }
     VIEWS.forEach((n) => {
       const el = sections[n];
       if (!el) return;

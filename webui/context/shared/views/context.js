@@ -8,12 +8,13 @@
  */
 (function () {
   HZ.renderSidebar("context");
-  HZ.renderTopbar({
+  HZ.topbars["context"] = {
     title: "上下文追踪",
     sub: "每次 LLM 请求的区块组装与 token 预算全记录",
     search: "搜索请求 ID、消息内容…",
     actions: [],
-  });
+  };
+HZ.renderTopbar(HZ.topbars["context"]);
   HZ.initReveal();
 
   /* 筛选 seg 高亮（静态预览与真实模式共用） */

@@ -8,7 +8,7 @@
 HZ.views["dashboard"] = { init: function () {
 
   /* 侧边栏 + 顶栏 */
-  HZ.renderTopbar({
+  HZ.topbars["dashboard"] = {
     title: "仪表盘",
     sub: "2026年3月30日 星期一 · 今天也要元气满满哦",
     search: "搜索记忆、黑话、样例…",
@@ -16,7 +16,8 @@ HZ.views["dashboard"] = { init: function () {
       { label: "导出", icon: "export", variant: "ghost" },
       { label: "新建记忆", icon: "plus", variant: "primary" },
     ],
-  });
+  };
+HZ.renderTopbar(HZ.topbars["dashboard"]);
 
   /* 通用行为 */
   HZ.initReveal();

@@ -14,12 +14,13 @@ HZ.views["prompts"] = { init: function () {
     memory_extraction: "记忆提取",
     reply_examples: "回复样例",
   };
-  HZ.renderTopbar({
+  HZ.topbars["prompts"] = {
     title: "提示词模板",
     sub: "5 个全局模板 · 修改立即生效并记录审计",
     search: "",
     actions: [{ label: "全部重置", icon: "refresh", variant: "ghost" }],
-  });
+  };
+HZ.renderTopbar(HZ.topbars["prompts"]);
   HZ.initReveal();
 
   const $ = (sel) => document.querySelector(sel);

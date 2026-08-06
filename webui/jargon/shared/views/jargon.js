@@ -8,7 +8,7 @@
  */
 (function () {
   HZ.renderSidebar("jargon");
-  HZ.renderTopbar({
+  HZ.topbars["jargon"] = {
     title: "黑话词库",
     sub: "LLM 词条一律不可信 · 验证、限长并保留证据后才可注入",
     search: "搜索词条、别名、释义…",
@@ -16,7 +16,8 @@
       { label: "导出", icon: "export", variant: "ghost" },
       { label: "新建词条", icon: "plus", variant: "primary" },
     ],
-  });
+  };
+HZ.renderTopbar(HZ.topbars["jargon"]);
   HZ.initReveal();
 
   /** api.js 缺失时的明确降级：清空 mock 数据容器并插入错误提示条。 */

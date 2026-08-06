@@ -9,12 +9,13 @@
  */
 (function () {
   HZ.renderSidebar("examples");
-  HZ.renderTopbar({
+  HZ.topbars["examples"] = {
     title: "回复样例",
     sub: "审核通过后作为 few-shot 表达参考 · 绝不直接返回旧样例回复",
     search: "搜索标题、话题、关键词…",
     actions: [{ label: "新建样例", icon: "plus", variant: "primary" }],
-  });
+  };
+HZ.renderTopbar(HZ.topbars["examples"]);
   HZ.initReveal();
 
   /** api.js 缺失时的明确降级：清空 mock 数据容器并插入错误提示条。 */

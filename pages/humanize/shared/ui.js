@@ -307,6 +307,7 @@
   }
 
   global.HZ = global.HZ || {};
+  global.HZ.topbars = global.HZ.topbars || {};
   Object.assign(global.HZ, {
     initReveal,
     initCounters,

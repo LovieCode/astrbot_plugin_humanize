@@ -8,12 +8,13 @@
  */
 HZ.views["settings"] = { init: function () {
 
-  HZ.renderTopbar({
+  HZ.topbars["settings"] = {
     title: "设置",
     sub: "插件配置 · 修改后保存生效",
     search: "",
     actions: [{ label: "保存全部", icon: "check_simple", variant: "primary" }],
-  });
+  };
+HZ.renderTopbar(HZ.topbars["settings"]);
   HZ.initReveal();
 
   const $ = (sel) => document.querySelector(sel);

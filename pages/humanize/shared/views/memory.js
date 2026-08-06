@@ -4,12 +4,13 @@
  */
 HZ.views["memory"] = { init: function () {
 
-  HZ.renderTopbar({
+  HZ.topbars["memory"] = {
     title: "长期记忆",
     sub: "OpenViking workspace · L0/L1/L2 分层召回 · 作用域隔离",
     search: "搜索记忆键、内容…",
     actions: [{ label: "新建记忆", icon: "plus", variant: "primary" }],
-  });
+  };
+HZ.renderTopbar(HZ.topbars["memory"]);
   HZ.initReveal();
 
   /* ========== api.js 缺失降级：清空 mock 并提示 ========== */
