@@ -61,11 +61,11 @@ HZ.views["jargon"] = { init: function () {
     group_member: "群成员",
   };
   const STATUS_LABEL = {
-    verified: "verified",
-    provisional: "provisional",
-    candidate: "candidate",
-    ambiguous: "ambiguous",
-    rejected: "rejected",
+    verified: "已验证",
+    provisional: "暂定",
+    candidate: "候选",
+    ambiguous: "歧义",
+    rejected: "已拒绝",
     disabled: "已停用",
   };
   const STATUS_CLASS = {
@@ -127,7 +127,7 @@ HZ.views["jargon"] = { init: function () {
     const tag = el("span", "tag " + (STATUS_CLASS[key] || "tag-candidate2"));
     const dot = el("span", "tag-dot");
     tag.appendChild(dot);
-    tag.appendChild(document.createTextNode(STATUS_LABEL[key] || key || "unknown"));
+    tag.appendChild(document.createTextNode(STATUS_LABEL[key] || key || "未知"));
     return tag;
   }
 
@@ -362,9 +362,9 @@ HZ.views["jargon"] = { init: function () {
 
     /* 词条元信息 */
     const chips = el("div", "d-chips");
-    chips.appendChild(chip("tag-pink", "term · " + (entry.term || "")));
-    if (entry.normalized_term) chips.appendChild(chip("tag-scope", "normalized · " + entry.normalized_term));
-    if (entry.scope_type) chips.appendChild(chip("tag-scope", "scope · " + (SCOPE_LABEL[entry.scope_type] || entry.scope_type)));
+    chips.appendChild(chip("tag-pink", "词条 · " + (entry.term || "")));
+    if (entry.normalized_term) chips.appendChild(chip("tag-scope", "规范化 · " + entry.normalized_term));
+    if (entry.scope_type) chips.appendChild(chip("tag-scope", "作用域 · " + (SCOPE_LABEL[entry.scope_type] || entry.scope_type)));
     if (entry.scope_id != null) chips.appendChild(chip("tag-alias", "id · " + entry.scope_id));
     drawerBody.appendChild(section("jargon", "词条", chips));
 
@@ -412,7 +412,7 @@ HZ.views["jargon"] = { init: function () {
       const box = el("div");
       inferences.forEach((inf) => {
         const subs = [subSpan("理由：" + (inf.reason || "-"))];
-        subs.push(subSpan(inf.accepted ? "accepted" : "rejected", inf.accepted ? "log-accepted" : "log-rejected"));
+        subs.push(subSpan(inf.accepted ? "采纳" : "拒绝", inf.accepted ? "log-accepted" : "log-rejected"));
         if (inf.created_at) subs.push(subSpan(fmtTime(inf.created_at)));
         box.appendChild(logItem(`提议释义「${inf.proposed_meaning || ""}」 · conf ${inf.confidence ?? "-"}`, subs));
       });
@@ -710,9 +710,9 @@ HZ.views["jargon"] = { init: function () {
           inputRow("释义", "", "mMeaning", { placeholder: "义项释义" }) +
           inputRow("置信度", "0.8", "mConfidence", { type: "number", placeholder: "0~1" }) +
           `<label class="jg-field"><span class="jg-field-label">状态</span><select class="jg-input" id="mStatus">
-            <option value="candidate">candidate 候选</option>
+            <option value="candidate">候选</option>
             <option value="provisional">provisional 临时</option>
-            <option value="verified">verified 已验证</option>
+            <option value="verified">已验证</option>
           </select></label>`,
           "新增");
         if (!ok) return;

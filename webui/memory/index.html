@@ -44,15 +44,15 @@
       </div>
       <div class="type-pills reveal" id="typePills">
         <span class="pill active" data-group="type" data-icon="filter" data-value="">全部类型</span>
-        <span class="pill" data-group="type" data-value="preference"><span class="pill-dot" style="background:var(--pink)"></span>preference</span>
-        <span class="pill" data-group="type" data-value="profile"><span class="pill-dot" style="background:var(--blue)"></span>profile</span>
-        <span class="pill" data-group="type" data-value="entity"><span class="pill-dot" style="background:var(--violet)"></span>entity</span>
-        <span class="pill" data-group="type" data-value="event"><span class="pill-dot" style="background:var(--green)"></span>event</span>
+        <span class="pill" data-group="type" data-value="preference"><span class="pill-dot" style="background:var(--pink)"></span>偏好</span>
+        <span class="pill" data-group="type" data-value="profile"><span class="pill-dot" style="background:var(--blue)"></span>画像</span>
+        <span class="pill" data-group="type" data-value="entity"><span class="pill-dot" style="background:var(--violet)"></span>实体</span>
+        <span class="pill" data-group="type" data-value="event"><span class="pill-dot" style="background:var(--green)"></span>事件</span>
         <span class="pill active" data-group="status" data-value="">全部状态</span>
-        <span class="pill" data-group="status" data-value="active"><span class="pill-dot" style="background:var(--green)"></span>active</span>
-        <span class="pill" data-group="status" data-value="candidate"><span class="pill-dot" style="background:var(--amber)"></span>candidate</span>
-        <span class="pill" data-group="status" data-value="superseded"><span class="pill-dot" style="background:var(--muted)"></span>superseded</span>
-        <span class="pill" data-group="status" data-value="rejected"><span class="pill-dot" style="background:#d66666"></span>rejected</span>
+        <span class="pill" data-group="status" data-value="active"><span class="pill-dot" style="background:var(--green)"></span>已激活</span>
+        <span class="pill" data-group="status" data-value="candidate"><span class="pill-dot" style="background:var(--amber)"></span>候选</span>
+        <span class="pill" data-group="status" data-value="superseded"><span class="pill-dot" style="background:var(--muted)"></span>已取代</span>
+        <span class="pill" data-group="status" data-value="rejected"><span class="pill-dot" style="background:#d66666"></span>已拒绝</span>
       </div>
     </div>
 
@@ -82,19 +82,19 @@
           <div class="card-head"><span class="card-dot"></span><span class="card-title">记忆状态</span></div>
           <div class="side-block">
             <div class="side-stat-row">
-              <span class="side-stat-name"><span class="pill-dot" style="background:var(--green)"></span>active 生效中</span>
+              <span class="side-stat-name"><span class="pill-dot" style="background:var(--green)"></span>已激活 生效中</span>
               <span class="side-stat-num" id="statActive">0</span>
             </div>
             <div class="side-stat-row">
-              <span class="side-stat-name"><span class="pill-dot" style="background:var(--amber)"></span>candidate 候选</span>
+              <span class="side-stat-name"><span class="pill-dot" style="background:var(--amber)"></span>候选 候选</span>
               <span class="side-stat-num" id="statCandidate">0</span>
             </div>
             <div class="side-stat-row">
-              <span class="side-stat-name"><span class="pill-dot" style="background:var(--muted)"></span>superseded 被取代</span>
+              <span class="side-stat-name"><span class="pill-dot" style="background:var(--muted)"></span>已取代 被取代</span>
               <span class="side-stat-num" id="statSuperseded">0</span>
             </div>
             <div class="side-stat-row">
-              <span class="side-stat-name"><span class="pill-dot" style="background:#d66666"></span>rejected 被拒</span>
+              <span class="side-stat-name"><span class="pill-dot" style="background:#d66666"></span>已拒绝 被拒</span>
               <span class="side-stat-num" id="statRejected">0</span>
             </div>
             <div class="side-stat-row">
@@ -183,8 +183,8 @@
 <div class="drawer-mask" id="drawerMask"></div>
 <aside class="drawer" id="drawer">
   <div class="drawer-head">
-    <span class="tag tag-pink" id="detailTypeTag">preference</span>
-    <span class="tag tag-active" id="detailStatusTag"><span class="tag-dot"></span>active</span>
+    <span class="tag tag-pink" id="detailTypeTag">偏好</span>
+    <span class="tag tag-active" id="detailStatusTag"><span class="tag-dot"></span>已激活</span>
     <span class="drawer-title">记忆详情</span>
     <button class="drawer-close" id="drawerClose">✕</button>
   </div>
@@ -217,14 +217,14 @@
       <div style="flex:1">
         <div class="d-label">类型</div>
         <select class="form-select" id="mType">
-          <option value="preference">preference</option>
-          <option value="profile">profile</option>
-          <option value="entity">entity</option>
-          <option value="event">event</option>
+          <option value="preference">偏好</option>
+          <option value="profile">画像</option>
+          <option value="entity">实体</option>
+          <option value="event">事件</option>
         </select>
       </div>
       <div style="flex:1">
-        <div class="d-label">memory_key</div>
+        <div class="d-label">记忆键</div>
         <input class="form-input" type="text" id="mKey" placeholder="如 diet.acha" />
       </div>
     </div>

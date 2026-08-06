@@ -48,42 +48,42 @@
           <div class="card-head"><span class="card-dot"></span><span class="card-title">常规</span></div>
           <div class="st-row">
             <div class="st-row-main">
-              <span class="st-row-label">启用插件 <span class="st-row-key">enabled</span></span>
+              <span class="st-row-label">启用插件 <span class="st-row-key">启用插件</span></span>
               <span class="st-row-desc">关闭后插件完全停止介入消息流程。</span>
             </div>
             <div class="st-row-control"><button class="switch on" data-key="enabled"></button></div>
           </div>
           <div class="st-row">
             <div class="st-row-main">
-              <span class="st-row-label">每轮注入基础规则 <span class="st-row-key">default_rule_enabled</span></span>
+              <span class="st-row-label">每轮注入基础规则 <span class="st-row-key">默认规则</span></span>
               <span class="st-row-desc">根据聊天场景和管理员信息生成的基础规则。</span>
             </div>
             <div class="st-row-control"><button class="switch on" data-key="default_rule_enabled"></button></div>
           </div>
           <div class="st-row">
             <div class="st-row-main">
-              <span class="st-row-label">管理员昵称 <span class="st-row-key">admin_name</span></span>
+              <span class="st-row-label">管理员昵称 <span class="st-row-key">管理员名称</span></span>
               <span class="st-row-desc">用于基础规则模板中的 {{admin_name}} 变量。</span>
             </div>
             <div class="st-row-control"><input class="st-input wide" data-key="admin_name" /></div>
           </div>
           <div class="st-row">
             <div class="st-row-main">
-              <span class="st-row-label">管理员 QQ <span class="st-row-key">admin_qq_ids</span></span>
+              <span class="st-row-label">管理员 QQ <span class="st-row-key">管理员QQ号</span></span>
               <span class="st-row-desc">多个用英文逗号分隔。</span>
             </div>
             <div class="st-row-control"><textarea class="st-input wide st-qq-area" rows="3" data-key="admin_qq_ids"></textarea></div>
           </div>
           <div class="st-row">
             <div class="st-row-main">
-              <span class="st-row-label">单条消息最大可见字符 <span class="st-row-key">max_message_chars</span></span>
+              <span class="st-row-label">单条消息最大可见字符 <span class="st-row-key">消息长度上限</span></span>
               <span class="st-row-desc">普通发言每条不超过该长度。</span>
             </div>
             <div class="st-row-control"><input class="st-input" data-key="max_message_chars" value="10" /><span class="st-unit">字</span></div>
           </div>
           <div class="st-row">
             <div class="st-row-main">
-              <span class="st-row-label">分消息发送间隔 <span class="st-row-key">message_interval_seconds</span></span>
+              <span class="st-row-label">分消息发送间隔 <span class="st-row-key">消息间隔（秒）</span></span>
             </div>
             <div class="st-row-control"><input class="st-input" data-key="message_interval_seconds" /><span class="st-unit">秒</span></div>
           </div>
@@ -94,45 +94,45 @@
           <div class="card-head"><span class="card-dot"></span><span class="card-title">回复协议</span></div>
           <div class="st-row">
             <div class="st-row-main">
-              <span class="st-row-label">启用回复协议 <span class="st-row-key">protocol_enabled</span></span>
+              <span class="st-row-label">启用回复协议 <span class="st-row-key">启用回复协议</span></span>
               <span class="st-row-desc">严格协议校验，非工具最终文本必须通过发送闸门。</span>
             </div>
             <div class="st-row-control"><button class="switch on" data-key="protocol_enabled"></button></div>
           </div>
           <div class="st-row">
             <div class="st-row-main">
-              <span class="st-row-label">注入模式 <span class="st-row-key">protocol_injection_mode</span></span>
+              <span class="st-row-label">注入模式 <span class="st-row-key">协议注入模式</span></span>
             </div>
             <div class="st-row-control">
               <div class="st-seg" data-key="protocol_injection_mode">
-                <span class="st-seg-item active" data-value="user">user</span>
-                <span class="st-seg-item" data-value="both">both</span>
+                <span class="st-seg-item active" data-value="user">用户</span>
+                <span class="st-seg-item" data-value="both">两者</span>
               </div>
             </div>
           </div>
           <div class="st-row">
             <div class="st-row-main">
-              <span class="st-row-label">协议版本 <span class="st-row-key">protocol_version</span></span>
+              <span class="st-row-label">协议版本 <span class="st-row-key">协议版本</span></span>
             </div>
             <div class="st-row-control"><input class="st-input" data-key="protocol_version" value="1" /></div>
           </div>
           <div class="st-row">
             <div class="st-row-main">
-              <span class="st-row-label">协议修复重试 <span class="st-row-key">protocol_repair_retry_enabled</span></span>
+              <span class="st-row-label">协议修复重试 <span class="st-row-key">协议修复重试</span></span>
               <span class="st-row-desc">控制头无效时使用隔离修复提示重试一次。</span>
             </div>
             <div class="st-row-control"><button class="switch on" data-key="protocol_repair_retry_enabled"></button></div>
           </div>
           <div class="st-row">
             <div class="st-row-main">
-              <span class="st-row-label">允许静默 <span class="st-row-key">no_reply_enabled</span></span>
+              <span class="st-row-label">允许静默 <span class="st-row-key">允许不回复</span></span>
               <span class="st-row-desc">允许模型选择 No Reply 不回复。</span>
             </div>
             <div class="st-row-control"><button class="switch on" data-key="no_reply_enabled"></button></div>
           </div>
           <div class="st-row">
             <div class="st-row-main">
-              <span class="st-row-label">协议日志保留 <span class="st-row-key">protocol_log_retention_days</span></span>
+              <span class="st-row-label">协议日志保留 <span class="st-row-key">协议日志保留天数</span></span>
             </div>
             <div class="st-row-control"><input class="st-input" data-key="protocol_log_retention_days" /><span class="st-unit">天</span></div>
           </div>
@@ -143,13 +143,13 @@
           <div class="card-head"><span class="card-dot"></span><span class="card-title">黑话注入</span></div>
           <div class="st-row">
             <div class="st-row-main">
-              <span class="st-row-label">启用黑话学习 <span class="st-row-key">jargon_enabled</span></span>
+              <span class="st-row-label">启用黑话学习 <span class="st-row-key">启用黑话</span></span>
             </div>
             <div class="st-row-control"><button class="switch on" data-key="jargon_enabled"></button></div>
           </div>
           <div class="st-row">
             <div class="st-row-main">
-              <span class="st-row-label">注入最低置信度 <span class="st-row-key">min_confidence_for_injection</span></span>
+              <span class="st-row-label">注入最低置信度 <span class="st-row-key">注入最低置信度</span></span>
             </div>
             <div class="st-row-control">
               <div class="st-slider" data-key="min_confidence_for_injection">
@@ -160,7 +160,7 @@
           </div>
           <div class="st-row">
             <div class="st-row-main">
-              <span class="st-row-label">单次最多注入词条 <span class="st-row-key">max_injected_jargons</span></span>
+              <span class="st-row-label">单次最多注入词条 <span class="st-row-key">黑话注入上限</span></span>
             </div>
             <div class="st-row-control"><input class="st-input" data-key="max_injected_jargons" value="5" /><span class="st-unit">条</span></div>
           </div>
@@ -171,20 +171,20 @@
           <div class="card-head"><span class="card-dot"></span><span class="card-title">长期记忆</span></div>
           <div class="st-row">
             <div class="st-row-main">
-              <span class="st-row-label">启用记忆召回 <span class="st-row-key">memory_enabled</span></span>
+              <span class="st-row-label">启用记忆召回 <span class="st-row-key">启用记忆</span></span>
             </div>
             <div class="st-row-control"><button class="switch on" data-key="memory_enabled"></button></div>
           </div>
           <div class="st-row">
             <div class="st-row-main">
-              <span class="st-row-label">自动提取记忆 <span class="st-row-key">memory_auto_extract_enabled</span></span>
+              <span class="st-row-label">自动提取记忆 <span class="st-row-key">自动提取</span></span>
               <span class="st-row-desc">从成功聊天中后台生成结构化记忆候选。</span>
             </div>
             <div class="st-row-control"><button class="switch on" data-key="memory_auto_extract_enabled"></button></div>
           </div>
           <div class="st-row">
             <div class="st-row-main">
-              <span class="st-row-label">提取服务商 <span class="st-row-key">memory_extraction_provider_id</span></span>
+              <span class="st-row-label">提取服务商 <span class="st-row-key">提取模型提供商</span></span>
               <span class="st-row-desc">用于从对话中自动提取记忆（当前：siliconflow / DeepSeek-V4-Flash）。未配置时提取不可用。</span>
             </div>
             <div class="st-row-control">
@@ -193,7 +193,7 @@
           </div>
           <div class="st-row">
             <div class="st-row-main">
-              <span class="st-row-label">向量服务商 <span class="st-row-key">memory_embedding_provider_id</span></span>
+              <span class="st-row-label">向量服务商 <span class="st-row-key">嵌入模型提供商</span></span>
               <span class="st-row-desc">用于记忆向量化与语义召回。当前环境为 siliconflow / BAAI/bge-m3（1024 维）；未配置时回退为纯关键词召回。配置后需保存并重载插件生效。</span>
             </div>
             <div class="st-row-control">
@@ -202,7 +202,7 @@
           </div>
           <div class="st-row">
             <div class="st-row-main">
-              <span class="st-row-label">重排服务商 <span class="st-row-key">memory_rerank_provider_id</span></span>
+              <span class="st-row-label">重排服务商 <span class="st-row-key">重排模型提供商</span></span>
               <span class="st-row-desc">用于记忆召回结果重排（可选，vllm_rerank）。未配置时跳过重排。</span>
             </div>
             <div class="st-row-control">
@@ -211,7 +211,7 @@
           </div>
           <div class="st-row">
             <div class="st-row-main">
-              <span class="st-row-label">身份密钥环境变量 <span class="st-row-key">memory_identity_secret_env</span></span>
+              <span class="st-row-label">身份密钥环境变量 <span class="st-row-key">身份密钥环境变量</span></span>
               <span class="st-row-desc">HMAC 派生作用域哈希的密钥来源，仅显示变量名，不显示值。</span>
             </div>
             <div class="st-row-control">
@@ -220,7 +220,7 @@
           </div>
           <div class="st-row">
             <div class="st-row-main">
-              <span class="st-row-label">自动激活置信度 <span class="st-row-key">memory_auto_activate_confidence</span></span>
+              <span class="st-row-label">自动激活置信度 <span class="st-row-key">自动激活阈值</span></span>
             </div>
             <div class="st-row-control">
               <div class="st-slider" data-key="memory_auto_activate_confidence">
@@ -231,7 +231,7 @@
           </div>
           <div class="st-row">
             <div class="st-row-main">
-              <span class="st-row-label">候选最低置信度 <span class="st-row-key">memory_candidate_min_confidence</span></span>
+              <span class="st-row-label">候选最低置信度 <span class="st-row-key">候选最低置信度</span></span>
             </div>
             <div class="st-row-control">
               <div class="st-slider" data-key="memory_candidate_min_confidence">
@@ -242,19 +242,19 @@
           </div>
           <div class="st-row">
             <div class="st-row-main">
-              <span class="st-row-label">召回条数上限 <span class="st-row-key">memory_recall_limit</span></span>
+              <span class="st-row-label">召回条数上限 <span class="st-row-key">召回条数上限</span></span>
             </div>
             <div class="st-row-control"><input class="st-input" data-key="memory_recall_limit" /><span class="st-unit">条</span></div>
           </div>
           <div class="st-row">
             <div class="st-row-main">
-              <span class="st-row-label">召回内容最大字符 <span class="st-row-key">memory_recall_max_chars</span></span>
+              <span class="st-row-label">召回内容最大字符 <span class="st-row-key">召回字符上限</span></span>
             </div>
             <div class="st-row-control"><input class="st-input" data-key="memory_recall_max_chars" /><span class="st-unit">字</span></div>
           </div>
           <div class="st-row">
             <div class="st-row-main">
-              <span class="st-row-label">召回超时 <span class="st-row-key">memory_recall_timeout_seconds</span></span>
+              <span class="st-row-label">召回超时 <span class="st-row-key">召回超时（秒）</span></span>
             </div>
             <div class="st-row-control"><input class="st-input" data-key="memory_recall_timeout_seconds" /><span class="st-unit">秒</span></div>
           </div>
@@ -265,25 +265,25 @@
           <div class="card-head"><span class="card-dot"></span><span class="card-title">回复样例</span></div>
           <div class="st-row">
             <div class="st-row-main">
-              <span class="st-row-label">启用样例召回 <span class="st-row-key">reply_examples_enabled</span></span>
+              <span class="st-row-label">启用样例召回 <span class="st-row-key">启用回复样例</span></span>
             </div>
             <div class="st-row-control"><button class="switch on" data-key="reply_examples_enabled"></button></div>
           </div>
           <div class="st-row">
             <div class="st-row-main">
-              <span class="st-row-label">注入条数上限 <span class="st-row-key">reply_examples_limit</span></span>
+              <span class="st-row-label">注入条数上限 <span class="st-row-key">样例条数上限</span></span>
             </div>
             <div class="st-row-control"><input class="st-input" data-key="reply_examples_limit" value="3" /><span class="st-unit">条</span></div>
           </div>
           <div class="st-row">
             <div class="st-row-main">
-              <span class="st-row-label">注入内容最大字符 <span class="st-row-key">reply_examples_max_chars</span></span>
+              <span class="st-row-label">注入内容最大字符 <span class="st-row-key">样例字符上限</span></span>
             </div>
             <div class="st-row-control"><input class="st-input" data-key="reply_examples_max_chars" /><span class="st-unit">字</span></div>
           </div>
           <div class="st-row">
             <div class="st-row-main">
-              <span class="st-row-label">最低质量分 <span class="st-row-key">reply_examples_min_quality</span></span>
+              <span class="st-row-label">最低质量分 <span class="st-row-key">样例最低质量</span></span>
             </div>
             <div class="st-row-control">
               <div class="st-slider" data-key="reply_examples_min_quality">
@@ -294,7 +294,7 @@
           </div>
           <div class="st-row">
             <div class="st-row-main">
-              <span class="st-row-label">召回相似度阈值 <span class="st-row-key">reply_examples_recall_score_threshold</span></span>
+              <span class="st-row-label">召回相似度阈值 <span class="st-row-key">样例召回阈值</span></span>
             </div>
             <div class="st-row-control">
               <div class="st-slider" data-key="reply_examples_recall_score_threshold">

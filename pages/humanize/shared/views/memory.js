@@ -7,7 +7,7 @@ HZ.views["memory"] = { init: function () {
   HZ.renderTopbar({
     title: "长期记忆",
     sub: "OpenViking workspace · L0/L1/L2 分层召回 · 作用域隔离",
-    search: "搜索 memory_key、内容…",
+    search: "搜索记忆键、内容…",
     actions: [{ label: "新建记忆", icon: "plus", variant: "primary" }],
   });
   HZ.initReveal();
@@ -78,10 +78,10 @@ HZ.views["memory"] = { init: function () {
   };
 
   const STATUS_LABEL = {
-    active: "active",
-    candidate: "candidate",
-    rejected: "rejected",
-    superseded: "superseded",
+    active: "已激活",
+    candidate: "候选",
+    rejected: "已拒绝",
+    superseded: "已取代",
   };
   const JOB_STATUS_LABEL = {
     pending: "排队中",
@@ -96,6 +96,12 @@ HZ.views["memory"] = { init: function () {
     retry: "tag-review",
     completed: "tag-ok",
     dead: "tag-rejected",
+  };
+  const TYPE_LABEL = {
+    preference: "偏好",
+    profile: "画像",
+    entity: "实体",
+    event: "事件",
   };
   const TYPE_DOT = {
     preference: "var(--pink)",
@@ -382,7 +388,7 @@ HZ.views["memory"] = { init: function () {
       const typeTag = document.createElement("span");
       typeTag.className = "tag " + (TYPE_TAG[m.memory_type] || "");
       typeTag.style.background = TYPE_DOT[m.memory_type] ? "var(--" + m.memory_type + "-soft, var(--pink-soft))" : "";
-      typeTag.textContent = m.memory_type;
+      typeTag.textContent = TYPE_LABEL[m.memory_type] || m.memory_type;
       top.appendChild(typeTag);
 
       const scopeTag = document.createElement("span");
@@ -415,7 +421,7 @@ HZ.views["memory"] = { init: function () {
       });
       const rejectBtn = document.createElement("button");
       rejectBtn.className = "icon-btn";
-      rejectBtn.title = "标记 rejected";
+      rejectBtn.title = "标记为已拒绝";
       rejectBtn.innerHTML = HZ.icon("trash");
       rejectBtn.addEventListener("click", (e) => {
         e.stopPropagation();
@@ -628,7 +634,7 @@ HZ.views["memory"] = { init: function () {
 
   function renderDetail(d) {
     // 头部标签
-    $("detailTypeTag").textContent = d.memory_type || "";
+    $("detailTypeTag").textContent = TYPE_LABEL[d.memory_type] || d.memory_type || "";
     $("detailTypeTag").className = "tag " + (TYPE_TAG[d.memory_type] || "");
     $("detailStatusTag").className = "tag tag-" + (d.status || "");
     const statusText = document.createTextNode(" " + (STATUS_LABEL[d.status] || d.status || ""));
@@ -653,16 +659,16 @@ HZ.views["memory"] = { init: function () {
     chips.appendChild(scopeChip);
     const agentChip = document.createElement("span");
     agentChip.className = "tag tag-lg tag-alias";
-    agentChip.textContent = "Agent · " + (d.agent_id === "*" ? "共享" : d.agent_id);
+    agentChip.textContent = "代理 · " + (d.agent_id === "*" ? "共享" : d.agent_id);
     chips.appendChild(agentChip);
     const keyChip = document.createElement("span");
     keyChip.className = "tag tag-lg tag-pink";
-    keyChip.textContent = "memory_key · " + (d.memory_key || "");
+    keyChip.textContent = "记忆键 · " + (d.memory_key || "");
     chips.appendChild(keyChip);
 
-    $("confVal").textContent = "conf " + Number(d.confidence || 0).toFixed(2);
+    $("confVal").textContent = "置信 " + Number(d.confidence || 0).toFixed(2);
     $("confBar").style.width = pct(d.confidence) + "%";
-    $("impVal").textContent = "imp " + Number(d.importance || 0).toFixed(2);
+    $("impVal").textContent = "重要 " + Number(d.importance || 0).toFixed(2);
     $("impBar").style.width = pct(d.importance) + "%";
 
     // 证据
@@ -760,8 +766,8 @@ HZ.views["memory"] = { init: function () {
   function confirmReject(m) {
     if (!HZ.confirm) return;
     HZ.confirm({
-      title: "标记 rejected",
-      text: "确定将记忆「" + (m.memory_key || "") + "」标记为 rejected 吗？",
+      title: "标记为已拒绝",
+      text: "确定将记忆「" + (m.memory_key || "") + "」标记为已拒绝吗？",
       danger: true,
       onConfirm: async () => {
         try {
@@ -769,9 +775,9 @@ HZ.views["memory"] = { init: function () {
             action: "reject",
             id: m.id,
             revision: m.version,
-            reason: "web admin rejected",
+            reason: "后台拒绝",
           });
-          if (HZ.toast) HZ.toast("已标记 rejected", { type: "success" });
+          if (HZ.toast) HZ.toast("已标记为已拒绝", { type: "success" });
           loadMemories();
           if (state.detail && state.detail.id === m.id) closeDrawer();
         } catch (e) {
@@ -859,7 +865,7 @@ HZ.views["memory"] = { init: function () {
     const key = $("mKey").value.trim();
     const content = $("mContent").value.trim();
     if (!key || !content) {
-      if (HZ.toast) HZ.toast("memory_key 与 content 不能为空", { type: "error" });
+      if (HZ.toast) HZ.toast("记忆键与内容不能为空", { type: "error" });
       return;
     }
     const mode = $("mSubmit").dataset.mode || "create";
@@ -1080,7 +1086,7 @@ HZ.views["memory"] = { init: function () {
         row.className = "recall-item";
         const head = document.createElement("div");
         head.className = "recall-item-head";
-        head.textContent = "[" + (it.memory_type || "?") + "] " + (it.memory_key || "") + " · score " + (it.score != null ? Number(it.score).toFixed(3) : "—");
+        head.textContent = "[" + (TYPE_LABEL[it.memory_type] || it.memory_type || "?") + "] " + (it.memory_key || "") + " · 得分 " + (it.score != null ? Number(it.score).toFixed(3) : "—");
         const body = document.createElement("div");
         body.className = "recall-item-body";
         body.textContent = it.content || "";

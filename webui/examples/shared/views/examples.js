@@ -57,6 +57,7 @@
   const SCOPE_TYPE_LABEL = { global: "全局", group: "群聊", private_user: "私聊", group_member: "群成员" };
   const SOURCE_LABEL = { manual: "人工整理", extracted: "从对话提取", learned: "自动学习" };
   const STATUS_CLASS = { approved: "tag-approved", draft: "tag-draft", rejected: "tag-rejected3", tombstoned: "tag-tombstoned" };
+  const STATUS_LABEL = { approved: "已通过", draft: "草稿", rejected: "已拒绝", tombstoned: "已搁置" };
   const ACT_LABEL = { approve: "审核通过", reject: "拒绝", disable: "停用", enable: "启用", restore: "恢复" };
 
   const $ = (sel, root) => (root || document).querySelector(sel);
@@ -107,7 +108,7 @@
   function statusTagEl(status) {
     const tag = el("span", "tag " + (STATUS_CLASS[status] || "tag-draft"));
     tag.appendChild(el("span", "tag-dot"));
-    tag.appendChild(document.createTextNode(status || "unknown"));
+    tag.appendChild(document.createTextNode(STATUS_LABEL[status] || status || "未知"));
     return tag;
   }
   function section(iconName, label, content) {
@@ -396,7 +397,7 @@
     /* 归属与分类 */
     const chips = el("div", "d-chips");
     chips.appendChild(el("span", "tag tag-lg tag-scope", scopeText(item)));
-    if (item.agent_id) chips.appendChild(el("span", "tag tag-lg tag-alias", "Agent · " + item.agent_id));
+    if (item.agent_id) chips.appendChild(el("span", "tag tag-lg tag-alias", "代理 · " + item.agent_id));
     if (item.topic) chips.appendChild(el("span", "tag tag-lg tag-pink", item.topic));
     if (item.intent) chips.appendChild(el("span", "tag tag-lg tag-pink", item.intent));
     if (item.source_type) chips.appendChild(el("span", "tag tag-lg tag-source", SOURCE_LABEL[item.source_type] || item.source_type));
@@ -818,7 +819,7 @@
     }
     const ok = await openFormModal("新建样例", { okText: "创建" }, (body) => {
       body.appendChild(field("作用域 *", optionsSelect("mScope", scopeOptions, (o) => o.scope_label, "请选择作用域")));
-      body.appendChild(field("Agent", optionsSelect("mAgent", agentOptions, (o) => o.name, "不指定（默认）")));
+      body.appendChild(field("代理", optionsSelect("mAgent", agentOptions, (o) => o.name, "不指定（默认）")));
       body.appendChild(field("标题 *", textInput("样例标题", "", "mTitle")));
       body.appendChild(field("话题", textInput("话题（可选）", "", "mTopic")));
       body.appendChild(field("意图", textInput("意图（可选）", "", "mIntent")));

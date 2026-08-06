@@ -272,7 +272,7 @@ HZ.views["prompts"] = { init: function () {
         action: "update",
         key: item.key,
         content: textarea.value,
-        reason: "web update",
+        reason: "后台更新",
       });
       const updated = data && data.item ? data.item : null;
       if (updated) {
@@ -391,7 +391,7 @@ HZ.views["prompts"] = { init: function () {
       const text = document.createElement("span");
       text.className = "audit-text";
       const actor = document.createElement("b");
-      actor.textContent = a.actor || "web_admin";
+      actor.textContent = a.actor || "后台管理";
       text.appendChild(actor);
       text.appendChild(document.createTextNode(isReset ? " · 重置了 " : " · 更新了 "));
       const keys = changedKeys(a);

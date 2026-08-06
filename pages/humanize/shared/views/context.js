@@ -86,7 +86,7 @@ HZ.views["context"] = { init: function () {
     reply_examples: "var(--green)",
     response_protocol: "var(--amber)",
   };
-  const MODE_LABEL = { both: "both", temp_user: "temp_user" };
+  const MODE_LABEL = { both: "两者", temp_user: "临时用户" };
 
   const $ = (sel, root) => (root || document).querySelector(sel);
   const $$ = (sel, root) => Array.from((root || document).querySelectorAll(sel));
@@ -150,8 +150,8 @@ HZ.views["context"] = { init: function () {
     }
     if (ps.success) {
       tag.classList.add("tag-reply");
-      tag.textContent = "Reply";
-      if (ps.model) tag.title = "model · " + ps.model;
+      tag.textContent = "已回复";
+      if (ps.model) tag.title = "模型 · " + ps.model;
     } else {
       tag.classList.add("tag-failed");
       tag.textContent = ps.failure_code ? "失败 " + ps.failure_code : "失败";
@@ -372,7 +372,7 @@ HZ.views["context"] = { init: function () {
     row.appendChild(main);
 
     const stats = el("div", "cx-head-stats");
-    stats.appendChild(statCell(fmtNum(run.estimated_tokens), "估算 tokens", "pink"));
+    stats.appendChild(statCell(fmtNum(run.estimated_tokens), "估算词元", "pink"));
     const included = Number(run.included_sections || 0);
     const omitted = Number(run.omitted_sections || 0);
     stats.appendChild(statCell(String(included), "纳入区块", "green"));
@@ -574,7 +574,7 @@ HZ.views["context"] = { init: function () {
     /* 协议元信息（response_snapshot.protocol 或 response） */
     const meta = el("div", "raw-meta");
     if (protocol && protocol.model) {
-      meta.appendChild(el("span", "tag tag-src", "model · " + protocol.model));
+      meta.appendChild(el("span", "tag tag-src", "模型 · " + protocol.model));
     }
     if (response && response.success !== undefined) {
       meta.appendChild(el("span", "tag tag-src", response.success ? "校验通过 · 无修复" : "校验失败 · " + (response.failure_code || "未知")));
