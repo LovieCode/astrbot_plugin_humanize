@@ -736,26 +736,28 @@ HZ.renderTopbar(HZ.topbars["context"]);
     }
     const content = msg.content == null ? "" : String(msg.content);
     head.appendChild(el("span", "raw-len", content.length + " 字"));
-    const collapseBtn = el("button", "raw-collapse", "展开");
-    /* 直接插图标（不依赖 injectIcons 时机），点击切换时重插 */
-    const paintIcon = () => {
-      collapseBtn.querySelectorAll("svg").forEach((s) => s.remove());
-      collapseBtn.insertAdjacentHTML("afterbegin", HZ.icon(collapseBtn.dataset.icon));
-    };
-    collapseBtn.dataset.icon = "arrow-down";
-    paintIcon();
-    head.appendChild(collapseBtn);
+    const long = content.length > 300;
+    /* 长消息默认折叠（190px 截断），按钮展开/收起；短消息无按钮 */
+    if (long) box.classList.add("collapsed");
+    if (long) {
+      const collapseBtn = el("button", "raw-collapse", "展开");
+      /* 直接插图标（不依赖 injectIcons 时机），点击切换时重插 */
+      const paintIcon = () => {
+        collapseBtn.querySelectorAll("svg").forEach((s) => s.remove());
+        collapseBtn.insertAdjacentHTML("afterbegin", HZ.icon(collapseBtn.dataset.icon));
+      };
+      collapseBtn.dataset.icon = "arrow-down";
+      paintIcon();
+      head.appendChild(collapseBtn);
+      collapseBtn.addEventListener("click", () => {
+        const collapsed = box.classList.toggle("collapsed");
+        collapseBtn.textContent = collapsed ? "展开" : "收起";
+        collapseBtn.dataset.icon = collapsed ? "arrow-down" : "arrow-up";
+        paintIcon();
+      });
+    }
     box.appendChild(head);
     const body = el("div", "raw-body", content);
-    /* 长内容默认折叠（190px 截断），点展开显示全文 */
-    const long = content.length > 300;
-    if (long) box.classList.add("collapsed");
-    collapseBtn.addEventListener("click", () => {
-      const collapsed = box.classList.toggle("collapsed");
-      collapseBtn.textContent = collapsed ? "展开" : "收起";
-      collapseBtn.dataset.icon = collapsed ? "arrow-down" : "arrow-up";
-      paintIcon();
-    });
     box.appendChild(body);
     return box;
   }

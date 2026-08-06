@@ -159,7 +159,9 @@
   border: none; background: none; cursor: pointer;
   font-size: 10.5px; font-weight: 800; color: var(--pink-strong);
   padding: 2px 8px; border-radius: var(--r-full);
+  display: inline-flex; align-items: center; gap: 3px;
 }
+.raw-collapse svg { width: 12px; height: 12px; }
 .raw-collapse:hover { background: var(--pink-soft); }
 .raw-raw {
   margin-top: 8px; border-top: 1px dashed var(--line); padding-top: 8px;
