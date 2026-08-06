@@ -651,13 +651,30 @@ HZ.renderTopbar(HZ.topbars["context"]);
       card.appendChild(alert);
     }
 
-    /* 消息列表 */
+    /* 消息列表：历史上下文（fields.contexts）+ 当前 prompt + system_prompt */
     const list = el("div", "raw-list");
     list.style.marginTop = "14px";
-    const messages = (reqSnap.provider_request && reqSnap.provider_request.messages) || [];
-    if (messages.length) {
-      messages.forEach((msg, i) => list.appendChild(rawMsgEl(msg, i)));
-    } else {
+    const pr = reqSnap.provider_request || {};
+    const fields = pr.fields || {};
+    const ctxMessages = Array.isArray(fields.contexts) ? fields.contexts : [];
+    const systemPrompt = fields.system_prompt ? String(fields.system_prompt) : "";
+    const prompt = fields.prompt ? String(fields.prompt) : "";
+    let rendered = 0;
+    if (systemPrompt) {
+      list.appendChild(rawMsgEl({ role: "system", content: systemPrompt }, rendered));
+      rendered += 1;
+    }
+    ctxMessages.forEach((msg, i) => {
+      if (msg && typeof msg === "object" && msg.content) {
+        list.appendChild(rawMsgEl({ role: msg.role || "user", content: msg.content }, rendered));
+        rendered += 1;
+      }
+    });
+    if (prompt) {
+      list.appendChild(rawMsgEl({ role: "user", content: prompt }, rendered));
+      rendered += 1;
+    }
+    if (!rendered) {
       const empty = el("div", "cx-empty", "请求快照中无消息记录");
       empty.style.padding = "20px 16px";
       list.appendChild(empty);
