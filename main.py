@@ -1273,6 +1273,13 @@ class HumanizePlugin(Star):
         event.set_extra(_VALIDATED_OUTPUT_KEY, repaired_raw)
         event.set_extra(_IMAGE_CACHE_KEY, outcome.image_cache)
         event.set_extra(_FINAL_LOG_PENDING_KEY, True)
+        # Persist the repaired success immediately: the repair runs inside the
+        # agent-done hook, where a subsequent stop_event may prevent the normal
+        # decorating-result dispatch from recording the success.
+        try:
+            await self._record_final_protocol_success(event)
+        except Exception:
+            logger.exception("[Humanize] failed to persist repaired protocol success")
         if outcome.action is Action.NO_REPLY:
             event.set_extra(_STATE_KEY, EventState.NO_REPLY.value)
             event.set_extra(_MESSAGES_KEY, ())
@@ -1458,7 +1465,10 @@ class HumanizePlugin(Star):
             record_kwargs: dict[str, Any] = {
                 "action": action,
                 "raw_output": str(event.get_extra(_VALIDATED_OUTPUT_KEY, "")),
-                "messages": tuple(event.get_extra(_DISPATCHED_MESSAGES_KEY, ())),
+                "messages": tuple(
+                    event.get_extra(_DISPATCHED_MESSAGES_KEY, ())
+                    or event.get_extra(_MESSAGES_KEY, ())
+                ),
                 "response_snapshot": response_snapshot,
                 "response_snapshot_complete": response_snapshot_complete,
                 "model": str(event.get_extra(_MODEL_KEY, "")),
