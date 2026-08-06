@@ -402,6 +402,30 @@
     <button class="drawer-close" id="mem-drawerClose">✕</button>
   </div>
   <div class="drawer-body" id="mem-drawerBody">
+    <!-- 内容分层 -->
+    <div class="d-label">摘要 <span class="layer-chip">L0</span></div>
+    <div class="d-abstract" id="dAbstract"></div>
+    <div class="d-label">概述 <span class="layer-chip">L1</span></div>
+    <div class="d-overview" id="dOverview"></div>
+    <div class="d-label">内容 <span class="layer-chip">L2</span></div>
+    <div class="d-content" id="dContent"></div>
+    <div class="d-label">结构化值</div>
+    <pre class="d-struct" id="dStruct"></pre>
+    <div class="d-chips" id="dChips"></div>
+    <div class="d-conf">
+      <span class="d-conf-label" id="confVal">置信 —</span>
+      <span class="bar"><i id="confBar" style="width:0%"></i></span>
+    </div>
+    <div class="d-conf">
+      <span class="d-conf-label" id="impVal">重要 —</span>
+      <span class="bar"><i id="impBar" style="width:0%"></i></span>
+    </div>
+    <div class="d-label" id="eviLabel">证据（0 条）</div>
+    <div id="eviRows"></div>
+    <div class="d-label">版本</div>
+    <div id="revRows"></div>
+    <div class="d-label">审计</div>
+    <div id="auditRows"></div>
   </div>
   <div class="drawer-foot">
     <button class="btn btn-primary" style="flex:1" data-icon="edit" id="btnEditMem">编辑记忆</button>

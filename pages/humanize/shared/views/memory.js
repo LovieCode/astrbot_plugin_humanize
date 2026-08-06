@@ -477,20 +477,22 @@ HZ.renderTopbar(HZ.topbars["memory"]);
     });
   }
 
-  function renderPager(hostId, page, pageSize, total, onGo) {
+  function renderPager(hostId, page, pageSize, total, onGo, stateKey) {
     const host = $(hostId);
     if (!host) return;
     host.innerHTML = "";
     const pages = Math.max(1, Math.ceil((total || 0) / Math.max(1, pageSize)));
+    const pageField = stateKey || "page";
+    const setPage = (p) => {
+      state[pageField] = p;
+      onGo();
+    };
     const prev = document.createElement("button");
     prev.className = "pg-btn";
     prev.disabled = page <= 1;
     prev.innerHTML = '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.4" stroke-linecap="round" stroke-linejoin="round"><polyline points="15 18 9 12 15 6"/></svg>';
     prev.addEventListener("click", () => {
-      if (state.page > 1) {
-        state.page -= 1;
-        onGo();
-      }
+      if (page > 1) setPage(page - 1);
     });
     host.appendChild(prev);
 
@@ -500,10 +502,7 @@ HZ.renderTopbar(HZ.topbars["memory"]);
       const btn = document.createElement("button");
       btn.className = "pg-btn";
       btn.textContent = "1";
-      btn.addEventListener("click", () => {
-        state.page = 1;
-        onGo();
-      });
+      btn.addEventListener("click", () => setPage(1));
       host.appendChild(btn);
       if (start > 2) {
         const ell = document.createElement("span");
@@ -516,10 +515,7 @@ HZ.renderTopbar(HZ.topbars["memory"]);
       const btn = document.createElement("button");
       btn.className = "pg-btn" + (p === page ? " active" : "");
       btn.textContent = String(p);
-      btn.addEventListener("click", () => {
-        state.page = p;
-        onGo();
-      });
+      btn.addEventListener("click", () => setPage(p));
       host.appendChild(btn);
     }
     if (end < pages) {
@@ -532,10 +528,7 @@ HZ.renderTopbar(HZ.topbars["memory"]);
       const btn = document.createElement("button");
       btn.className = "pg-btn";
       btn.textContent = String(pages);
-      btn.addEventListener("click", () => {
-        state.page = pages;
-        onGo();
-      });
+      btn.addEventListener("click", () => setPage(pages));
       host.appendChild(btn);
     }
     const next = document.createElement("button");
@@ -543,10 +536,7 @@ HZ.renderTopbar(HZ.topbars["memory"]);
     next.disabled = page >= pages;
     next.innerHTML = '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.4" stroke-linecap="round" stroke-linejoin="round"><polyline points="9 18 15 12 9 6"/></svg>';
     next.addEventListener("click", () => {
-      if (state.page < pages) {
-        state.page += 1;
-        onGo();
-      }
+      if (page < pages) setPage(page + 1);
     });
     host.appendChild(next);
   }
@@ -613,6 +603,16 @@ HZ.renderTopbar(HZ.topbars["memory"]);
   $("mem-drawerClose").addEventListener("click", closeDrawer);
   document.addEventListener("keydown", (e) => {
     if (e.key === "Escape") closeDrawer();
+  });
+
+  /* 抽屉底部按钮：编辑 / 标记 rejected（静态 HTML 按钮，需显式绑定） */
+  const btnEdit = $("btnEditMem");
+  if (btnEdit) btnEdit.addEventListener("click", () => {
+    if (state.detail) openEditModal(state.detail);
+  });
+  const btnReject = $("btnRejectMem");
+  if (btnReject) btnReject.addEventListener("click", () => {
+    if (state.detail) confirmReject(state.detail);
   });
 
   async function openDetail(id) {
@@ -911,7 +911,7 @@ HZ.renderTopbar(HZ.topbars["memory"]);
       const data = await HZ.api.get("memory-jobs", query);
       state.jobs = data.items || [];
       renderJobs();
-      renderPager("jobPager", data.page || 1, data.page_size || state.jobPageSize, data.total || 0, loadJobs);
+      renderPager("jobPager", data.page || 1, data.page_size || state.jobPageSize, data.total || 0, loadJobs, "jobPage");
       renderBadge("badgeJobs", data.total || 0);
     } catch (e) {
       failToast(e);
