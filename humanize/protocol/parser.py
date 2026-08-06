@@ -9,25 +9,31 @@ from ..config import PluginConfig
 from ..domain.errors import ProtocolValidationError
 from ..domain.models import Action, ImageCache, ProtocolDecision, UnknownTerm
 
-_RESPONSE_PATTERN = re.compile(
-    r"\A"
-    r"(?P<action>[^\r\n]*)(?:\r\n|\r|\n)"
-    r"(?P<unknown_terms>[^\r\n]*)"
-    r"(?:(?:\r\n|\r|\n)(?P<body>[\s\S]*))?"
-    r"\Z"
+_TAG_RE = None  # 保留占位：标签由各自独立正则提取
+_ACTION_TAG_RE = re.compile(
+    r"<\s*Action\s*>(?P<value>.*?)<\s*/\s*Action\s*>", re.IGNORECASE | re.DOTALL
 )
-_CONTROL_MARKERS = ("action:", "unknownterms:", "<action", "<unknownterms")
-_ACTION_TAG_PATTERN = re.compile(
-    r"<\s*action\s*>\s*(?P<value>.*?)\s*<\s*/\s*action\s*>",
-    re.IGNORECASE,
+_UNKNOWN_TERMS_TAG_RE = re.compile(
+    r"<\s*UnknownTerms\s*>(?P<value>[\s\S]*?)<\s*/\s*UnknownTerms\s*>",
+    re.IGNORECASE | re.DOTALL,
+)
+_MESSAGES_TAG_RE = re.compile(
+    r"<\s*Messages\s*>(?P<inner>[\s\S]*?)<\s*/\s*Messages\s*>",
+    re.IGNORECASE | re.DOTALL,
+)
+_MESSAGE_TAG_RE = re.compile(
+    r"<\s*Message\s*>(?P<body>[\s\S]*?)<\s*/\s*Message\s*>", re.IGNORECASE | re.DOTALL
+)
+_REPLY_BLOCK_TAG_RE = re.compile(
+    r"<\s*Reply\s*>(?P<inner>[\s\S]*?)<\s*/\s*Reply\s*>", re.IGNORECASE | re.DOTALL
+)
+_IMAGECACHE_TAG_RE = re.compile(
+    r"<\s*ImageCache\s*>(?P<value>[\s\S]*?)<\s*/\s*ImageCache\s*>",
+    re.IGNORECASE | re.DOTALL,
 )
 _LEGACY_ACTION_PATTERN = re.compile(r"action\s*:\s*(?P<value>.*)", re.IGNORECASE)
-_REPLY_BLOCK_PATTERN = re.compile(r"\A<Reply>(?P<inner>[\s\S]*)</Reply>\Z")
-_MESSAGE_PATTERN = re.compile(r"<Message>(?P<body>[\s\S]*?)</Message>")
-_PROTOCOL_BODY_MARKER_PATTERN = re.compile(
-    r"<\s*/?\s*(?:Action|UnknownTerms|ImageCache|Reply|Message)\b",
-    re.IGNORECASE,
-)
+
+_CONTROL_MARKERS = ("action:", "unknownterms:", "<action", "<unknownterms")
 _STRUCTURED_REPLY_LINE_PATTERN = re.compile(
     r"^\s*(?:"
     r"#{1,6}(?:\s|$)|[-+*]\s+|>\s?|(?:\d+|[A-Za-z])[.)]\s+|\||"
@@ -46,29 +52,12 @@ class ProtocolParser:
         if not raw.strip():
             raise ProtocolValidationError("empty_output", "LLM returned no final text")
 
-        match = _RESPONSE_PATTERN.fullmatch(raw)
-        if match is None:
+        action_value = self._extract_action(raw)
+        if action_value is None:
             raise ProtocolValidationError(
-                "invalid_control_header",
-                "Response must start with Action and UnknownTerms tags",
+                "missing_action",
+                "Response must contain an <Action> tag",
             )
-        action_line = match.group("action")
-        unknown_terms_line = match.group("unknown_terms")
-        if not action_line.startswith("<Action>") or not action_line.endswith(
-            "</Action>"
-        ):
-            raise ProtocolValidationError(
-                "missing_action", "First line must be an Action tag"
-            )
-        if not unknown_terms_line.startswith(
-            "<UnknownTerms>"
-        ) or not unknown_terms_line.endswith("</UnknownTerms>"):
-            raise ProtocolValidationError(
-                "missing_unknown_terms",
-                "Second line must be an UnknownTerms tag",
-            )
-
-        action_value = action_line[len("<Action>") : -len("</Action>")].strip()
         try:
             action = Action(action_value)
         except ValueError as exc:
@@ -77,24 +66,15 @@ class ProtocolParser:
                 f"Unsupported Action value: {action_value or '<empty>'}",
             ) from exc
 
-        unknown_terms_raw = unknown_terms_line[
-            len("<UnknownTerms>") : -len("</UnknownTerms>")
-        ].strip()
-        try:
-            unknown_terms_payload = json.loads(unknown_terms_raw)
-        except json.JSONDecodeError as exc:
-            raise ProtocolValidationError(
-                "invalid_unknown_terms_json", str(exc)
-            ) from exc
-        unknown_terms = self._parse_unknown_terms(unknown_terms_payload)
-        image_cache, reply_text = self._extract_image_cache(match.group("body") or "")
-        messages = self._parse_reply_body(reply_text)
+        unknown_terms = self._extract_unknown_terms(raw)
+
+        image_cache = self._extract_image_cache(raw)
+
+        messages = self._extract_messages(raw)
 
         if action is Action.REPLY and not messages:
-            raise ProtocolValidationError(
-                "reply_missing_text",
-                "Reply action requires response text after the control header",
-            )
+            # 协议提示词要求 Reply 必须带 Messages；解析器宽容：没有消息就不发送。
+            pass
         if action is Action.NO_REPLY:
             if not self._config.no_reply_enabled:
                 raise ProtocolValidationError(
@@ -104,6 +84,7 @@ class ProtocolParser:
                 raise ProtocolValidationError(
                     "no_reply_has_text", "No Reply requires an empty response body"
                 )
+            messages = ()
 
         return ProtocolDecision(
             action=action,
@@ -112,162 +93,154 @@ class ProtocolParser:
             image_cache=image_cache,
         )
 
-    def _extract_image_cache(
-        self, reply_body: str
-    ) -> tuple[tuple[ImageCache, ...], str]:
-        """Remove the optional same-turn image cache line from the visible body.
+    # ---------- 标签提取（位置不限、可缺省） ----------
+
+    def _extract_action(self, raw: str) -> str | None:
+        """Extract the Action value from anywhere in the output.
 
         Args:
-            reply_body: Text following the required Action and UnknownTerms lines.
+            raw: Full model output.
 
         Returns:
-            Parsed bounded image cache and the remaining visible reply body. Invalid
-            cache data is discarded instead of blocking a valid user-visible reply.
+            Normalized action value, or None when no Action tag is present.
         """
-        if not reply_body.startswith("<ImageCache>"):
-            return (), reply_body
-        line_match = re.fullmatch(
-            r"(?P<line>[^\r\n]*)(?:\r\n|\r|\n|$)(?P<remaining>[\s\S]*)",
-            reply_body,
-        )
-        if line_match is None:
-            return (), ""
-        first_line = line_match.group("line")
-        remaining = line_match.group("remaining")
-        if not first_line.endswith("</ImageCache>"):
-            return (), remaining
-        payload = first_line[len("<ImageCache>") : -len("</ImageCache>")].strip()
-        try:
-            raw_items = json.loads(payload)
-        except json.JSONDecodeError:
-            return (), remaining
-        if not isinstance(raw_items, list) or len(raw_items) > 16:
-            return (), remaining
-        result: list[ImageCache] = []
-        seen: set[int] = set()
-        for item in raw_items:
-            if not isinstance(item, dict) or set(item) - {
-                "index",
-                "description",
-                "ocr",
-                "objects",
-            }:
-                return (), remaining
-            try:
-                index = int(item.get("index"))
-            except (TypeError, ValueError):
-                return (), remaining
-            description = item.get("description", "")
-            ocr = item.get("ocr", "")
-            objects = item.get("objects", [])
-            if (
-                index <= 0
-                or index > 16
-                or index in seen
-                or not isinstance(description, str)
-                or not isinstance(ocr, str)
-                or not isinstance(objects, list)
-                or len(objects) > 16
-                or not all(isinstance(value, str) for value in objects)
-            ):
-                return (), remaining
-            clean_description = description.strip()[:600]
-            clean_ocr = ocr.strip()[:600]
-            clean_objects = tuple(
-                value.strip()[:80] for value in objects if value.strip()
-            )
-            if not (clean_description or clean_ocr or clean_objects):
-                return (), remaining
-            seen.add(index)
-            result.append(
-                ImageCache(
-                    index=index,
-                    description=clean_description,
-                    ocr=clean_ocr,
-                    objects=clean_objects,
-                )
-            )
-        return tuple(result), remaining
+        match = _ACTION_TAG_RE.search(raw)
+        if match is not None:
+            return match.group("value").strip()
+        return None
 
-    def _parse_reply_body(self, reply_body: str) -> tuple[str, ...]:
-        """Parse one plain body or a Reply block with Message children.
+    def _extract_unknown_terms(self, raw: str) -> tuple[UnknownTerm, ...]:
+        """Extract UnknownTerms from anywhere; missing tag defaults to empty.
 
         Args:
-            reply_body: Text after the two control header lines.
+            raw: Full model output.
 
         Returns:
-            Outbound message bodies in their original order.
-
-        Raises:
-            ProtocolValidationError: If a Reply block contains malformed or empty
-                Message children.
+            Parsed unknown terms, or () when the tag is absent or invalid.
         """
-        block = _REPLY_BLOCK_PATTERN.fullmatch(reply_body.strip())
-        if block is None:
-            if _PROTOCOL_BODY_MARKER_PATTERN.search(reply_body):
-                raise ProtocolValidationError(
-                    "invalid_reply_block",
-                    "Protocol control tags must not appear in a plain reply body",
-                )
-            return self._parse_plain_reply_body(reply_body)
-
-        inner = block.group("inner")
-        messages: list[str] = []
-        cursor = 0
-        for message_match in _MESSAGE_PATTERN.finditer(inner):
-            if inner[cursor : message_match.start()].strip():
-                raise ProtocolValidationError(
-                    "invalid_reply_block", "Reply may contain only Message tags"
-                )
-            message = message_match.group("body")
-            if not message.strip():
-                raise ProtocolValidationError(
-                    "empty_message", "Reply contains an empty Message"
-                )
-            if _PROTOCOL_BODY_MARKER_PATTERN.search(message):
-                raise ProtocolValidationError(
-                    "invalid_reply_block",
-                    "Message text must not contain protocol control tags",
-                )
-            messages.append(message)
-            cursor = message_match.end()
-        if inner[cursor:].strip():
-            raise ProtocolValidationError(
-                "invalid_reply_block", "Reply may contain only Message tags"
-            )
-        return tuple(messages)
-
-    def _parse_plain_reply_body(self, reply_body: str) -> tuple[str, ...]:
-        """Preserve formatted text and recover short untagged chat messages.
-
-        A model occasionally uses a newline as a message boundary even though the
-        protocol requires ``Reply/Message`` tags. Only consecutive short lines
-        without recognizable formatting are safe to recover as separate outbound
-        messages. Everything else stays intact as one message.
-
-        Args:
-            reply_body: Plain text following the control header.
-
-        Returns:
-            One preserved body or recovered short chat messages.
-        """
-        if not reply_body.strip():
+        match = _UNKNOWN_TERMS_TAG_RE.search(raw)
+        if match is None:
             return ()
-        lines = reply_body.splitlines()
-        if len(lines) < 2 or any(not line.strip() for line in lines):
-            return (reply_body,)
-        messages = tuple(line.strip() for line in lines)
-        if (
-            any(len(message) > self._config.max_message_chars for message in messages)
-            or any("```" in line or "~~~" in line for line in lines)
-            or any(
-                line.lstrip().startswith(("{", "[", "<"))
-                or _STRUCTURED_REPLY_LINE_PATTERN.match(line)
-                for line in lines
+        payload_raw = match.group("value").strip()
+        try:
+            payload = json.loads(payload_raw)
+        except json.JSONDecodeError as exc:
+            raise ProtocolValidationError(
+                "invalid_unknown_terms_json", str(exc)
+            ) from exc
+        return self._parse_unknown_terms(payload)
+
+    def _parse_unknown_terms(self, payload: Any) -> tuple[UnknownTerm, ...]:
+        if not isinstance(payload, list):
+            raise ProtocolValidationError(
+                "invalid_unknown_terms", "UnknownTerms must be a JSON array"
             )
-        ):
-            return (reply_body,)
-        return messages
+        result: list[UnknownTerm] = []
+        for item in payload[:16]:
+            if not isinstance(item, dict) or set(item) - {
+                "word",
+                "guess",
+                "confidence",
+                "reason",
+            }:
+                raise ProtocolValidationError(
+                    "invalid_unknown_terms",
+                    "UnknownTerms items may contain only word, guess, confidence, reason",
+                )
+            raw_word = item.get("word")
+            if not isinstance(raw_word, str):
+                raise ProtocolValidationError(
+                    "invalid_unknown_terms", "UnknownTerms word must be a string"
+                )
+            word = raw_word.strip()
+            if not word or len(word) > 128:
+                raise ProtocolValidationError(
+                    "invalid_unknown_terms", "UnknownTerms word is empty or too long"
+                )
+            guess = str(item.get("guess") or "").strip()[:600]
+            if not guess:
+                raise ProtocolValidationError(
+                    "invalid_unknown_terms", "UnknownTerms guess must not be empty"
+                )
+            reason = str(item.get("reason") or "").strip()[:600]
+            try:
+                confidence = float(item.get("confidence", 0.0))
+            except (TypeError, ValueError):
+                raise ProtocolValidationError(
+                    "invalid_unknown_terms", "UnknownTerms confidence must be a number"
+                ) from None
+            if not math.isfinite(confidence) or not 0.0 <= confidence <= 1.0:
+                raise ProtocolValidationError(
+                    "invalid_unknown_terms",
+                    "UnknownTerms confidence must be between 0 and 1",
+                )
+            result.append(
+                UnknownTerm(
+                    word=word,
+                    guess=guess,
+                    confidence=confidence,
+                    reason=reason,
+                )
+            )
+        return tuple(result)
+
+    def _extract_image_cache(self, raw: str) -> tuple[ImageCache, ...]:
+        """Extract plain-text image transcriptions from anywhere in the output.
+
+        The cache is free-form text (combined image meaning + brief content);
+        invalid or absent cache data is discarded without blocking the reply.
+
+        Args:
+            raw: Full model output.
+
+        Returns:
+            Parsed plain-text image cache entries.
+        """
+        matches = list(_IMAGECACHE_TAG_RE.finditer(raw))[:16]
+        result: list[ImageCache] = []
+        seen: set[str] = set()
+        for match in matches:
+            text = match.group("value").strip()
+            if not text or text in seen:
+                continue
+            clean = text[:600]
+            if not clean:
+                continue
+            seen.add(clean)
+            result.append(ImageCache(text=clean))
+        return tuple(result)
+
+    def _extract_messages(self, raw: str) -> tuple[str, ...]:
+        """Extract outbound messages from Messages/Reply containers anywhere.
+
+        Message bodies are taken verbatim (tags inside are not parsed).
+        Missing containers yield no messages (nothing is sent).
+
+        Args:
+            raw: Full model output.
+
+        Returns:
+            Outbound message bodies in order.
+        """
+        messages: list[str] = []
+        for match in _MESSAGES_TAG_RE.finditer(raw):
+            for message_match in _MESSAGE_TAG_RE.finditer(match.group("inner")):
+                body = message_match.group("body")
+                if body.strip():
+                    messages.append(body)
+        if messages:
+            return tuple(messages)
+        # 兼容旧 <Reply> 容器
+        for match in _REPLY_BLOCK_TAG_RE.finditer(raw):
+            for message_match in _MESSAGE_TAG_RE.finditer(match.group("inner")):
+                body = message_match.group("body")
+                if body.strip():
+                    messages.append(body)
+        if messages:
+            return tuple(messages)
+        return ()
+
+    # ---------- 修复辅助（新版宽松格式） ----------
 
     @staticmethod
     def extract_repair_body(raw_output: str) -> str | None:
@@ -295,164 +268,81 @@ class ProtocolParser:
             recognizable Action conflicts with the body or the split is unsafe.
         """
         raw = raw_output or ""
-        match = _RESPONSE_PATTERN.fullmatch(raw)
-        if match is not None:
-            body = match.group("body") or ""
-            action_line = match.group("action").strip()
-            unknown_terms_line = match.group("unknown_terms").strip()
-            looks_like_header = (
-                "action" in action_line.casefold()
-                or "reply" in action_line.casefold()
-                or action_line.startswith("<")
-                or unknown_terms_line.casefold().startswith(
-                    ("unknownterms", "<unknownterms")
-                )
-            )
-            if not looks_like_header:
-                required_action = (
-                    Action.REPLY.value if raw.strip() else Action.NO_REPLY.value
-                )
-                return raw, required_action
-            action_value = ""
-            action_match = _ACTION_TAG_PATTERN.fullmatch(action_line)
-            if action_match is None:
-                action_match = _LEGACY_ACTION_PATTERN.fullmatch(action_line)
-            if action_match is not None:
-                normalized_action = " ".join(
-                    action_match.group("value").strip().casefold().split()
-                )
-                action_value = {
-                    "reply": Action.REPLY.value,
-                    "no reply": Action.NO_REPLY.value,
-                }.get(normalized_action, "")
-                if not action_value:
-                    return None
-            elif (
-                "action" in action_line.casefold()
-                or "reply" in action_line.casefold()
-                or action_line.startswith("<")
-            ):
+        action_match = _ACTION_TAG_RE.search(raw)
+        if action_match is not None:
+            action_value = action_match.group("value").strip()
+            try:
+                action = Action(action_value)
+            except ValueError:
                 return None
-
-            if action_value:
-                if action_value == Action.REPLY.value and not body.strip():
-                    return None
-                if action_value == Action.NO_REPLY.value and body.strip():
-                    return None
-                return body, action_value
-            required_action = (
-                Action.REPLY.value if body.strip() else Action.NO_REPLY.value
-            )
-            return body, required_action
-
-        first_lines = re.split(r"\r\n|\r|\n", raw, maxsplit=3)[:3]
-        if any(
-            line.lstrip().lower().startswith(_CONTROL_MARKERS) for line in first_lines
-        ):
-            return None
-        required_action = Action.REPLY.value if raw.strip() else Action.NO_REPLY.value
-        return raw, required_action
+            # No Reply 冲突（带正文）无需修复：直接返回 None 让上层 block
+            if action is Action.NO_REPLY:
+                return None
+            # 去掉已识别的 Action / UnknownTerms 标签，其余为 body
+            body = raw[: action_match.start()] + raw[action_match.end() :]
+            unknown_match = _UNKNOWN_TERMS_TAG_RE.search(body)
+            if unknown_match is not None:
+                body = body[: unknown_match.start()] + body[unknown_match.end() :]
+            return body.strip(), action.value
+        legacy = _LEGACY_ACTION_PATTERN.search(raw)
+        if legacy is not None:
+            action_value = legacy.group("value").strip()
+            try:
+                action = Action(action_value)
+            except ValueError:
+                return None
+            if action is Action.NO_REPLY:
+                return None
+            body = raw[: legacy.start()] + raw[legacy.end() :]
+            legacy_unknown = re.search(r"(?im)^\s*unknownterms\s*:\s*[^\r\n]*", body)
+            if legacy_unknown is not None:
+                body = body[: legacy_unknown.start()] + body[legacy_unknown.end() :]
+            return body.strip(), action.value
+        return None
 
     @staticmethod
     def compose_repaired_response(repair_output: str, original_body: str) -> str:
-        """Combine a strict header-only repair with the untouched original body.
+        """Combine a repair header with the untouched original body.
+
+        The repair output needs at least an Action tag (UnknownTerms optional);
+        the original body (Messages/ImageCache/whatever) is appended as-is.
 
         Args:
-            repair_output: Model output expected to contain exactly two header lines.
+            repair_output: Model output expected to contain a valid Action tag.
             original_body: Original body extracted before the repair call.
 
         Returns:
             A full response suitable for normal protocol validation.
 
         Raises:
-            ProtocolValidationError: If the repair contains a malformed header or any
-                response body.
+            ProtocolValidationError: If the repair has no Action tag or carries
+                its own visible body.
         """
-        match = _RESPONSE_PATTERN.fullmatch(repair_output or "")
-        if match is None:
+        action_match = _ACTION_TAG_RE.search(repair_output or "")
+        if action_match is None:
             raise ProtocolValidationError(
-                "invalid_repair_header",
-                "Protocol repair must contain exactly two control header lines",
+                "missing_action", "Protocol repair must contain an Action tag"
             )
-        if match.group("body") not in {None, ""}:
+        action_value = action_match.group("value").strip()
+        try:
+            Action(action_value)
+        except ValueError as exc:
             raise ProtocolValidationError(
-                "repair_has_body", "Protocol repair must not contain response text"
-            )
+                "invalid_action", f"Unsupported Action value: {action_value}"
+            ) from exc
 
-        action_line = match.group("action")
-        unknown_terms_line = match.group("unknown_terms")
-        if not action_line.startswith("<Action>") or not action_line.endswith(
-            "</Action>"
-        ):
-            raise ProtocolValidationError(
-                "missing_action", "First repair line must be an Action tag"
-            )
-        if not unknown_terms_line.startswith(
-            "<UnknownTerms>"
-        ) or not unknown_terms_line.endswith("</UnknownTerms>"):
-            raise ProtocolValidationError(
-                "missing_unknown_terms",
-                "Second repair line must be an UnknownTerms tag",
-            )
+        unknown_match = _UNKNOWN_TERMS_TAG_RE.search(repair_output or "")
+        unknown_line = (
+            unknown_match.group(0)
+            if unknown_match is not None
+            else "<UnknownTerms>[]</UnknownTerms>"
+        )
 
-        header = f"{action_line}\n{unknown_terms_line}"
-        return f"{header}\n{original_body}" if original_body else header
-
-    def _parse_unknown_terms(self, payload: Any) -> tuple[UnknownTerm, ...]:
-        if not isinstance(payload, list):
-            raise ProtocolValidationError(
-                "invalid_unknown_terms", "UnknownTerms must be a JSON array"
-            )
-        if len(payload) > self._config.max_unknown_terms:
-            raise ProtocolValidationError(
-                "too_many_unknown_terms", "UnknownTerms exceeds the configured limit"
-            )
-
-        result: list[UnknownTerm] = []
-        required_fields = {"word", "guess", "confidence", "reason"}
-        for item in payload:
-            if not isinstance(item, dict) or set(item) != required_fields:
-                raise ProtocolValidationError(
-                    "invalid_unknown_term",
-                    "Each unknown term requires word, guess, confidence, and reason",
-                )
-            if not all(
-                isinstance(item[field], str) for field in ("word", "guess", "reason")
-            ):
-                raise ProtocolValidationError(
-                    "invalid_unknown_term",
-                    "Unknown term word, guess, and reason must be strings",
-                )
-            word = item["word"].strip()
-            guess = item["guess"].strip()
-            reason = item["reason"].strip()
-            confidence_raw = item["confidence"]
-            if not word or not guess or not reason:
-                raise ProtocolValidationError(
-                    "empty_unknown_term_field",
-                    "Unknown term text fields must not be empty",
-                )
-            if isinstance(confidence_raw, bool):
-                raise ProtocolValidationError(
-                    "invalid_confidence", "Confidence must be a number from 0 to 1"
-                )
-            try:
-                confidence = float(confidence_raw)
-            except (TypeError, ValueError) as exc:
-                raise ProtocolValidationError(
-                    "invalid_confidence", "Confidence must be a number from 0 to 1"
-                ) from exc
-            if not math.isfinite(confidence) or not 0.0 <= confidence <= 1.0:
-                raise ProtocolValidationError(
-                    "invalid_confidence",
-                    "Confidence must be a finite number from 0 to 1",
-                )
-            result.append(
-                UnknownTerm(
-                    word=word,
-                    guess=guess,
-                    confidence=confidence,
-                    reason=reason,
-                )
-            )
-        return tuple(result)
+        # 重组：Action + UnknownTerms + 原 body
+        lines = [
+            action_match.group(0),
+            unknown_line,
+        ]
+        if original_body.strip():
+            lines.append(original_body.strip())
+        return "\n".join(lines)

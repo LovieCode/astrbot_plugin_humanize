@@ -378,12 +378,12 @@ def test_image_cache_protocol_is_hidden_from_visible_reply() -> None:
     decision = parser.parse(
         "<Action>Reply</Action>\n"
         "<UnknownTerms>[]</UnknownTerms>\n"
-        '<ImageCache>[{"index":1,"description":"橘猫","ocr":"","objects":["cat"]}]</ImageCache>\n'
-        "你好"
+        "<ImageCache>结合上下文，这是用户发的橘猫表情包</ImageCache>\n"
+        "<Messages><Message>你好</Message></Messages>"
     )
 
     assert decision.messages == ("你好",)
-    assert decision.image_cache[0].description == "橘猫"
+    assert decision.image_cache[0].text.startswith("结合上下文")
 
 
 def test_clear_command_resets_native_and_managed_context(

@@ -112,7 +112,7 @@ def test_service_removes_one_provider_blank_line_before_dispatch(
         raw = (
             "<Action>Reply</Action>\n"
             "<UnknownTerms>[]</UnknownTerms>\n\n"
-            "正文第一行\n\n正文第三行"
+            "<Messages><Message>正文第一行\n\n正文第三行</Message></Messages>"
         )
 
         outcome = await service.process_final_response(
@@ -211,10 +211,10 @@ def test_invalid_final_response_is_logged_without_learning(tmp_path: Path) -> No
         logs = await repository.list_protocol_logs(page=1, page_size=20)
 
         assert not outcome.valid
-        assert outcome.error_code == "invalid_control_header"
+        assert outcome.error_code == "missing_action"
         assert stored["total"] == 0
         assert logs["total"] == 1
-        assert logs["items"][0]["failure_code"] == "invalid_control_header"
+        assert logs["items"][0]["failure_code"] == "missing_action"
 
     asyncio.run(scenario())
 

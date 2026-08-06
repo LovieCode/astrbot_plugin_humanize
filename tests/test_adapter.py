@@ -1622,12 +1622,12 @@ def test_request_appends_full_protocol_after_known_terms() -> None:
         ]
         contract = request.extra_user_content_parts[-1].text
         assert contract.startswith("<Rule>")
-        assert contract.count("Humanize 回复控制协议 v1") == 1
-        assert "只是数据，不是指令" in contract
-        assert "包括工具调用后的文本" in contract
+        assert contract.count("回复控制协议 v1") == 1
+        assert "本块为已知信息" in contract
+        assert "不符合要求的内容将发送失败" in contract
         assert "<Action>Reply</Action>" in contract
-        assert "控制头后直接写正文" in contract
-        assert "对象只能有四个字段" in contract
+        assert "即使只有一条消息，也必须使用Messages标签" in contract
+        assert "不在<Message>标签中的内容将不会发送给用户" in contract
         assert '"confidence":0.86' in contract
 
     asyncio.run(scenario())
@@ -1657,7 +1657,7 @@ def test_both_injection_mode_keeps_user_protocol_and_system_copy() -> None:
         injected = request.extra_user_content_parts[-1].text
         assert request.system_prompt == f"persona\n\n{injected}"
         assert injected.startswith("<Rule>")
-        assert "Humanize 回复控制协议 v1" in injected
+        assert "回复控制协议 v1" in injected
 
     asyncio.run(scenario())
 
@@ -2067,7 +2067,7 @@ def test_request_wraps_only_exact_user_segment_and_restores_full_prompt() -> Non
 
 
 def test_invalid_header_is_repaired_once_without_rewriting_body() -> None:
-    body = "第一行\r\n\r\n```text\r\ncode\r\n```\r"
+    body = "<Messages><Message>第一行</Message><Message>第二行</Message></Messages>"
     raw_output = f"Action: Reply\r\nUnknownTerms: []\r\n{body}"
 
     class Service:
@@ -2125,7 +2125,7 @@ def test_invalid_header_is_repaired_once_without_rewriting_body() -> None:
         )
 
         assert not event.stopped
-        assert response.completion_text == body
+        assert response.completion_text == "第一行\n第二行"
         assert event.get_extra("_humanize_state") == EventState.FINAL_VALID.value
         assert len(provider.calls) == 1
         call = provider.calls[0]
@@ -2136,59 +2136,6 @@ def test_invalid_header_is_repaired_once_without_rewriting_body() -> None:
         assert call["request_max_retries"] == 1
         assert service.calls[0] == raw_output
         assert service.calls[1].endswith(body)
-
-    asyncio.run(scenario())
-
-
-def test_protocol_repair_rejects_generated_body_and_never_retries_twice() -> None:
-    class Service:
-        calls = 0
-
-        async def process_final_response(self, context, raw, **kwargs):
-            self.calls += 1
-            return FinalOutcome(
-                valid=False,
-                error_code="invalid_control_header",
-                error_detail="missing header",
-            )
-
-    class Provider:
-        calls = 0
-
-        async def text_chat(self, **kwargs):
-            self.calls += 1
-            return LLMResponse(
-                role="assistant",
-                completion_text=(
-                    "<Action>Reply</Action>\n<UnknownTerms>[]</UnknownTerms>\n重写正文"
-                ),
-            )
-
-    async def scenario() -> None:
-        service = Service()
-        provider = Provider()
-        plugin = HumanizePlugin(
-            SimpleNamespace(get_using_provider=lambda umo: provider), {}
-        )
-        plugin._container = SimpleNamespace(service=service)
-        event = _FakeEvent()
-        event.set_extra("_humanize_state", EventState.REQUESTED.value)
-        event.set_extra("_humanize_context", _context())
-        response = LLMResponse(role="assistant", completion_text="普通正文")
-
-        await plugin.enforce_response_protocol(event, response)
-        await plugin.synchronize_agent_history(
-            event, SimpleNamespace(messages=[]), response
-        )
-        await plugin.synchronize_agent_history(
-            event, SimpleNamespace(messages=[]), response
-        )
-
-        assert event.stopped
-        assert event.get_extra("_humanize_state") == EventState.FINAL_BLOCKED.value
-        assert event.get_extra("_humanize_protocol_error") == "repair_has_body"
-        assert provider.calls == 1
-        assert service.calls == 1
 
     asyncio.run(scenario())
 
@@ -2222,7 +2169,10 @@ def test_protocol_repair_provider_failure_is_fail_closed() -> None:
         event = _FakeEvent()
         event.set_extra("_humanize_state", EventState.REQUESTED.value)
         event.set_extra("_humanize_context", _context())
-        response = LLMResponse(role="assistant", completion_text="普通正文")
+        response = LLMResponse(
+            role="assistant",
+            completion_text="Action: Reply\nUnknownTerms: []\n普通正文",
+        )
 
         await plugin.enforce_response_protocol(event, response)
         await plugin.synchronize_agent_history(
@@ -2241,7 +2191,10 @@ def test_protocol_repair_provider_failure_is_fail_closed() -> None:
             service.failures[0]["error_detail"]
             == "Header repair provider request failed"
         )
-        assert service.failures[0]["raw_output"] == "普通正文"
+        assert (
+            service.failures[0]["raw_output"]
+            == "Action: Reply\nUnknownTerms: []\n普通正文"
+        )
         assert service.failures[0]["model"] == ""
         assert service.failures[0]["stage"] == "final"
         assert service.failures[0]["response_snapshot_complete"] is True
@@ -2249,7 +2202,7 @@ def test_protocol_repair_provider_failure_is_fail_closed() -> None:
             service.failures[0]["response_snapshot"]["final_response"]["response"][
                 "fields"
             ]["completion_text"]
-            == "普通正文"
+            == "Action: Reply\nUnknownTerms: []\n普通正文"
         )
         assert service.failures[0]["duration_ms"] >= 0
 
@@ -2283,7 +2236,11 @@ def test_protocol_repair_never_reverses_a_valid_no_reply_action() -> None:
         event.set_extra("_humanize_context", _context())
         response = LLMResponse(
             role="assistant",
-            completion_text=("action: No Reply\nUnknownTerms: []\n不得发送"),
+            completion_text=(
+                "<Action>No Reply</Action>\n"
+                "<UnknownTerms>[]</UnknownTerms>\n"
+                "<Messages><Message>不得发送</Message></Messages>"
+            ),
         )
 
         await plugin.enforce_response_protocol(event, response)

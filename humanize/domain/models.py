@@ -37,12 +37,13 @@ class UnknownTerm:
 
 @dataclass(frozen=True, slots=True)
 class ImageCache:
-    """Describe one bounded same-turn image transcription cache."""
+    """One plain-text image transcription cache entry.
 
-    index: int
-    description: str
-    ocr: str = ""
-    objects: tuple[str, ...] = ()
+    The text is the combined contextual meaning plus brief content of the
+    image (produced by a multimodal model), not a dry visual description.
+    """
+
+    text: str
 
 
 @dataclass(frozen=True, slots=True)

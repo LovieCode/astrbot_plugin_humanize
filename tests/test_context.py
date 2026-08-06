@@ -397,7 +397,10 @@ def test_context_detail_links_full_final_response_snapshot(tmp_path: Path) -> No
             request_snapshot_complete=True,
         )
         body = "完整响应" * 1_200
-        raw_output = f"<Action>Reply</Action>\n<UnknownTerms>[]</UnknownTerms>\n{body}"
+        raw_output = (
+            f"<Action>Reply</Action>\n<UnknownTerms>[]</UnknownTerms>\n"
+            f"<Messages><Message>{body}</Message></Messages>"
+        )
         llm_snapshot = {
             "capture_stage": "on_llm_response_firewall",
             "responses": [

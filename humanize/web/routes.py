@@ -542,13 +542,12 @@ class WebApi:
                 raise ValueError("settings 请求必须包含非空的 values 对象")
             validated = _validate_settings_values(raw_values)
             _write_plugin_config(validated)
-            # 同步更新内存配置，使随后的读回立即反映新值（重启后完全生效）
+            # 同步更新内存配置（frozen dataclass，用 object.__setattr__ 原地修改，
+            # 保持与插件主逻辑同一对象引用），使随后的读回立即反映新值。
             try:
-                from humanize.config import PluginConfig
-
-                merged = dict(self._config.as_public_dict())
-                merged.update(validated)
-                self._config = PluginConfig.from_mapping(merged)
+                for key, value in validated.items():
+                    if hasattr(self._config, key):
+                        object.__setattr__(self._config, key, value)
             except Exception:
                 logger.exception("[Humanize] settings in-memory refresh failed")
             return self._ok({"updated": list(validated), "restart_required": True})

@@ -724,38 +724,38 @@ class ContextWindowService:
             return "[Image data omitted]"
         return self._clip(stripped, _L2_MESSAGE_MAX_CHARS)
 
-    def _image_descriptions(self, image_cache: tuple[Any, ...]) -> dict[int, str]:
-        result: dict[int, str] = {}
+    def _image_descriptions(self, image_cache: tuple[Any, ...]) -> list[str]:
+        """Collect plain-text image transcription entries.
+
+        Args:
+            image_cache: Parsed same-turn ImageCache entries (plain text).
+
+        Returns:
+            Cleaned transcription texts in order.
+        """
+        result: list[str] = []
+        seen: set[str] = set()
         for raw in image_cache:
             value = self._safe_value(raw)
-            if not isinstance(value, dict):
+            text = ""
+            if isinstance(value, str):
+                text = value
+            elif isinstance(value, dict):
+                # 兼容旧的结构化条目（description 兜底）
+                text = str(value.get("text") or value.get("description") or "")
+            text = self._clip(text.strip(), 600)
+            if not text or text in seen:
                 continue
-            try:
-                index = int(value.get("index"))
-            except (TypeError, ValueError):
-                continue
-            if index <= 0 or index > 16 or index in result:
-                continue
-            description = self._clip(str(value.get("description") or "").strip(), 600)
-            ocr = self._clip(str(value.get("ocr") or "").strip(), 600)
-            objects = value.get("objects")
-            object_text = ""
-            if isinstance(objects, list):
-                object_text = ", ".join(
-                    self._clip(str(item).strip(), 80)
-                    for item in objects[:16]
-                    if str(item).strip()
-                )
-            pieces = [piece for piece in (description, ocr, object_text) if piece]
-            result[index] = "; ".join(pieces) if pieces else "description unavailable"
+            seen.add(text)
+            result.append(text)
         return result
 
     @staticmethod
-    def _image_markers(descriptions: dict[int, str], image_count: int) -> list[str]:
-        return [
-            f"[Image {index}: {descriptions.get(index, 'description unavailable')}]"
-            for index in range(1, min(image_count, 16) + 1)
-        ]
+    def _image_markers(descriptions: list[str], image_count: int) -> list[str]:
+        texts = descriptions[: min(image_count, 16)]
+        if not texts:
+            return []
+        return [f"[图片 {index}: {text}]" for index, text in enumerate(texts, 1)]
 
     @staticmethod
     def _valid_tool_history(messages: list[dict[str, Any]]) -> list[dict[str, Any]]:

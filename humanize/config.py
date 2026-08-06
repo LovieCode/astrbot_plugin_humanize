@@ -90,6 +90,7 @@ class PluginConfig:
     memory_extraction_provider_id: str = ""
     memory_embedding_provider_id: str = ""
     memory_rerank_provider_id: str = ""
+    image_transcription_provider_id: str = ""
     memory_identity_secret_env: str = "HUMANIZE_MEMORY_SECRET"
     memory_recall_timeout_seconds: float = 1.5
     memory_auto_activate_confidence: float = 0.88
@@ -171,6 +172,9 @@ class PluginConfig:
             memory_rerank_provider_id=_as_provider_id(
                 data.get("memory_rerank_provider_id")
             ),
+            image_transcription_provider_id=_as_provider_id(
+                data.get("image_transcription_provider_id")
+            ),
             memory_identity_secret_env=_as_identifier(
                 data.get("memory_identity_secret_env"), "HUMANIZE_MEMORY_SECRET"
             ),
@@ -243,6 +247,7 @@ class PluginConfig:
             "memory_extraction_provider_id": self.memory_extraction_provider_id,
             "memory_embedding_provider_id": self.memory_embedding_provider_id,
             "memory_rerank_provider_id": self.memory_rerank_provider_id,
+            "image_transcription_provider_id": self.image_transcription_provider_id,
             "memory_identity_secret_env": self.memory_identity_secret_env,
             "memory_recall_timeout_seconds": self.memory_recall_timeout_seconds,
             "memory_auto_activate_confidence": (self.memory_auto_activate_confidence),

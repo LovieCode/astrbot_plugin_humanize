@@ -26,7 +26,9 @@
         "description": "管理员 QQ 号",
         "type": "list",
         "default": [],
-        "items": {"type": "string"},
+        "items": {
+          "type": "string"
+        },
         "hint": "每行一个 QQ 号。只有这里配置的值会被写入临时 Rule。"
       },
       "max_message_chars": {
@@ -35,7 +37,11 @@
         "default": 10,
         "minimum": 1,
         "maximum": 200,
-        "slider": {"min": 1, "max": 200, "step": 1},
+        "slider": {
+          "min": 1,
+          "max": 200,
+          "step": 1
+        },
         "hint": "普通发言每条不得超过此字数，超出时要求另起一条消息。代码和格式化文本不受此限制。"
       },
       "message_interval_seconds": {
@@ -44,7 +50,11 @@
         "default": 0.8,
         "minimum": 0.0,
         "maximum": 10.0,
-        "slider": {"min": 0.0, "max": 10.0, "step": 0.1},
+        "slider": {
+          "min": 0.0,
+          "max": 10.0,
+          "step": 0.1
+        },
         "hint": "同一次回复拆成多条时，首条立即发送，后续每条等待该时长；设为 0 可关闭间隔。"
       }
     }
@@ -64,30 +74,44 @@
         "description": "协议注入位置",
         "type": "string",
         "default": "user",
-        "options": ["user", "both"],
-        "labels": ["仅用户消息（推荐）", "用户消息 + System"],
-        "condition": {"protocol_enabled": true},
+        "options": [
+          "user",
+          "both"
+        ],
+        "labels": [
+          "仅用户消息（推荐）",
+          "用户消息 + System"
+        ],
+        "condition": {
+          "protocol_enabled": true
+        },
         "hint": "日常使用选“仅用户消息”；仅在模型经常忽略协议时再加入 System。"
       },
       "no_reply_enabled": {
         "description": "允许不回复",
         "type": "bool",
         "default": true,
-        "condition": {"protocol_enabled": true},
+        "condition": {
+          "protocol_enabled": true
+        },
         "hint": "允许 LLM 在不适合插话时主动选择不回复。"
       },
       "jargon_enabled": {
         "description": "启用黑话学习",
         "type": "bool",
         "default": true,
-        "condition": {"protocol_enabled": true},
+        "condition": {
+          "protocol_enabled": true
+        },
         "hint": "从合法 <UnknownTerms> 标签内的 JSON 中记录候选词。"
       },
       "protocol_repair_retry_enabled": {
         "description": "协议控制头修复重试",
         "type": "bool",
         "default": true,
-        "condition": {"protocol_enabled": true},
+        "condition": {
+          "protocol_enabled": true
+        },
         "collapsed": true,
         "hint": "首次控制头非法时最多额外调用模型一次，只修复标签控制头；原回复正文不会交给模型重写。"
       },
@@ -97,8 +121,14 @@
         "default": 7,
         "minimum": 1,
         "maximum": 365,
-        "slider": {"min": 1, "max": 365, "step": 1},
-        "condition": {"protocol_enabled": true},
+        "slider": {
+          "min": 1,
+          "max": 365,
+          "step": 1
+        },
+        "condition": {
+          "protocol_enabled": true
+        },
         "collapsed": true
       },
       "min_confidence_for_injection": {
@@ -107,8 +137,15 @@
         "default": 0.75,
         "minimum": 0.0,
         "maximum": 1.0,
-        "slider": {"min": 0.0, "max": 1.0, "step": 0.01},
-        "condition": {"protocol_enabled": true, "jargon_enabled": true},
+        "slider": {
+          "min": 0.0,
+          "max": 1.0,
+          "step": 0.01
+        },
+        "condition": {
+          "protocol_enabled": true,
+          "jargon_enabled": true
+        },
         "collapsed": true
       },
       "max_injected_jargons": {
@@ -117,8 +154,15 @@
         "default": 5,
         "minimum": 0,
         "maximum": 50,
-        "slider": {"min": 0, "max": 50, "step": 1},
-        "condition": {"protocol_enabled": true, "jargon_enabled": true},
+        "slider": {
+          "min": 0,
+          "max": 50,
+          "step": 1
+        },
+        "condition": {
+          "protocol_enabled": true,
+          "jargon_enabled": true
+        },
         "collapsed": true
       },
       "max_injection_tokens": {
@@ -127,8 +171,15 @@
         "default": 256,
         "minimum": 0,
         "maximum": 4096,
-        "slider": {"min": 0, "max": 4096, "step": 64},
-        "condition": {"protocol_enabled": true, "jargon_enabled": true},
+        "slider": {
+          "min": 0,
+          "max": 4096,
+          "step": 64
+        },
+        "condition": {
+          "protocol_enabled": true,
+          "jargon_enabled": true
+        },
         "collapsed": true
       },
       "max_evidence_per_entry": {
@@ -137,8 +188,15 @@
         "default": 20,
         "minimum": 1,
         "maximum": 500,
-        "slider": {"min": 1, "max": 500, "step": 1},
-        "condition": {"protocol_enabled": true, "jargon_enabled": true},
+        "slider": {
+          "min": 1,
+          "max": 500,
+          "step": 1
+        },
+        "condition": {
+          "protocol_enabled": true,
+          "jargon_enabled": true
+        },
         "collapsed": true
       }
     }
@@ -158,7 +216,9 @@
         "description": "自动提取聊天记忆",
         "type": "bool",
         "default": true,
-        "condition": {"memory_enabled": true},
+        "condition": {
+          "memory_enabled": true
+        },
         "hint": "仅在最终消息成功发送后创建后台任务。未选择提取 Provider 时只执行保守规则，不会偷偷调用聊天模型。"
       },
       "memory_extraction_provider_id": {
@@ -166,7 +226,10 @@
         "type": "string",
         "default": "",
         "_special": "select_provider",
-        "condition": {"memory_enabled": true, "memory_auto_extract_enabled": true},
+        "condition": {
+          "memory_enabled": true,
+          "memory_auto_extract_enabled": true
+        },
         "hint": "可选。选择 AstrBot 中已有的 Chat Provider；留空时只保留规则提取，不会下载或加载本地模型。"
       },
       "memory_embedding_provider_id": {
@@ -174,7 +237,9 @@
         "type": "string",
         "default": "",
         "_special": "select_provider:embedding",
-        "condition": {"memory_enabled": true},
+        "condition": {
+          "memory_enabled": true
+        },
         "hint": "可选。选择已有的 Embedding Provider 后，为 OpenViking 召回和回复样例启用向量检索；不会安装本地模型。"
       },
       "memory_rerank_provider_id": {
@@ -182,7 +247,9 @@
         "type": "string",
         "default": "",
         "_special": "select_provider:rerank",
-        "condition": {"memory_enabled": true},
+        "condition": {
+          "memory_enabled": true
+        },
         "collapsed": true,
         "hint": "可选且默认关闭。选择已有的 Rerank Provider 后会参与召回排序；失败时保留原排序。"
       },
@@ -190,7 +257,9 @@
         "description": "记忆身份 HMAC 环境变量",
         "type": "string",
         "default": "HUMANIZE_MEMORY_SECRET",
-        "condition": {"memory_enabled": true},
+        "condition": {
+          "memory_enabled": true
+        },
         "collapsed": true,
         "hint": "可选。未设置时插件会在数据目录生成独立密钥文件；备份 OpenViking workspace 时必须一并备份该密钥。"
       },
@@ -200,8 +269,14 @@
         "default": 1.5,
         "minimum": 0.2,
         "maximum": 10.0,
-        "slider": {"min": 0.2, "max": 10.0, "step": 0.1},
-        "condition": {"memory_enabled": true},
+        "slider": {
+          "min": 0.2,
+          "max": 10.0,
+          "step": 0.1
+        },
+        "condition": {
+          "memory_enabled": true
+        },
         "collapsed": true,
         "hint": "只限制显式配置的 Embedding 或 Rerank Provider；超时立即降级为 OpenViking 层级和关键词召回。"
       },
@@ -211,8 +286,14 @@
         "default": 0.88,
         "minimum": 0.5,
         "maximum": 1.0,
-        "slider": {"min": 0.5, "max": 1.0, "step": 0.01},
-        "condition": {"memory_enabled": true},
+        "slider": {
+          "min": 0.5,
+          "max": 1.0,
+          "step": 0.01
+        },
+        "condition": {
+          "memory_enabled": true
+        },
         "collapsed": true,
         "hint": "达到该阈值且具有当前用户原文证据的记忆可直接生效，其余保留为候选。"
       },
@@ -222,8 +303,14 @@
         "default": 0.55,
         "minimum": 0.0,
         "maximum": 1.0,
-        "slider": {"min": 0.0, "max": 1.0, "step": 0.01},
-        "condition": {"memory_enabled": true},
+        "slider": {
+          "min": 0.0,
+          "max": 1.0,
+          "step": 0.01
+        },
+        "condition": {
+          "memory_enabled": true
+        },
         "collapsed": true
       },
       "memory_recall_limit": {
@@ -232,8 +319,14 @@
         "default": 5,
         "minimum": 1,
         "maximum": 20,
-        "slider": {"min": 1, "max": 20, "step": 1},
-        "condition": {"memory_enabled": true},
+        "slider": {
+          "min": 1,
+          "max": 20,
+          "step": 1
+        },
+        "condition": {
+          "memory_enabled": true
+        },
         "collapsed": true
       },
       "memory_recall_score_threshold": {
@@ -242,8 +335,14 @@
         "default": 0.2,
         "minimum": 0.0,
         "maximum": 1.0,
-        "slider": {"min": 0.0, "max": 1.0, "step": 0.01},
-        "condition": {"memory_enabled": true},
+        "slider": {
+          "min": 0.0,
+          "max": 1.0,
+          "step": 0.01
+        },
+        "condition": {
+          "memory_enabled": true
+        },
         "collapsed": true
       },
       "memory_recall_max_chars": {
@@ -252,7 +351,9 @@
         "default": 2500,
         "minimum": 256,
         "maximum": 20000,
-        "condition": {"memory_enabled": true},
+        "condition": {
+          "memory_enabled": true
+        },
         "collapsed": true,
         "hint": "记忆只作为临时用户上下文注入，并保持回复协议位于最后。"
       },
@@ -262,8 +363,15 @@
         "default": 8,
         "minimum": 1,
         "maximum": 20,
-        "slider": {"min": 1, "max": 20, "step": 1},
-        "condition": {"memory_enabled": true, "memory_auto_extract_enabled": true},
+        "slider": {
+          "min": 1,
+          "max": 20,
+          "step": 1
+        },
+        "condition": {
+          "memory_enabled": true,
+          "memory_auto_extract_enabled": true
+        },
         "collapsed": true,
         "hint": "用于后台任务合并与费用控制，不影响最终回复发送。"
       },
@@ -273,8 +381,15 @@
         "default": 180,
         "minimum": 15,
         "maximum": 3600,
-        "slider": {"min": 15, "max": 3600, "step": 15},
-        "condition": {"memory_enabled": true, "memory_auto_extract_enabled": true},
+        "slider": {
+          "min": 15,
+          "max": 3600,
+          "step": 15
+        },
+        "condition": {
+          "memory_enabled": true,
+          "memory_auto_extract_enabled": true
+        },
         "collapsed": true
       },
       "memory_job_max_attempts": {
@@ -283,14 +398,23 @@
         "default": 5,
         "minimum": 1,
         "maximum": 20,
-        "slider": {"min": 1, "max": 20, "step": 1},
-        "condition": {"memory_enabled": true, "memory_auto_extract_enabled": true},
+        "slider": {
+          "min": 1,
+          "max": 20,
+          "step": 1
+        },
+        "condition": {
+          "memory_enabled": true,
+          "memory_auto_extract_enabled": true
+        },
         "collapsed": true
       },
       "reply_examples": {
         "description": "典型短对话样例",
         "type": "object",
-        "condition": {"memory_enabled": true},
+        "condition": {
+          "memory_enabled": true
+        },
         "hint": "从已审核样例中召回表达风格参考，不会直接复用旧回复。",
         "items": {
           "reply_examples_enabled": {
@@ -305,8 +429,14 @@
             "default": 3,
             "minimum": 0,
             "maximum": 10,
-            "slider": {"min": 0, "max": 10, "step": 1},
-            "condition": {"reply_examples_enabled": true},
+            "slider": {
+              "min": 0,
+              "max": 10,
+              "step": 1
+            },
+            "condition": {
+              "reply_examples_enabled": true
+            },
             "collapsed": true
           },
           "reply_examples_max_chars": {
@@ -315,7 +445,9 @@
             "default": 2000,
             "minimum": 128,
             "maximum": 20000,
-            "condition": {"reply_examples_enabled": true},
+            "condition": {
+              "reply_examples_enabled": true
+            },
             "collapsed": true
           },
           "reply_examples_min_quality": {
@@ -324,8 +456,14 @@
             "default": 0.7,
             "minimum": 0.0,
             "maximum": 1.0,
-            "slider": {"min": 0.0, "max": 1.0, "step": 0.01},
-            "condition": {"reply_examples_enabled": true},
+            "slider": {
+              "min": 0.0,
+              "max": 1.0,
+              "step": 0.01
+            },
+            "condition": {
+              "reply_examples_enabled": true
+            },
             "collapsed": true
           },
           "reply_examples_recall_score_threshold": {
@@ -334,12 +472,27 @@
             "default": 0.2,
             "minimum": 0.0,
             "maximum": 1.0,
-            "slider": {"min": 0.0, "max": 1.0, "step": 0.01},
-            "condition": {"reply_examples_enabled": true},
+            "slider": {
+              "min": 0.0,
+              "max": 1.0,
+              "step": 0.01
+            },
+            "condition": {
+              "reply_examples_enabled": true
+            },
             "collapsed": true,
             "hint": "词法、向量或重排后的最终分数低于该值时不会注入样例。"
           }
         }
+      },
+      "image_transcription_provider_id": {
+        "description": "图片转述 Provider",
+        "type": "string",
+        "default": "",
+        "_special": "select_provider:vision",
+        "condition": {},
+        "collapsed": true,
+        "hint": "可选。选择多模态 LLM 后，带图请求会先由它结合上下文转述图片含义再注入；未设置时使用 [图片] 占位，模型不应谈论看不到的图片。"
       }
     }
   }

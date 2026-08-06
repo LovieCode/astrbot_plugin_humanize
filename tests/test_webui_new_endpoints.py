@@ -197,11 +197,11 @@ def test_web_api_settings_save_validates_and_persists(
         assert stored["memory"]["memory_enabled"] is False
         assert stored["memory"]["reply_examples"]["reply_examples_limit"] == 2
 
-        # GET settings still serves the runtime defaults (no hot reload).
+        # GET settings reflects the saved values immediately (in-memory sync).
         monkeypatch.setattr(astrbot_web, "request", _FakeRequest("GET"))
         settings = _response_payload(await api.dispatch("settings"))["data"]
-        assert settings["max_message_chars"] == 10
-        assert settings["memory_enabled"] is True
+        assert settings["max_message_chars"] == 12
+        assert settings["memory_enabled"] is False
 
     asyncio.run(scenario())
 

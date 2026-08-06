@@ -571,6 +571,83 @@ class HumanizePlugin(Star):
         event.set_extra(_PREFIX_EPOCH_REASON_KEY, observation.epoch_reason)
         event.set_extra(_FIRST_RESPONSE_AT_KEY, None)
 
+        # 图片转述：带图请求且配置了转述 Provider 时，先由多模态模型结合上下文转述
+        image_urls = list(req.image_urls or [])
+        if image_urls and self._plugin_config.image_transcription_provider_id:
+            try:
+                transcriptions = await self._transcribe_images(
+                    event,
+                    image_urls,
+                    raw_user,
+                )
+                if transcriptions:
+                    event.set_extra(_IMAGE_CACHE_KEY, tuple(transcriptions))
+            except Exception:
+                logger.exception("[Humanize] image transcription failed")
+
+    async def _transcribe_images(
+        self,
+        event: AstrMessageEvent,
+        image_urls: list[str],
+        user_text: str,
+    ) -> list[object]:
+        """Transcribe images with a multimodal provider, in context.
+
+        The transcription carries the conversational context (user message) and
+        captures both the image meaning and simple content, so later turns can
+        understand it without seeing the image again.
+
+        Args:
+            event: Active event for provider resolution.
+            image_urls: Current request image URLs.
+            user_text: Current user message text.
+
+        Returns:
+            List of plain-text ImageCache entries, or an empty list on failure.
+        """
+        provider = await self.context.provider_manager.get_provider_by_id(
+            self._plugin_config.image_transcription_provider_id
+        )
+        if provider is None:
+            logger.warning(
+                "[Humanize] image transcription provider not found: %s",
+                self._plugin_config.image_transcription_provider_id,
+            )
+            return []
+        prompt = (
+            "你是图片转述助手。结合当前聊天上下文，用简洁中文转述图片的含义和简单内容"
+            "（不是干巴巴描述画面）。只输出转述文本，不要解释。"
+        )
+        if user_text.strip():
+            prompt += f"\n用户当前消息：{user_text}"
+        try:
+            response = await provider.text_chat(
+                prompt=prompt,
+                session_id="",
+                image_urls=image_urls,
+                audio_urls=[],
+                func_tool=None,
+                contexts=[],
+                system_prompt="",
+                tool_calls_result=None,
+                model=None,
+                extra_user_content_parts=[],
+                request_max_retries=1,
+            )
+        except Exception as exc:
+            logger.error(
+                "[Humanize] image transcription request failed: %s",
+                exc,
+                exc_info=True,
+            )
+            return []
+        text = str(getattr(response, "completion_text", "") or "").strip()
+        if not text:
+            return []
+        from humanize.domain.models import ImageCache
+
+        return [ImageCache(text=text[:600])]
+
     @filter.on_using_llm_tool(priority=_FINALIZER_PRIORITY)
     async def on_tool_start(self, event: AstrMessageEvent, tool, tool_args) -> None:
         if event.get_extra(_STATE_KEY) == EventState.REQUESTED.value:
