@@ -53,6 +53,11 @@
 .cx-head-row { display: flex; align-items: flex-start; gap: 14px; min-width: 0; }
 .cx-head-main { flex: 1; min-width: 0; display: flex; flex-direction: column; gap: 9px; }
 .cx-head-id { font-family: var(--font-mono); font-size: 15px; font-weight: 800; display: flex; align-items: center; gap: 8px; min-width: 0; }
+.cx-back {
+  border: none; cursor: pointer; background: var(--pink-soft); color: var(--pink-strong);
+  font-size: 11px; font-weight: 800; padding: 4px 10px; border-radius: var(--r-full); flex-shrink: 0;
+}
+.cx-back:hover { background: var(--pink-line); }
 .cx-head-sub { display: flex; gap: 8px; flex-wrap: wrap; min-width: 0; }
 .cx-head-sub .m {
   display: flex; align-items: center; gap: 6px;
@@ -188,8 +193,8 @@
 .cx-stats-head .seg-item { font-size: 11px; padding: 5px 11px; }
 .cx-stats-head .seg-item .seg-count { background: var(--bg); }
 .cx-stats-head .seg-item.active .seg-count { background: #fff; }
-.cx-stats-row { display: flex; gap: 16px; }
-.cx-stats-row .card { flex: 1; }
+.cx-stats-row { display: flex; gap: 16px; flex-wrap: wrap; }
+.cx-stats-row .card { flex: 1 1 220px; min-width: 0; }
 .cx-stat-bar-row { display: flex; align-items: center; gap: 10px; padding: 6px 0; font-size: 12px; }
 .cx-stat-bar-row + .cx-stat-bar-row { border-top: 1px dashed var(--line); }
 .cx-sb-name { width: 150px; font-family: var(--font-mono); font-weight: 700; font-size: 11.5px; color: var(--text-2); flex-shrink: 0; }
