@@ -257,7 +257,7 @@ class HumanizePlugin(Star):
             else str(req.prompt or "")
         )
         original_prompt = str(req.prompt if req.prompt is not None else raw_user)
-        message_context = self._build_message_context(event, raw_user)
+        message_context = await self._build_message_context(event, raw_user)
         conversation_id = str(getattr(req.conversation, "cid", "") or "")
         if conversation_id and message_context.conversation_id != conversation_id:
             message_context = replace(
@@ -1656,7 +1656,63 @@ class HumanizePlugin(Star):
             return 6_000
         return max(512, min(8_000, configured // 4))
 
-    def _build_message_context(
+    async def _resolve_display_name(self, event: AstrMessageEvent) -> str:
+        """Resolve the best user-visible name for the message sender.
+
+        Priority: group card (群名片) -> friend remark (好友备注) -> QQ nickname.
+        OneBot message events often omit ``card``, so the group card is looked up
+        through the platform adapter when the sender is in a group.
+
+        Args:
+            event: Active event carrying sender and platform identity.
+
+        Returns:
+            The resolved display name, or a fallback identifier.
+        """
+        fallback = event.get_sender_name() or event.get_sender_id() or "当前用户"
+        is_group = not event.is_private_chat()
+        try:
+            platform = self.context.get_platform_inst(event.get_platform_id())
+            bot = getattr(platform, "bot", None)
+            if bot is None or not callable(getattr(bot, "call_action", None)):
+                return fallback
+            sender_id = event.get_sender_id()
+            if not sender_id:
+                return fallback
+            if is_group:
+                group_id = getattr(event.message_obj, "group_id", "") or ""
+                if not group_id:
+                    return fallback
+                info = await bot.call_action(
+                    action="get_group_member_info",
+                    group_id=group_id,
+                    user_id=int(sender_id),
+                    no_cache=False,
+                )
+                card = (
+                    str(info.get("card") or "").strip()
+                    if isinstance(info, dict)
+                    else ""
+                )
+                if card:
+                    return card
+            # 好友备注（get_stranger_info 的 nick 为备注优先）
+            info = await bot.call_action(
+                action="get_stranger_info",
+                user_id=int(sender_id),
+                no_cache=False,
+            )
+            remark = (
+                str(info.get("nick") or info.get("nickname") or "").strip()
+                if isinstance(info, dict)
+                else ""
+            )
+            return remark or fallback
+        except Exception:
+            logger.debug("[Humanize] display name resolution failed", exc_info=True)
+            return fallback
+
+    async def _build_message_context(
         self,
         event: AstrMessageEvent,
         user_text: str,
@@ -1664,7 +1720,7 @@ class HumanizePlugin(Star):
         conversation_id: str = "",
     ) -> MessageContext:
         scope_type = "private" if event.is_private_chat() else "group"
-        sender_name = event.get_sender_name() or event.get_sender_id() or "当前用户"
+        sender_name = await self._resolve_display_name(event)
         chat_scene = f"QQ 上和{sender_name}" if scope_type == "private" else "QQ群"
         raw_timestamp = getattr(event.message_obj, "timestamp", None)
         try:
@@ -1715,7 +1771,7 @@ class HumanizePlugin(Star):
             Trusted current conversation metadata with the effective Agent ID.
         """
         raw_user = str(event.get_message_str() or "")
-        message_context = self._build_message_context(event, raw_user)
+        message_context = await self._build_message_context(event, raw_user)
         conversation_persona_id: str | None = None
         try:
             conversation_id = (

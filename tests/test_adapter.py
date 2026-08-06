@@ -91,6 +91,10 @@ def _context(user_text: str = "hello") -> MessageContext:
     )
 
 
+async def _async_build_context(event, text):
+    return _context(text)
+
+
 def test_private_context_uses_sender_name_in_chat_scene() -> None:
     plugin = HumanizePlugin(SimpleNamespace(), {})
     event = SimpleNamespace(
@@ -101,9 +105,11 @@ def test_private_context_uses_sender_name_in_chat_scene() -> None:
         message_obj=SimpleNamespace(message_id="msg-1", timestamp=0),
     )
 
-    context = plugin._build_message_context(event, "你好")
+    async def scenario() -> None:
+        context = await plugin._build_message_context(event, "你好")
+        assert context.chat_scene == "QQ 上和小明"
 
-    assert context.chat_scene == "QQ 上和小明"
+    asyncio.run(scenario())
 
 
 def test_initialize_keeps_stable_memory_identity_when_memory_is_disabled(
@@ -1608,7 +1614,7 @@ def test_request_appends_full_protocol_after_known_terms() -> None:
     async def scenario() -> None:
         plugin = HumanizePlugin(SimpleNamespace(), {})
         plugin._container = SimpleNamespace(service=Service())
-        plugin._build_message_context = lambda event, text: _context(text)
+        plugin._build_message_context = _async_build_context
         event = _FakeEvent()
         request = ProviderRequest(prompt="hello", system_prompt="persona")
 
@@ -1648,7 +1654,7 @@ def test_both_injection_mode_keeps_user_protocol_and_system_copy() -> None:
     async def scenario() -> None:
         plugin = HumanizePlugin(SimpleNamespace(), {"protocol_injection_mode": "both"})
         plugin._container = SimpleNamespace(service=Service())
-        plugin._build_message_context = lambda event, text: _context(text)
+        plugin._build_message_context = _async_build_context
         event = _FakeEvent()
         request = ProviderRequest(prompt="hello", system_prompt="persona")
 
@@ -1727,7 +1733,7 @@ def test_prompt_cache_prefix_includes_captured_provider_identity() -> None:
         plugin = HumanizePlugin(AppContext(), {})
         plugin._container = SimpleNamespace(service=Service())
         plugin._prompt_cache_tracker = tracker
-        plugin._build_message_context = lambda event, text: _context(text)
+        plugin._build_message_context = _async_build_context
         event = _FakeEvent()
         request = ProviderRequest(prompt="hello", model="model-a")
 
@@ -1871,7 +1877,7 @@ def test_request_applies_composed_sections_before_recording_context_trace() -> N
         service = Service()
         plugin = HumanizePlugin(SimpleNamespace(), {"protocol_injection_mode": "both"})
         plugin._container = SimpleNamespace(service=service)
-        plugin._build_message_context = lambda event, text: _context(text)
+        plugin._build_message_context = _async_build_context
         event = _FakeEvent()
 
         await plugin.on_llm_request(event, request)
@@ -1939,7 +1945,7 @@ def test_request_rejects_multiple_prompt_context_sections() -> None:
         service = Service()
         plugin = HumanizePlugin(SimpleNamespace(), {})
         plugin._container = SimpleNamespace(service=service)
-        plugin._build_message_context = lambda event, text: _context(text)
+        plugin._build_message_context = _async_build_context
         event = _FakeEvent()
         request = ProviderRequest(prompt="hello")
 
@@ -1993,7 +1999,7 @@ def test_request_wraps_only_exact_user_segment_and_restores_full_prompt() -> Non
         service = Service()
         plugin = HumanizePlugin(SimpleNamespace(), {})
         plugin._container = SimpleNamespace(service=service)
-        plugin._build_message_context = lambda event, text: _context(text)
+        plugin._build_message_context = _async_build_context
         event = _FakeEvent()
         original = "[time: 12:00]\nhello\n[external plugin note]"
         request = ProviderRequest(

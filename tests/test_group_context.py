@@ -70,6 +70,14 @@ def _messages(context: MessageContext, reply: str) -> list[dict[str, object]]:
     ]
 
 
+async def _async_build_context(event, text):
+    return _context(text)
+
+
+async def _async_build_context_1(event, text):
+    return _context(1, user_text=text)
+
+
 def test_window_compacts_40_entries_to_20_and_survives_restart(
     tmp_path: Path,
 ) -> None:
@@ -568,7 +576,7 @@ def test_request_takeover_replaces_native_history_and_disables_session_fallback(
         service = Service()
         plugin = HumanizePlugin(AppContext(), {})
         plugin._container = SimpleNamespace(service=service, context_window=Window())
-        plugin._build_message_context = lambda event, text: _context(1, user_text=text)
+        plugin._build_message_context = _async_build_context_1
         event = Event()
         request = ProviderRequest(
             prompt="hello",
