@@ -86,11 +86,13 @@ HZ.renderTopbar(HZ.topbars["jargon"]);
   const drawer = $("#drawer");
   const mask = $("#drawerMask");
   const drawerBody = $("#drawerBody");
-  const footEl = $(".drawer-foot");
+  /* 限定在抽屉内查找 foot：源码单页唯一，构建合并后多视图都有 .drawer-foot，必须约束作用域 */
+  const footEl = $(".drawer-foot", drawer);
 
   /* ---------- 状态 ---------- */
   let current = { page: 1, scope: "", status: "", search: "" };
-  let detail = null; // 当前抽屉词条详情
+  let detail = null; // 当前抽屉词条详情（data.entry）
+  let detailData = null; // 当前抽屉完整详情（含 senses/aliases/evidence 等）
   let busy = false;
 
   /* ---------- DOM 小工具 ---------- */
@@ -314,6 +316,7 @@ HZ.renderTopbar(HZ.topbars["jargon"]);
     try {
       const data = await api.get("jargon-detail", { id });
       detail = data.entry || {};
+      detailData = data;
       renderDetail(data);
     } catch (e) {
       const err = api.errorOf(e);
@@ -509,17 +512,25 @@ HZ.renderTopbar(HZ.topbars["jargon"]);
 
   function closeModal(result) {
     modal.style.display = "none";
-    modal.innerHTML = "";
+    /* 不在此清空 DOM：调用方在 await openFormModal 返回后仍要读表单输入值。
+       openModal 每次重新写入 innerHTML，旧内容自然被覆盖，无需显式清空。 */
     if (modalResolve) {
       const r = modalResolve;
       modalResolve = null;
       r(result === true);
+    }
+    /* modal 关闭后恢复抽屉遮罩（抽屉本身可能仍开着） */
+    if (drawer && drawer.classList.contains("open")) {
+      mask.classList.add("open");
     }
   }
 
   function openModal(html) {
     modal.innerHTML = html;
     modal.style.display = "flex";
+    /* modal 弹出时隐藏抽屉遮罩，避免遮罩拦截 modal 的点击 */
+    const openMask = document.querySelector("#jg-drawerMask.open");
+    if (openMask) openMask.classList.remove("open");
     injectIcons(modal);
     return new Promise((resolve) => {
       modalResolve = resolve;
@@ -577,8 +588,8 @@ HZ.renderTopbar(HZ.topbars["jargon"]);
     }
     toast("操作成功", { type: "success" });
     const detail2 = data && data.detail ? data.detail : null;
-    if (detail2 && detail2.id) {
-      loadDetail(detail2.id);
+    if (detail2 && (detail2.id || (detail2.entry && detail2.entry.id))) {
+      loadDetail(detail2.id || detail2.entry.id);
     } else {
       loadList();
     }
@@ -611,7 +622,7 @@ HZ.renderTopbar(HZ.topbars["jargon"]);
           onConfirm: () => runAction("reject_sense", { sense_id: senseId }),
         });
       } else if (action === "set_preferred") {
-        const senses = (detail && detail.senses) || [];
+        const senses = (detailData && detailData.senses) || [];
         const sense = senses.find((s) => s.id === senseId);
         if (sense && sense.status !== "verified") {
           toast("只有 verified 义项才能设为首选，请先确认该义项", { type: "error" });
@@ -619,7 +630,7 @@ HZ.renderTopbar(HZ.topbars["jargon"]);
         }
         await runAction("set_preferred", { sense_id: senseId });
       } else if (action === "edit") {
-        const senses = (detail && detail.senses) || [];
+        const senses = (detailData && detailData.senses) || [];
         const sense = senses.find((s) => s.id === senseId);
         if (!sense) return;
         const ok = await openFormModal("编辑义项",
@@ -639,7 +650,7 @@ HZ.renderTopbar(HZ.topbars["jargon"]);
           confidence: Number.isFinite(confidence) ? confidence : undefined,
         });
       } else if (action === "merge") {
-        const senses = (detail && detail.senses) || [];
+        const senses = (detailData && detailData.senses) || [];
         const others = senses.filter((s) => s.id !== senseId);
         if (!others.length) {
           toast("没有其他义项可合并", { type: "error" });
@@ -729,7 +740,7 @@ HZ.renderTopbar(HZ.topbars["jargon"]);
           status: document.getElementById("mStatus").value,
         });
       } else if (action === "manage_aliases") {
-        const currentAliases = ((detail && detail.aliases) || []).map((a) => a.alias).join("，");
+        const currentAliases = ((detailData && detailData.aliases) || []).map((a) => a.alias).join("，");
         const ok = await openFormModal("管理别名",
           inputRow("别名（逗号分隔，整表替换）", currentAliases, "mAliases", { placeholder: "别名1,别名2" }),
           "保存");
@@ -854,24 +865,22 @@ HZ.renderTopbar(HZ.topbars["jargon"]);
     loadList();
   });
 
-  /* 搜索框（防抖 350ms） */
-  const searchInput = $("#topbar input");
-  if (searchInput) {
-    let timer = null;
-    searchInput.addEventListener("input", () => {
-      clearTimeout(timer);
-      timer = setTimeout(() => {
-        current.search = searchInput.value.trim();
-        current.page = 1;
-        loadList();
-      }, 350);
-    });
-  }
+  /* 搜索框（防抖 350ms）：委托到 document，topbar 每次切换重建也不丢绑定 */
+  document.addEventListener("input", (e) => {
+    if (!e.target || e.target !== document.querySelector("#topbar .input-box input")) return;
+    const box = e.target;
+    clearTimeout(box._hzDebounce);
+    box._hzDebounce = setTimeout(() => {
+      current.search = box.value.trim();
+      current.page = 1;
+      loadList();
+    }, 350);
+  });
 
-  /* 顶栏按钮：导出 / 新建词条 */
-  $(".topbar-actions").addEventListener("click", (e) => {
-    const btn = e.target.closest("button");
-    if (!btn) return;
+  /* 顶栏按钮：导出 / 新建词条（委托到 document，topbar 重建也不丢绑定） */
+  document.addEventListener("click", (e) => {
+    const btn = e.target && e.target.closest ? e.target.closest("button") : null;
+    if (!btn || !document.querySelector("#topbar").contains(btn)) return;
     if (btn.textContent.includes("导出")) exportJargons();
     if (btn.textContent.includes("新建词条")) createEntry();
   });

@@ -143,12 +143,12 @@ HZ.renderTopbar(HZ.topbars["memory"]);
 
   /* ================= 初始化并行加载 ================= */
   async function init() {
-    // 顶栏「新建记忆」按钮
-    const topbarActions = document.querySelector(".topbar-actions");
-    if (topbarActions) {
-      const newBtn = topbarActions.querySelector(".btn");
-      if (newBtn) newBtn.addEventListener("click", openCreateModal);
-    }
+    // 顶栏「新建记忆」按钮（委托到 document，topbar 重建也不丢绑定）
+    document.addEventListener("click", (e) => {
+      const btn = e.target && e.target.closest ? e.target.closest("button") : null;
+      if (!btn || !document.querySelector("#topbar").contains(btn)) return;
+      if (btn.textContent.includes("新建记忆")) openCreateModal();
+    });
 
     try {
       const [status, overview, agentOpts, memPage] = await Promise.all([
@@ -583,13 +583,13 @@ HZ.renderTopbar(HZ.topbars["memory"]);
   }
 
   function bindSearch() {
-    const topbar = document.querySelector(".topbar-actions .input-box input");
-    if (!topbar) return;
-    let timer = null;
-    topbar.addEventListener("input", () => {
-      clearTimeout(timer);
-      timer = setTimeout(() => {
-        state.search = topbar.value.trim();
+    /* 委托到 document：topbar 每次切换重建，旧元素绑定会丢失 */
+    document.addEventListener("input", (e) => {
+      if (!e.target || e.target !== document.querySelector("#topbar .input-box input")) return;
+      const box = e.target;
+      clearTimeout(box._hzDebounce);
+      box._hzDebounce = setTimeout(() => {
+        state.search = box.value.trim();
         state.page = 1;
         loadMemories();
       }, 300);

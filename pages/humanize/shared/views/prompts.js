@@ -439,13 +439,12 @@ HZ.renderTopbar(HZ.topbars["prompts"]);
   if (saveBtn) saveBtn.addEventListener("click", saveCurrent);
   if (resetBtn) resetBtn.addEventListener("click", resetCurrent);
   if (copyBtn) copyBtn.addEventListener("click", () => copyText(textarea ? textarea.value : "", null));
-  const topActions = $(".topbar-actions");
-  if (topActions) {
-    topActions.addEventListener("click", (e) => {
-      const btn = e.target.closest("button");
-      if (btn && btn.textContent.includes("全部重置")) resetAll();
-    });
-  }
+  /* 顶栏「全部重置」（委托到 document，topbar 重建也不丢绑定） */
+  document.addEventListener("click", (e) => {
+    const btn = e.target && e.target.closest ? e.target.closest("button") : null;
+    if (!btn || !document.querySelector("#topbar").contains(btn)) return;
+    if (btn.textContent.includes("全部重置")) resetAll();
+  });
 
   /* ---------- 启动 ---------- */
   loadTemplates();

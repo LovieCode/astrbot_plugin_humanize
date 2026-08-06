@@ -386,8 +386,12 @@ HZ.renderTopbar(HZ.topbars["settings"]);
   }
 
   /* ---------- 事件绑定 ---------- */
-  const saveBtn = $(".topbar-actions .btn");
-  if (saveBtn) saveBtn.addEventListener("click", saveAll);
+  /* 保存按钮（委托到 document，topbar 重建也不丢绑定） */
+  document.addEventListener("click", (e) => {
+    const btn = e.target && e.target.closest ? e.target.closest("button") : null;
+    if (!btn || !document.querySelector("#topbar").contains(btn)) return;
+    if (btn.textContent.includes("保存")) saveAll();
+  });
 
   /* ---------- 启动 ---------- */
   loadSettings();

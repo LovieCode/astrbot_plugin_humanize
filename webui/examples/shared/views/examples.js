@@ -969,24 +969,23 @@ HZ.renderTopbar(HZ.topbars["examples"]);
   bindDebounce("#exTopicInput", "topic");
   bindDebounce("#exIntentInput", "intent");
 
-  /* 顶栏搜索（防抖 350ms） */
-  const searchInput = $("#topbar input");
-  if (searchInput) {
-    let timer = null;
-    searchInput.addEventListener("input", () => {
-      clearTimeout(timer);
-      timer = setTimeout(() => {
-        current.search = searchInput.value.trim();
-        current.page = 1;
-        loadList();
-      }, 350);
-    });
-  }
+  /* 顶栏搜索（防抖 350ms）：委托到 document，topbar 重建也不丢绑定 */
+  document.addEventListener("input", (e) => {
+    if (!e.target || e.target !== document.querySelector("#topbar .input-box input")) return;
+    const box = e.target;
+    clearTimeout(box._hzDebounce);
+    box._hzDebounce = setTimeout(() => {
+      current.search = box.value.trim();
+      current.page = 1;
+      loadList();
+    }, 350);
+  });
 
-  /* 顶栏「新建样例」 */
-  $(".topbar-actions").addEventListener("click", (e) => {
-    const btn = e.target.closest("button");
-    if (btn && btn.textContent.includes("新建样例")) openCreateModal();
+  /* 顶栏「新建样例」（委托到 document） */
+  document.addEventListener("click", (e) => {
+    const btn = e.target && e.target.closest ? e.target.closest("button") : null;
+    if (!btn || !document.querySelector("#topbar").contains(btn)) return;
+    if (btn.textContent.includes("新建样例")) openCreateModal();
   });
 
   /* 列表：卡片点击 / 卡片内快捷操作 */
