@@ -152,7 +152,9 @@
 .cx-detail-loading .btn { margin-top: 14px; }
 
 /* ---------- 原始上下文：消息折叠 ---------- */
-.raw-msg.collapsed .raw-body { display: none; }
+/* 收起时限高可滚动，展开时显示全文（不限高） */
+.raw-msg.collapsed .raw-body { max-height: 190px; overflow-y: auto; }
+.raw-msg .raw-body { max-height: none; overflow-y: visible; }
 .raw-collapse {
   border: none; background: none; cursor: pointer;
   font-size: 10.5px; font-weight: 800; color: var(--pink-strong);
@@ -229,7 +231,8 @@
 .raw-body {
   font-family: var(--font-mono); font-size: 11.5px; line-height: 1.7;
   color: var(--text-2); padding: 11px 13px; white-space: pre-wrap; word-break: break-word;
-  max-height: 190px; overflow-y: auto;
+  /* 默认不限高；收起状态（.collapsed）时限高可滚动 */
+  max-height: none; overflow-y: visible;
 }
 .raw-body::-webkit-scrollbar { width: 6px; }
 .raw-body::-webkit-scrollbar-thumb { background: var(--pink-line); border-radius: 3px; }
