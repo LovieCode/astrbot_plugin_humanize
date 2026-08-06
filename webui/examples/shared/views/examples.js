@@ -351,7 +351,7 @@ HZ.renderTopbar(HZ.topbars["examples"]);
     fill("#exScopeSel", scopeOptions, (o) => o.scope_label, "全部作用域");
     fill("#exAgentSel", agentOptions, (o) => o.name, "全部 Agent");
     fill("#recallScope", scopeOptions, (o) => o.scope_label, "选择作用域（必填）");
-    fill("#recallAgent", agentOptions, (o) => o.name, "选择 Agent（必填）");
+    fill("#ex-recallAgent", agentOptions, (o) => o.name, "选择 Agent（必填）");
   }
 
   /* ---------- 详情抽屉 ---------- */
@@ -694,8 +694,8 @@ HZ.renderTopbar(HZ.topbars["examples"]);
   function promptReason(title, opts) {
     return openFormModal(title, { okText: "确认", danger: opts && opts.danger }, (body) => {
       if (opts && opts.hint) body.appendChild(el("div", "ex-modal-hint", opts.hint));
-      body.appendChild(field("操作原因", textArea((opts && opts.placeholder) || "请输入操作原因", "", "mReason", 2)));
-    }).then((ok) => (ok ? valOf("mReason") : null));
+      body.appendChild(field("操作原因", textArea((opts && opts.placeholder) || "请输入操作原因", "", "ex-mReason", 2)));
+    }).then((ok) => (ok ? valOf("ex-mReason") : null));
   }
 
   /* ---------- 状态操作 ---------- */
@@ -769,9 +769,9 @@ HZ.renderTopbar(HZ.topbars["examples"]);
     if (!detail) return;
     const item = detail;
     const ok = await openFormModal("编辑样例", { okText: "保存" }, (body) => {
-      body.appendChild(field("标题 *", textInput("样例标题", item.title, "mTitle")));
-      body.appendChild(field("话题", textInput("话题（可选）", item.topic, "mTopic")));
-      body.appendChild(field("意图", textInput("意图（可选）", item.intent, "mIntent")));
+      body.appendChild(field("标题 *", textInput("样例标题", item.title, "ex-mTitle")));
+      body.appendChild(field("话题", textInput("话题（可选）", item.topic, "ex-mTopic")));
+      body.appendChild(field("意图", textInput("意图（可选）", item.intent, "ex-mIntent")));
       const turnsBox = el("div", "ex-turn-box");
       turnsBox.dataset.turnsBox = "";
       (item.turns || []).forEach((t) => turnsBox.appendChild(turnRow(t.role, t.content)));
@@ -780,35 +780,35 @@ HZ.renderTopbar(HZ.topbars["examples"]);
       const addBtn = el("button", "btn btn-sm btn-ghost", "添加一轮");
       addBtn.dataset.addTurn = "";
       body.appendChild(addBtn);
-      body.appendChild(field("理想回复要点", textArea("期望的回复风格与要点", item.ideal_reply, "mIdeal", 3)));
-      body.appendChild(field("关键词（逗号分隔）", textInput("关键词1,关键词2", (item.keywords || []).join("，"), "mKeywords")));
-      body.appendChild(field("风格标签（逗号分隔）", textInput("害羞,简短", (item.style_tags || []).join("，"), "mTags")));
-      body.appendChild(field("适用条件", textArea("何时使用本样例", item.conditions, "mConditions", 2)));
-      body.appendChild(field("排除条件", textArea("何时禁用本样例", item.exclusions, "mExclusions", 2)));
-      body.appendChild(field("备注", textArea("补充说明", item.notes, "mNotes", 2)));
-      body.appendChild(field("质量分", qualityField(item.quality_score, "mQuality")));
+      body.appendChild(field("理想回复要点", textArea("期望的回复风格与要点", item.ideal_reply, "ex-mIdeal", 3)));
+      body.appendChild(field("关键词（逗号分隔）", textInput("关键词1,关键词2", (item.keywords || []).join("，"), "ex-mKeywords")));
+      body.appendChild(field("风格标签（逗号分隔）", textInput("害羞,简短", (item.style_tags || []).join("，"), "ex-mTags")));
+      body.appendChild(field("适用条件", textArea("何时使用本样例", item.conditions, "ex-mConditions", 2)));
+      body.appendChild(field("排除条件", textArea("何时禁用本样例", item.exclusions, "ex-mExclusions", 2)));
+      body.appendChild(field("备注", textArea("补充说明", item.notes, "ex-mNotes", 2)));
+      body.appendChild(field("质量分", qualityField(item.quality_score, "ex-mQuality")));
     });
     if (!ok) return;
-    const title = valOf("mTitle");
+    const title = valOf("ex-mTitle");
     const turns = turnsFromModal();
     if (!title) return toast("标题不能为空", { type: "error" });
     if (!turns.length) return toast("至少需要 1 轮对话", { type: "error" });
     if (turns.length > 3) return toast("最多 3 轮对话", { type: "error" });
-    const q = Number($("#mQuality").value);
+    const q = Number($("#ex-mQuality").value);
     postAction({
       action: "update",
       id: item.id,
       revision: item.revision,
       title,
-      topic: valOf("mTopic") || undefined,
-      intent: valOf("mIntent") || undefined,
+      topic: valOf("ex-mTopic") || undefined,
+      intent: valOf("ex-mIntent") || undefined,
       turns,
-      ideal_reply: valOf("mIdeal") || undefined,
-      keywords: splitList(valOf("mKeywords")),
-      style_tags: splitList(valOf("mTags")),
-      conditions: valOf("mConditions") || undefined,
-      exclusions: valOf("mExclusions") || undefined,
-      notes: valOf("mNotes") || undefined,
+      ideal_reply: valOf("ex-mIdeal") || undefined,
+      keywords: splitList(valOf("ex-mKeywords")),
+      style_tags: splitList(valOf("ex-mTags")),
+      conditions: valOf("ex-mConditions") || undefined,
+      exclusions: valOf("ex-mExclusions") || undefined,
+      notes: valOf("ex-mNotes") || undefined,
       quality_score: Number.isFinite(q) ? q : undefined,
     });
   }
@@ -819,11 +819,11 @@ HZ.renderTopbar(HZ.topbars["examples"]);
       return;
     }
     const ok = await openFormModal("新建样例", { okText: "创建" }, (body) => {
-      body.appendChild(field("作用域 *", optionsSelect("mScope", scopeOptions, (o) => o.scope_label, "请选择作用域")));
-      body.appendChild(field("代理", optionsSelect("mAgent", agentOptions, (o) => o.name, "不指定（默认）")));
-      body.appendChild(field("标题 *", textInput("样例标题", "", "mTitle")));
-      body.appendChild(field("话题", textInput("话题（可选）", "", "mTopic")));
-      body.appendChild(field("意图", textInput("意图（可选）", "", "mIntent")));
+      body.appendChild(field("作用域 *", optionsSelect("ex-mScope", scopeOptions, (o) => o.scope_label, "请选择作用域")));
+      body.appendChild(field("代理", optionsSelect("ex-mAgent", agentOptions, (o) => o.name, "不指定（默认）")));
+      body.appendChild(field("标题 *", textInput("样例标题", "", "ex-mTitle")));
+      body.appendChild(field("话题", textInput("话题（可选）", "", "ex-mTopic")));
+      body.appendChild(field("意图", textInput("意图（可选）", "", "ex-mIntent")));
       const turnsBox = el("div", "ex-turn-box");
       turnsBox.dataset.turnsBox = "";
       turnsBox.appendChild(turnRow("user", ""));
@@ -832,39 +832,39 @@ HZ.renderTopbar(HZ.topbars["examples"]);
       const addBtn = el("button", "btn btn-sm btn-ghost", "添加一轮");
       addBtn.dataset.addTurn = "";
       body.appendChild(addBtn);
-      body.appendChild(field("理想回复要点", textArea("期望的回复风格与要点", "", "mIdeal", 3)));
-      body.appendChild(field("关键词（逗号分隔）", textInput("关键词1,关键词2", "", "mKeywords")));
-      body.appendChild(field("风格标签（逗号分隔）", textInput("害羞,简短", "", "mTags")));
-      body.appendChild(field("适用条件", textArea("何时使用本样例", "", "mConditions", 2)));
-      body.appendChild(field("排除条件", textArea("何时禁用本样例", "", "mExclusions", 2)));
-      body.appendChild(field("备注", textArea("补充说明", "", "mNotes", 2)));
-      body.appendChild(field("质量分", qualityField(0.8, "mQuality")));
+      body.appendChild(field("理想回复要点", textArea("期望的回复风格与要点", "", "ex-mIdeal", 3)));
+      body.appendChild(field("关键词（逗号分隔）", textInput("关键词1,关键词2", "", "ex-mKeywords")));
+      body.appendChild(field("风格标签（逗号分隔）", textInput("害羞,简短", "", "ex-mTags")));
+      body.appendChild(field("适用条件", textArea("何时使用本样例", "", "ex-mConditions", 2)));
+      body.appendChild(field("排除条件", textArea("何时禁用本样例", "", "ex-mExclusions", 2)));
+      body.appendChild(field("备注", textArea("补充说明", "", "ex-mNotes", 2)));
+      body.appendChild(field("质量分", qualityField(0.8, "ex-mQuality")));
     });
     if (!ok) return;
-    const scope = scopeOptions[parseInt(valOf("mScope"), 10)];
+    const scope = scopeOptions[parseInt(valOf("ex-mScope"), 10)];
     if (!scope) return toast("请选择作用域", { type: "error" });
-    const agent = agentOptions[parseInt(valOf("mAgent"), 10)];
-    const title = valOf("mTitle");
+    const agent = agentOptions[parseInt(valOf("ex-mAgent"), 10)];
+    const title = valOf("ex-mTitle");
     const turns = turnsFromModal();
     if (!title) return toast("标题不能为空", { type: "error" });
     if (!turns.length) return toast("至少需要 1 轮对话", { type: "error" });
     if (turns.length > 3) return toast("最多 3 轮对话", { type: "error" });
-    const q = Number($("#mQuality").value);
+    const q = Number($("#ex-mQuality").value);
     postAction({
       action: "create",
       scope_token: scope.scope_token,
       scope_type: scope.scope_type,
       agent_id: agent ? agent.agent_id : undefined,
       title,
-      topic: valOf("mTopic") || undefined,
-      intent: valOf("mIntent") || undefined,
+      topic: valOf("ex-mTopic") || undefined,
+      intent: valOf("ex-mIntent") || undefined,
       turns,
-      ideal_reply: valOf("mIdeal") || undefined,
-      keywords: splitList(valOf("mKeywords")),
-      style_tags: splitList(valOf("mTags")),
-      conditions: valOf("mConditions") || undefined,
-      exclusions: valOf("mExclusions") || undefined,
-      notes: valOf("mNotes") || undefined,
+      ideal_reply: valOf("ex-mIdeal") || undefined,
+      keywords: splitList(valOf("ex-mKeywords")),
+      style_tags: splitList(valOf("ex-mTags")),
+      conditions: valOf("ex-mConditions") || undefined,
+      exclusions: valOf("ex-mExclusions") || undefined,
+      notes: valOf("ex-mNotes") || undefined,
       quality_score: Number.isFinite(q) ? q : undefined,
     });
   }
