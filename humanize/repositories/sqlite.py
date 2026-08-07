@@ -188,6 +188,7 @@ class SQLiteRepository(
                 "conversation_hash",
                 "TEXT NOT NULL DEFAULT ''",
             ),
+            ("humanize_memory_jobs", "result_json", "TEXT NOT NULL DEFAULT '{}'"),
             (
                 "humanize_memory_jobs",
                 "agent_id",

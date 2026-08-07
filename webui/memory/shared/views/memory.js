@@ -1028,6 +1028,75 @@ HZ.renderTopbar(HZ.topbars["memory"]);
     $("jobDetailError").textContent = job.error || "无";
     $("jobDetailError").style.color = job.error ? "var(--danger, #e5484d)" : "";
 
+    // 提取结果（记忆列表）
+    const resultEl = $("jobDetailResult");
+    resultEl.innerHTML = "";
+    const result = job.result || {};
+    const extracted = Array.isArray(result.extracted) ? result.extracted : [];
+    if (result.candidate_count || extracted.length) {
+      const head = document.createElement("div");
+      head.className = "evi-sub";
+      head.textContent =
+        "候选 " + (result.candidate_count || extracted.length) +
+        " · 来源 " + (result.source_turn_count || "—") + " 轮";
+      resultEl.appendChild(head);
+      extracted.forEach((mem) => {
+        const row = document.createElement("div");
+        row.className = "evi-row";
+        const q = document.createElement("span");
+        q.className = "evi-quote";
+        q.textContent = (mem.memory_key || "") + (mem.operation ? " · " + mem.operation : "");
+        const t = document.createElement("span");
+        t.className = "evi-meta";
+        t.textContent = (mem.status || "") + (mem.version ? " v" + mem.version : "");
+        row.appendChild(q);
+        row.appendChild(t);
+        resultEl.appendChild(row);
+      });
+      if (extracted.length && extracted[0].memory_uri) {
+        const uri = document.createElement("div");
+        uri.className = "evi-meta mono";
+        uri.textContent = extracted[0].memory_uri;
+        resultEl.appendChild(uri);
+      }
+    } else {
+      const p = document.createElement("div");
+      p.className = "evi-empty";
+      p.textContent = "该任务未提取出记忆（或完成于结果记录功能之前）";
+      resultEl.appendChild(p);
+    }
+
+    // 输入摘要（脱敏）
+    const inputEl = $("jobDetailInput");
+    inputEl.innerHTML = "";
+    const inputRows = [
+      ["动作", result.action || "—"],
+      ["提供商", result.provider_id || job.provider_id || "—"],
+      ["上下文引用", result.context_ref || "—"],
+      ["用户消息长度", result.user_text_chars ? result.user_text_chars + " 字" : "—"],
+      ["助手消息数", result.assistant_message_count ? result.assistant_message_count + " 条" : "—"],
+    ];
+    inputRows.forEach(([label, val]) => {
+      if (!val || val === "—") return;
+      const row = document.createElement("div");
+      row.className = "evi-row";
+      const q = document.createElement("span");
+      q.className = "evi-quote";
+      q.textContent = label;
+      const t = document.createElement("span");
+      t.className = "evi-meta";
+      t.textContent = String(val);
+      row.appendChild(q);
+      row.appendChild(t);
+      inputEl.appendChild(row);
+    });
+    if (!inputEl.children.length) {
+      const p = document.createElement("div");
+      p.className = "evi-empty";
+      p.textContent = "无输入摘要信息";
+      inputEl.appendChild(p);
+    }
+
     // 时间线
     const tl = $("jobDetailTimeline");
     tl.innerHTML = "";

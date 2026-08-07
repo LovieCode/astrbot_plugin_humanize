@@ -306,6 +306,7 @@ CREATE TABLE IF NOT EXISTS humanize_memory_jobs (
     lease_owner TEXT NOT NULL DEFAULT '',
     lease_expires_at TEXT,
     error TEXT NOT NULL DEFAULT '',
+    result_json TEXT NOT NULL DEFAULT '{}',
     created_at TEXT NOT NULL,
     updated_at TEXT NOT NULL,
     completed_at TEXT

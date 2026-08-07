@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import json
 import sqlite3
 from datetime import UTC, datetime, timedelta
 from typing import Any
@@ -329,13 +330,16 @@ class MemoryJobsRepository:
         return await self._run(operation)
 
     async def complete_memory_job(
-        self, job_id: int, lease_owner: str
+        self, job_id: int, lease_owner: str, result: dict[str, Any] | None = None
     ) -> dict[str, Any]:
         """Mark a leased memory job complete and remove its transient payload.
 
         Args:
             job_id: Claimed job identifier.
             lease_owner: Worker that owns the active lease.
+            result: Optional sanitized execution summary persisted as ``result_json``
+                (extracted memory URIs, counts, timings). Must not contain raw
+                conversation text.
 
         Returns:
             Updated job summary.
@@ -345,16 +349,18 @@ class MemoryJobsRepository:
         """
         clean_owner = str(lease_owner or "").strip()[:160]
         now = _now_precise()
+        result_json = json.dumps(result or {}, ensure_ascii=False)[:64_000]
 
         def operation(conn: sqlite3.Connection) -> dict[str, Any]:
             cursor = conn.execute(
                 """
                 UPDATE humanize_memory_jobs
                 SET status = 'completed', payload_json = '{}', lease_owner = '',
-                    lease_expires_at = NULL, error = '', completed_at = ?, updated_at = ?
+                    lease_expires_at = NULL, error = '', result_json = ?,
+                    completed_at = ?, updated_at = ?
                 WHERE id = ? AND status = 'running' AND lease_owner = ?
                 """,
-                (now, now, int(job_id), clean_owner),
+                (result_json, now, now, int(job_id), clean_owner),
             )
             if cursor.rowcount != 1:
                 conn.rollback()
@@ -533,7 +539,7 @@ class MemoryJobsRepository:
                 SELECT id, job_key, job_type, request_id, provider_id, scope_type,
                        scope_hash, subject_hash, conversation_hash, agent_id, status,
                        attempts, next_run_at, lease_owner, lease_expires_at, error,
-                       created_at, updated_at, completed_at
+                       result_json, created_at, updated_at, completed_at
                 FROM humanize_memory_jobs {where}
                 ORDER BY updated_at DESC, id DESC LIMIT ? OFFSET ?
                 """,
@@ -543,6 +549,13 @@ class MemoryJobsRepository:
             for item in items:
                 if item.get("job_type") == "extract":
                     item["job_type"] = "extract_turn"
+                try:
+                    result_value = json.loads(item.pop("result_json") or "{}")
+                    item["result"] = (
+                        result_value if isinstance(result_value, dict) else {}
+                    )
+                except (TypeError, ValueError):
+                    item["result"] = {}
             return {
                 "items": items,
                 "total": total,

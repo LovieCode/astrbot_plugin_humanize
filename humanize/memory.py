@@ -979,11 +979,13 @@ class ChatMemoryService:
                     backfilled = await self._backfill_embeddings_once()
                     await self._sleep(0.1 if backfilled else 1.0)
                     continue
-                lease_retained = await self._process_jobs_with_lease(rows)
+                lease_retained, results = await self._process_jobs_with_lease(rows)
                 if lease_retained:
-                    for row in rows:
+                    for row, result in zip(rows, results, strict=False):
                         await self._repository.complete_memory_job(
-                            int(row["id"]), self._lease_owner
+                            int(row["id"]),
+                            self._lease_owner,
+                            result=result or None,
                         )
                 else:
                     logger.warning(
@@ -1035,14 +1037,17 @@ class ChatMemoryService:
         """
         return await self._process_jobs_with_lease([row])
 
-    async def _process_jobs_with_lease(self, rows: list[dict[str, Any]]) -> bool:
+    async def _process_jobs_with_lease(
+        self, rows: list[dict[str, Any]]
+    ) -> tuple[bool, list[dict[str, Any] | None]]:
         """Process a claimed batch while renewing every repository lease.
 
         Args:
             rows: Claimed durable job rows.
 
         Returns:
-            ``True`` when processing finished while all leases were retained.
+            Lease-retained flag and one sanitized execution summary per row
+            (``None`` when the job produced no summary).
         """
         job_ids = [int(row["id"]) for row in rows]
         processing = asyncio.create_task(
@@ -1056,8 +1061,8 @@ class ChatMemoryService:
                     timeout=max(0.01, self._lease_renew_interval_seconds),
                 )
                 if processing in done:
-                    await processing
-                    return True
+                    results = await processing
+                    return True, results
                 renewer = getattr(self._repository, "renew_memory_job", None)
                 if not callable(renewer):
                     continue
@@ -1072,7 +1077,7 @@ class ChatMemoryService:
                     )
                 )
                 if not all(bool(value) for value in renewed):
-                    return False
+                    return False, [None] * len(rows)
         finally:
             if not processing.done():
                 processing.cancel()
@@ -1179,15 +1184,20 @@ class ChatMemoryService:
             )
         return False
 
-    async def _process_jobs(self, rows: list[dict[str, Any]]) -> None:
+    async def _process_jobs(
+        self, rows: list[dict[str, Any]]
+    ) -> list[dict[str, Any] | None]:
         """Process one claimed batch without holding a repository transaction.
 
         Args:
             rows: Claimed job rows in durable order.
+
+        Returns:
+            One sanitized execution summary per row (``None`` when a job
+            produced no summary).
         """
         if len(rows) == 1:
-            await self._process_job(rows[0])
-            return
+            return [await self._process_job(rows[0])]
         payloads: list[dict[str, Any]] = []
         all_extract_turns = bool(rows)
         batch_identity: tuple[str, ...] | None = None
@@ -1216,35 +1226,61 @@ class ChatMemoryService:
                 break
             payloads.append(payload)
         if all_extract_turns:
-            await self._extract_turn_batch(payloads)
-            return
+            summary = await self._extract_turn_batch(payloads)
+            # 每个 job 对应自己的 payload：输入摘要按各自 payload 生成，
+            # 提取记忆结果共享同一批。
+            results = []
+            for payload in payloads:
+                per_payload = dict(summary)
+                per_payload["action"] = str(payload.get("action") or "")
+                per_payload["provider_id"] = str(payload.get("chat_provider_id") or "")
+                per_payload["context_ref"] = str(payload.get("context_ref") or "")
+                per_payload["user_text_chars"] = int(
+                    len(str(payload.get("user_text") or ""))
+                )
+                per_payload["assistant_message_count"] = len(
+                    payload.get("assistant_messages") or []
+                )
+                results.append(per_payload)
+            return results
+        results: list[dict[str, Any] | None] = []
         for row in rows:
-            await self._process_job(row)
+            results.append(await self._process_job(row))
+        return results
 
-    async def _process_job(self, row: dict[str, Any]) -> None:
-        """Process one claimed job without holding a repository transaction."""
+    async def _process_job(self, row: dict[str, Any]) -> dict[str, Any] | None:
+        """Process one claimed job without holding a repository transaction.
+
+        Returns:
+            Sanitized execution summary when the job produced one, else ``None``.
+        """
         payload = row.get("payload")
         if not isinstance(payload, dict):
             raw_payload = row.get("payload_json", "{}")
             payload = json.loads(raw_payload) if isinstance(raw_payload, str) else {}
         job_type = str(row.get("job_type") or payload.get("job_type") or "")
         if job_type == "extract_turn":
-            await self._extract_turn(payload)
-            return
+            return await self._extract_turn(payload)
         if job_type == "embed_example":
             await self._embed_entity("example", int(payload.get("entity_id", 0)))
-            return
+            return None
         raise ValueError(f"unsupported memory job: {job_type}")
 
-    async def _extract_turn(self, payload: dict[str, Any]) -> None:
+    async def _extract_turn(self, payload: dict[str, Any]) -> dict[str, Any]:
         """Run deterministic rules and optional explicit LLM extraction."""
-        await self._extract_turn_batch([payload])
+        return await self._extract_turn_batch([payload])
 
-    async def _extract_turn_batch(self, payloads: list[dict[str, Any]]) -> None:
+    async def _extract_turn_batch(
+        self, payloads: list[dict[str, Any]]
+    ) -> dict[str, Any]:
         """Extract several compatible turns with at most one Chat Provider call.
 
         Args:
             payloads: Same-scope extraction payloads claimed as one durable batch.
+
+        Returns:
+            Sanitized execution summary: extracted memory URIs/operations/versions,
+            candidate counts, and timing. No raw conversation text is included.
         """
         valid_payloads = [
             dict(payload)
@@ -1345,21 +1381,46 @@ class ChatMemoryService:
                 if confidence > float(previous["candidate"]["confidence"]):
                     previous["candidate"] = candidate
 
+        summary: list[dict[str, Any]] = []
+        first_payload = valid_payloads[0] if valid_payloads else {}
         for entry in deduplicated.values():
             candidate = entry["candidate"]
             if not entry["source_commit_ids"]:
                 raise RuntimeError("OpenViking Memory source commit is unavailable")
             try:
-                await asyncio.to_thread(
+                upserted = await asyncio.to_thread(
                     self._openviking.upsert_memory,
                     candidate,
                     evidence=entry["evidence"],
                     source_commit_ids=tuple(entry["source_commit_ids"]),
                 )
                 self._openviking_last_error = ""
+                summary.append(
+                    {
+                        "memory_key": str(candidate.get("memory_key") or ""),
+                        "memory_type": str(candidate.get("memory_type") or ""),
+                        "status": str(candidate.get("status") or ""),
+                        "operation": str(getattr(upserted, "operation", "") or ""),
+                        "version": int(getattr(upserted, "version", 0) or 0),
+                        "memory_uri": str(getattr(upserted, "memory_uri", "") or ""),
+                    }
+                )
             except Exception as exc:
                 self._openviking_last_error = type(exc).__name__
                 raise RuntimeError("OpenViking Memory write failed") from exc
+        return {
+            "extracted": summary,
+            "candidate_count": len(deduplicated),
+            "source_turn_count": len(valid_payloads),
+            # 脱敏输入摘要（不含对话原文）
+            "action": str(first_payload.get("action") or ""),
+            "provider_id": str(first_payload.get("chat_provider_id") or ""),
+            "context_ref": str(first_payload.get("context_ref") or ""),
+            "user_text_chars": int(len(str(first_payload.get("user_text") or ""))),
+            "assistant_message_count": len(
+                first_payload.get("assistant_messages") or []
+            ),
+        }
 
     def _rule_candidates(self, user_text: str) -> list[dict[str, Any]]:
         """Extract conservative first-person facts with exact evidence."""

@@ -511,7 +511,10 @@ def test_job_worker_renews_lease_and_releases_immediately_on_reload() -> None:
             self.released.append((job_id, lease_owner, reason))
             return True
 
-        async def complete_memory_job(self, job_id: int, lease_owner: str):
+        async def complete_memory_job(
+            self, job_id: int, lease_owner: str, result: dict | None = None
+        ):
+            del result
             raise AssertionError((job_id, lease_owner))
 
         async def retry_memory_job(self, *args, **kwargs):
@@ -565,9 +568,10 @@ def test_lost_job_lease_cancels_processing_without_completion() -> None:
                 cancelled.set()
 
         service._process_job = long_process  # type: ignore[method-assign]
-        retained = await service._process_job_with_lease({"id": 9})
+        retained, results = await service._process_job_with_lease({"id": 9})
 
         assert retained is False
+        assert results == [None]
         assert repository.renewals == 1
         assert cancelled.is_set()
 

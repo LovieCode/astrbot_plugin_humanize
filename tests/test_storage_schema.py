@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import asyncio
+import json
 import sqlite3
 from pathlib import Path
 
@@ -239,6 +240,77 @@ def test_memory_job_lease_can_be_renewed_and_released_by_owner_only(
         assert listing["items"][0]["lease_owner"] == ""
         assert listing["items"][0]["lease_expires_at"] is None
         assert listing["items"][0]["error"] == "worker_cancelled"
+
+    asyncio.run(scenario())
+
+
+def test_memory_job_complete_persists_sanitized_result(tmp_path: Path) -> None:
+    """Completing a job stores the sanitized execution summary and the list
+    API returns it as ``result`` without raw payload text."""
+
+    async def scenario() -> None:
+        db_path = tmp_path / "humanize.db"
+        repository = SQLiteRepository(db_path)
+        await repository.initialize()
+        with sqlite3.connect(db_path) as conn:
+            conn.execute(
+                """
+                INSERT INTO humanize_memory_jobs (
+                    job_key, job_type, request_id, provider_id, scope_type,
+                    scope_hash, subject_hash, conversation_hash, payload_json,
+                    status, attempts, next_run_at, created_at, updated_at
+                ) VALUES (
+                    'extract:result-request', 'extract_turn', 'result-request', 'p1',
+                    'private_user', 'scope-a', 'subject-a', 'conversation-a',
+                    '{"user_text":"机密原文"}', 'pending', 0,
+                    '2000-01-01T00:00:00+00:00',
+                    '2000-01-01T00:00:00+00:00',
+                    '2000-01-01T00:00:00+00:00'
+                )
+                """
+            )
+            conn.commit()
+        claimed = await repository.claim_memory_job("worker-a", lease_seconds=30)
+        assert claimed is not None
+        job_id = int(claimed["id"])
+        assert "user_text" in claimed["payload"]
+
+        summary = {
+            "extracted": [
+                {
+                    "memory_key": "preference:tea",
+                    "memory_type": "preference",
+                    "status": "candidate",
+                    "operation": "create",
+                    "version": 1,
+                    "memory_uri": "viking://agent/default/memories/private_user/scope-a/subject-a/preference/preference:tea",
+                }
+            ],
+            "candidate_count": 1,
+            "source_turn_count": 1,
+        }
+        completed = await repository.complete_memory_job(
+            job_id, "worker-a", result=summary
+        )
+        assert completed["status"] == "completed"
+
+        with sqlite3.connect(db_path) as conn:
+            row = conn.execute(
+                "SELECT payload_json, result_json FROM humanize_memory_jobs WHERE id = ?",
+                (job_id,),
+            ).fetchone()
+        assert row is not None
+        assert row[0] == "{}"  # raw payload cleared
+        stored = json.loads(row[1])
+        assert stored["candidate_count"] == 1
+        assert stored["extracted"][0]["memory_key"] == "preference:tea"
+
+        listing = await repository.list_memory_jobs(
+            job_type="extract_turn", page=1, page_size=20
+        )
+        item = listing["items"][0]
+        assert item["result"]["candidate_count"] == 1
+        assert "user_text" not in json.dumps(item.get("result", {}))
 
     asyncio.run(scenario())
 
