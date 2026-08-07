@@ -75,12 +75,15 @@
 - jobs 分页无效（按钮改 state.page 非 jobPage）→ renderPager 加 stateKey 参数
 - 设置保存后读回旧值（内存未同步）→ 保存后重建 in-memory PluginConfig
 
-## 10. 待决断：遗留临时记忆数据
+## 10.（已解决）遗留临时记忆数据
 
-- 补测 agent 创建的候选记忆「探针临时记忆-测完删除」（id `a8024d…`）**无法通过 WebUI 删除**（后端 OpenViking identity immutable，UI 无删除出口）
-- **选项**：A. 后端/DB 手工清理（需你授权）；B. 保留（1 条候选不影响）
+**状态**：已修复（commit `ccd9915`，已部署）
+- 之前「探针临时记忆-测完删除」（id `a8024d…`）无法拒绝，根因 memory.py 强制 agent_id=default 导致 identity immutable
+- 修复后线上已成功 reject（status=rejected），后又 activate 恢复（active）；记忆拒绝/恢复链路均正常
 
-## 11. 待决断：记忆删除/拒绝的 UI 出口
+## 11.（已解决）记忆删除/拒绝的 UI 出口
 
-- 后端 `memory-action` reject 报 `OpenViking memory identity is immutable`——**记忆创建后不可删除/拒绝**（设计约束）
-- **选项**：A. 保持（记忆不可变，仅 superseded）；B. 后端加「软删除/隐藏」机制 + UI 出口（需你确认设计意图）
+**状态**：已修复（commit `ccd9915` + `d011959`，已部署）
+- reject 报 `identity immutable` 根因已修（不强制 agent_id）
+- 新增「恢复记忆」按钮（rejected/superseded 卡片 + 详情抽屉均有，action=activate）
+- 设计保留：记忆不可物理删除，只可 reject（软删）与 activate（恢复）
