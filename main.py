@@ -662,9 +662,12 @@ class HumanizePlugin(Star):
                     )
                 if transcriptions:
                     event.set_extra(_IMAGE_CACHE_KEY, tuple(transcriptions))
-                    # 用结合上下文的转述替换 AstrBot 自带 caption
+                    # 把转述注入当前请求（模型本轮可见）；若 AstrBot 已有
+                    # <image_caption> 则替换，否则追加一个转述 part
+                    replacement = "\n".join(
+                        str(item) for item in transcriptions
+                    )
                     if caption_index >= 0 and isinstance(parts, list):
-                        replacement = "\n".join(str(item) for item in transcriptions)
                         try:
                             parts[
                                 caption_index
@@ -672,6 +675,17 @@ class HumanizePlugin(Star):
                         except Exception:
                             logger.exception(
                                 "[Humanize] failed to replace image caption part"
+                            )
+                    elif replacement:
+                        try:
+                            parts.append(
+                                TextPart(
+                                    text=f"<image_caption>{replacement}</image_caption>"
+                                ).mark_as_temp()
+                            )
+                        except Exception:
+                            logger.exception(
+                                "[Humanize] failed to inject image caption part"
                             )
             except Exception:
                 logger.exception("[Humanize] image transcription failed")
