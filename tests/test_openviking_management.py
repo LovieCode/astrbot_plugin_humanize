@@ -134,3 +134,28 @@ def test_management_rejects_revision_conflict_and_identity_change(
                 "memory_key": "preference:coffee",
             }
         )
+
+
+def test_management_reject_without_agent_id_uses_existing_identity(
+    tmp_path: Path,
+) -> None:
+    """WebUI reject 请求只传 action/id/revision/reason，agent_id 应从
+    existing 记忆补全，而不是 fallback 成 default 导致身份不匹配报错。"""
+    management, _ = _management(tmp_path)
+    payload = _create_payload()
+    payload["agent_id"] = "agent-" + "a" * 63
+    created = management.apply_memory_action(payload)
+
+    # 模拟前端 reject：不传 agent_id / scope_hash / subject_hash 等身份字段
+    rejected = management.apply_memory_action(
+        {
+            "action": "reject",
+            "id": created["id"],
+            "revision": created["version"],
+            "reason": "后台拒绝",
+        }
+    )
+
+    assert rejected["status"] == "rejected"
+    assert rejected["agent_id"] == "agent-" + "a" * 63
+    assert management.list_memories(status="rejected")["total"] == 1

@@ -681,9 +681,12 @@ class ChatMemoryService:
         """Validate scope tokens and apply one audited memory mutation."""
         self._require_identity_ready()
         clean = dict(payload)
-        clean["agent_id"] = str(clean.get("agent_id") or "default").strip() or (
-            "default"
-        )
+        # 只有新建记忆时才默认 default；已有记忆的身份字段由
+        # management 层从 existing 记录补全，不能强制 default，
+        # 否则与真实 agent_id 不一致会报 identity immutable。
+        action = str(clean.get("action") or "update").strip().lower()
+        if action == "create" and not clean.get("agent_id"):
+            clean["agent_id"] = "default"
         token = str(clean.pop("scope_token", "") or "").strip()
         if token:
             clean.update(self.decode_scope_token(token))
@@ -742,12 +745,12 @@ class ChatMemoryService:
         """Validate scope tokens and apply one audited example mutation."""
         self._require_identity_ready()
         clean = dict(payload)
-        clean["agent_id"] = str(clean.get("agent_id") or "default").strip() or (
-            "default"
-        )
         action = str(clean.get("action") or "update").strip().lower()
         if action == "save":
             action = "update" if clean.get("id") else "create"
+        # 只有新建时才默认 default；已有记录的身份字段从 existing 补全
+        if action == "create" and not clean.get("agent_id"):
+            clean["agent_id"] = "default"
         token = str(clean.pop("scope_token", "") or "").strip()
         if token:
             clean.update(self.decode_scope_token(token))

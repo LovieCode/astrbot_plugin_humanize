@@ -269,7 +269,9 @@ class OpenVikingManagementAdapter:
                 if incoming not in (None, "")
                 else (existing or {}).get(key, "")
             ).strip()
-        identity["agent_id"] = identity["agent_id"] or "default"
+        identity["agent_id"] = identity["agent_id"] or str(
+            (existing or {}).get("agent_id") or "default"
+        )
         if identity["scope_type"] not in _SCOPE_TYPES:
             raise ValueError("unsupported OpenViking memory scope type")
         identity["scope_hash"] = self._require_digest(
