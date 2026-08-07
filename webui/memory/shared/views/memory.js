@@ -429,6 +429,18 @@ HZ.renderTopbar(HZ.topbars["memory"]);
         confirmReject(m);
       });
       actions.appendChild(editBtn);
+      // 已拒绝/已废弃的记忆可恢复为正常状态
+      if (m.status === "rejected" || m.status === "superseded") {
+        const restoreBtn = document.createElement("button");
+        restoreBtn.className = "icon-btn";
+        restoreBtn.title = "恢复记忆";
+        restoreBtn.innerHTML = HZ.icon("check");
+        restoreBtn.addEventListener("click", (e) => {
+          e.stopPropagation();
+          confirmRestore(m);
+        });
+        actions.appendChild(restoreBtn);
+      }
       actions.appendChild(rejectBtn);
       top.appendChild(actions);
       card.appendChild(top);
@@ -614,6 +626,10 @@ HZ.renderTopbar(HZ.topbars["memory"]);
   if (btnReject) btnReject.addEventListener("click", () => {
     if (state.detail) confirmReject(state.detail);
   });
+  const btnRestore = $("btnRestoreMem");
+  if (btnRestore) btnRestore.addEventListener("click", () => {
+    if (state.detail) confirmRestore(state.detail);
+  });
 
   async function openDetail(id) {
     document.querySelectorAll(".mem-card").forEach((c) => c.classList.remove("selected"));
@@ -641,6 +657,10 @@ HZ.renderTopbar(HZ.topbars["memory"]);
     const statusText = document.createTextNode(" " + (STATUS_LABEL[d.status] || d.status || ""));
     $("detailStatusTag").innerHTML = '<span class="tag-dot"></span>';
     $("detailStatusTag").appendChild(statusText);
+
+    // 已拒绝/已废弃的记忆显示恢复按钮
+    const btnRestore = $("btnRestoreMem");
+    if (btnRestore) btnRestore.style.display = d.status === "rejected" || d.status === "superseded" ? "" : "none";
 
     $("dAbstract").textContent = d.abstract || d.content || "";
     $("dOverview").textContent = d.overview || "";
@@ -763,7 +783,31 @@ HZ.renderTopbar(HZ.topbars["memory"]);
     $("dUri").textContent = d.uri || "";
   }
 
-  /* ================= 操作：编辑 / 标记 rejected ================= */
+  /* ================= 操作：编辑 / 标记 rejected / 恢复 ================= */
+  function confirmRestore(m) {
+    if (!HZ.confirm) return;
+    HZ.confirm({
+      title: "恢复记忆",
+      text: "确定恢复记忆「" + (m.memory_key || "") + "」为正常状态吗？",
+      confirmText: "恢复",
+      onConfirm: async () => {
+        try {
+          await HZ.api.post("memory-action", {
+            action: "activate",
+            id: m.id,
+            revision: m.version,
+            reason: "后台恢复",
+          });
+          if (HZ.toast) HZ.toast("已恢复记忆", { type: "success" });
+          loadMemories();
+          if (state.detail && state.detail.id === m.id) closeDrawer();
+        } catch (e) {
+          failToast(e);
+        }
+      },
+    });
+  }
+
   function confirmReject(m) {
     if (!HZ.confirm) return;
     HZ.confirm({
