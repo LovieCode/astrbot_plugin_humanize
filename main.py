@@ -1280,7 +1280,17 @@ class HumanizePlugin(Star):
 
             if not all(isinstance(component, Plain) for component in result.chain):
                 original_messages = tuple(event.get_extra(_MESSAGES_KEY, ()))
-                if rendered_text != "\n".join(original_messages):
+                joined = "\n".join(original_messages)
+                text_ok = rendered_text == joined or (
+                    original_messages
+                    and rendered_text.strip()
+                    and all(
+                        part in rendered_text
+                        for part in original_messages
+                        if part.strip()
+                    )
+                )
+                if not text_ok:
                     logger.warning(
                         "[Humanize] suppressed decorated media result with changed text"
                     )
@@ -2531,15 +2541,15 @@ class HumanizePlugin(Star):
                     await self._send_messages(event, outbound_messages)
                     sent_chain = True
             elif outcome.action is Action.REPLY and source_chain is not None:
-                outbound_text = "\n".join(outbound_messages)
-                components = []
-                inserted_text = False
+                # 媒体混合时也保留分段：文本逐条发送（_send_messages），
+                # 媒体组件单独一条链发送
+                if outbound_messages:
+                    await self._send_messages(event, outbound_messages)
+                    sent_chain = True
                 remaining_outbound_media = list(outbound_media_keys)
+                media_components = []
                 for component in source_chain.chain:
                     if isinstance(component, Plain):
-                        if not inserted_text and outbound_text:
-                            components.append(Plain(outbound_text))
-                            inserted_text = True
                         continue
                     media_key = repr(component)
                     try:
@@ -2547,9 +2557,9 @@ class HumanizePlugin(Star):
                     except ValueError:
                         continue
                     else:
-                        components.append(component)
-                if components:
-                    await self._send_chain(event, source_chain.derive(components))
+                        media_components.append(component)
+                if media_components:
+                    await self._send_chain(event, source_chain.derive(media_components))
                     sent_chain = True
         except Exception:
             logger.exception("[Humanize] tool-stage response dispatch failed")
