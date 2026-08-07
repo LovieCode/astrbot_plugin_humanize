@@ -435,8 +435,11 @@ class ContextRepository:
                        response_snapshot_json, response_snapshot_complete,
                        model, duration_ms, stage, created_at
                 FROM protocol_logs
-                WHERE request_id = ? AND stage = 'final'
-                ORDER BY id DESC LIMIT 1
+                WHERE request_id = ?
+                ORDER BY
+                    CASE stage WHEN 'final' THEN 0 ELSE 1 END,
+                    id DESC
+                LIMIT 1
                 """,
                 (request_id,),
             ).fetchone()

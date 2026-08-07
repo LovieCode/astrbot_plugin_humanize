@@ -726,10 +726,26 @@ class HumanizePlugin(Star):
         started_at = event.get_extra(_START_KEY, time.perf_counter())
         duration_ms = max(0, int((time.perf_counter() - started_at) * 1_000))
         model = str(event.get_extra(_MODEL_KEY, ""))
+        # stage 判定：以响应是否携带工具调用为准（状态机可能因工具未结束
+        # 而把 final 轮误判为 tool；finish_reason=stop 无 tool_calls 就是 final）
+        has_tool_calls = bool(
+            response
+            and (
+                response.tools_call_args
+                or response.tools_call_name
+                or response.tools_call_ids
+                or response.tools_call_extra_content
+            )
+        )
+        stage = (
+            "tool"
+            if has_tool_calls or state == EventState.TOOL_RUNNING.value
+            else "final"
+        )
         await self._record_llm_usage_sample(
             event,
             response,
-            stage="tool" if state == EventState.TOOL_RUNNING.value else "final",
+            stage=stage,
             duration_ms=duration_ms,
         )
         response_snapshot, response_snapshot_complete = (
@@ -1130,7 +1146,19 @@ class HumanizePlugin(Star):
                 return
 
             original_messages = tuple(event.get_extra(_MESSAGES_KEY, ()))
-            if rendered_text == "\n".join(original_messages):
+            # 分段发送应以协议解析的原始消息为准。result decorator 可能
+            # 微调文本（换行/分段），但内容一致时仍按原始多条逐条发送；
+            # 仅当装饰结果删改内容时才回退到装饰后的单条文本。
+            joined = "\n".join(original_messages)
+            if rendered_text == joined:
+                outbound = original_messages
+            elif (
+                original_messages
+                and rendered_text.strip()
+                and all(
+                    part in rendered_text for part in original_messages if part.strip()
+                )
+            ):
                 outbound = original_messages
             else:
                 outbound = (rendered_text,) if rendered_text.strip() else ()
