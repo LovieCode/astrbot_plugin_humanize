@@ -537,6 +537,8 @@ def test_request_takeover_replaces_native_history_and_disables_session_fallback(
             del context, token_budget
             return SimpleNamespace(
                 contexts=({"role": "user", "content": "managed history"},),
+                entry_count=1,
+                estimated_tokens=2,
             )
 
     class Service:
@@ -591,5 +593,111 @@ def test_request_takeover_replaces_native_history_and_disables_session_fallback(
         assert service.include_session_fallback is False
         assert event.get_extra("_humanize_context_window_active") is True
         assert event.get_extra("_humanize_history_sync_required") is False
+
+    asyncio.run(scenario())
+
+
+def test_request_takeover_omits_native_history_when_window_unavailable(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    class Event:
+        def __init__(self) -> None:
+            self.extras: dict[str, object] = {}
+            self.unified_msg_origin = "group-1"
+            self.message_str = "hello"
+            self.stopped = False
+
+        def set_extra(self, key: str, value: object) -> None:
+            self.extras[key] = value
+
+        def get_extra(self, key: str, default=None):
+            return self.extras.get(key, default)
+
+        def get_message_str(self) -> str:
+            return self.message_str
+
+        def get_platform_name(self) -> str:
+            return "aiocqhttp"
+
+        async def send(self, message) -> None:
+            del message
+
+        def clear_result(self) -> None:
+            return None
+
+        def stop_event(self) -> None:
+            self.stopped = True
+
+    class Window:
+        async def load(self, context, *, token_budget: int):
+            del context, token_budget
+            raise RuntimeError("workspace unavailable")
+
+    class Service:
+        def __init__(self) -> None:
+            self.include_session_fallback: bool | None = None
+
+        async def prepare_request(self, context, *, include_session_fallback: bool):
+            del context
+            self.include_session_fallback = include_session_fallback
+            return PreparedRequest(
+                protocol_prompt="protocol",
+                message_xml="<Msg>hello</Msg>",
+                known_terms_xml="<KnownTerms />",
+                matched_terms=(),
+            )
+
+    class PersonaManager:
+        @staticmethod
+        async def resolve_selected_persona(**kwargs):
+            del kwargs
+            return "default", None, None, False
+
+    class AppContext:
+        persona_manager = PersonaManager()
+
+        @staticmethod
+        def get_config(**kwargs):
+            del kwargs
+            return {"provider_settings": {"max_context_length": 16_000}}
+
+        @staticmethod
+        def get_using_provider(umo):
+            del umo
+            return None
+
+    warnings: list[str] = []
+
+    def capture_warning(message: str, *args, **kwargs) -> None:
+        del kwargs
+        warnings.append(message % args if args else message)
+
+    monkeypatch.setattr(
+        "astrbot_plugin_humanize.main.logger.warning",
+        capture_warning,
+    )
+
+    async def scenario() -> None:
+        service = Service()
+        plugin = HumanizePlugin(AppContext(), {})
+        plugin._container = SimpleNamespace(service=service, context_window=Window())
+        plugin._build_message_context = _async_build_context_1
+        event = Event()
+        request = ProviderRequest(
+            prompt="hello",
+            contexts=[{"role": "assistant", "content": "native history"}],
+            conversation=SimpleNamespace(cid="conversation-1", persona_id="default"),
+        )
+
+        await plugin.on_llm_request(event, request)
+
+        assert request.conversation is None
+        assert request.contexts == []
+        assert service.include_session_fallback is False
+        assert event.get_extra("_humanize_context_window_active") is False
+        assert event.get_extra("_humanize_history_sync_required") is False
+        assert (
+            "context window unavailable; cleared AstrBot native history" in warnings[0]
+        )
 
     asyncio.run(scenario())

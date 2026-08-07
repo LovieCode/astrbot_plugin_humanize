@@ -331,6 +331,9 @@ class HumanizePlugin(Star):
             logger.exception("[Humanize] failed to resolve the effective persona")
 
         context_window_active = False
+        context_window_entry_count = 0
+        context_window_estimated_tokens = 0
+        context_window_error_type = ""
         context_window_token_budget = self._context_window_token_budget(
             provider_settings
         )
@@ -342,18 +345,25 @@ class HumanizePlugin(Star):
             req.contexts = list(context_window.contexts)
             req.conversation = None
             context_window_active = True
-        except Exception:
-            logger.exception(
-                "[Humanize] context window load degraded to native history"
+            context_window_entry_count = context_window.entry_count
+            context_window_estimated_tokens = context_window.estimated_tokens
+        except Exception as exc:
+            # The managed window is authoritative. An unavailable workspace must
+            # omit short-term history rather than silently exposing AstrBot's
+            # separate conversation history to the Provider.
+            req.contexts = []
+            req.conversation = None
+            context_window_error_type = type(exc).__name__
+            logger.warning(
+                "[Humanize] context window unavailable; cleared AstrBot native "
+                "history for this request (error_type=%s)",
+                context_window_error_type,
+                exc_info=True,
             )
         try:
-            prepared = await (
-                self._container.service.prepare_request(
-                    message_context,
-                    include_session_fallback=False,
-                )
-                if context_window_active
-                else self._container.service.prepare_request(message_context)
+            prepared = await self._container.service.prepare_request(
+                message_context,
+                include_session_fallback=False,
             )
         except Exception as exc:
             logger.error(
@@ -484,6 +494,12 @@ class HumanizePlugin(Star):
                 req
             )
             request_snapshot["capture_stage"] = "on_llm_request_finalizer"
+            request_snapshot["humanize_context_window"] = {
+                "status": "active" if context_window_active else "unavailable",
+                "entry_count": context_window_entry_count,
+                "estimated_tokens": context_window_estimated_tokens,
+                "error_type": context_window_error_type or None,
+            }
             request_fields = request_snapshot.get("fields", {})
             if not isinstance(request_fields, dict):
                 request_fields = {}
@@ -566,10 +582,10 @@ class HumanizePlugin(Star):
         event.set_extra(_RAW_OUTPUT_KEY, "")
         event.set_extra(_VALIDATED_OUTPUT_KEY, "")
         event.set_extra(_ASSISTANT_MESSAGE_KEY, None)
-        event.set_extra(
-            _HISTORY_SYNC_KEY,
-            not context_window_active and req.conversation is not None,
-        )
+        # The managed window is authoritative. If it is unavailable, this request
+        # proceeds without short-term history instead of synchronizing AstrBot's
+        # native conversation as a hidden fallback.
+        event.set_extra(_HISTORY_SYNC_KEY, False)
         event.set_extra(_CONTEXT_WINDOW_ACTIVE_KEY, context_window_active)
         event.set_extra(
             _CONTEXT_WINDOW_TOKEN_BUDGET_KEY,

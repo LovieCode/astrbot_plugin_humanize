@@ -106,7 +106,7 @@ uv run pytest -q tests/test_webui_static.py tests/test_sdk_webapi_endpoints.py
 uvx ruff format --check humanize tests scripts/build_spa.py main.py
 uvx ruff check humanize tests scripts/build_spa.py main.py
 python scripts/build_spa.py --check || die "SPA build is out of date; run scripts/build_spa.py and commit"
-git diff --check
+git -c core.whitespace=cr-at-eol diff --check
 
 if "$dry_run"; then
     printf 'dry-run: target=%s port=%s remote_plugin=%s\n' "$target" "$port" "$remote_plugin"
