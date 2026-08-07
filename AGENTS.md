@@ -26,9 +26,10 @@
 ## 调试与验证规范（基础，可复用）
 
 ### 部署链路（本插件）
-- 提交 → push origin main → 远端 `git pull --ff-only`。静态页面改动立即生效；**后端 Python 改动必须重启 AstrBot**（tmux `astrbot-service:1`，C-c 后 `cd /home/lovie/AstrBot && uv run main.py`）。
+- 用 `bash scripts/deploy_hotfix.sh --pytest <相关测试> -- <改动文件...>`（先 `--dry-run`）；脚本自动：本地定向检查 → 上传已提交文件 → SHA-256 校验 → 远端定向检查 → 热重载。
+- **后端 Python 改动和前端页面都走插件热重载**（`POST /api/v1/plugins/reload`），**不需要重启 AstrBot**；只有 `--restart` 显式指定或服务不健康时才重启。
+- 前端改动必须跑 `scripts/build_spa.py` 构建并提交 `pages/` 产物，只改 `webui/` 源码线上不生效（脚本会自动构建并校验产物已提交）。
 - 重启报 PermissionError 时先 `sudo chown -R lovie:lovie /home/lovie/AstrBot/data /home/lovie/AstrBot/.venv /home/lovie/AstrBot/uv.lock`。
-- **前端改动必须跑 `scripts/build_spa.py` 构建并提交 `pages/` 产物**，只改 `webui/` 源码线上不生效。
 - 插件页面是 SPA 单页（路径含 `humanize`）；API 双路径：iframe 内 `/api/plug/`（父页代理）、独立访问 `/api/v1/plugins/extensions/`。
 
 ### WebUI 通用调试
