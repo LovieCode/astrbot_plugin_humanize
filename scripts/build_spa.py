@@ -150,6 +150,7 @@ def view_main(view: str, mapping: dict[str, dict[str, str]]) -> str:
     # Body-level overlays outside <main> (drawers/modals) must be kept too.
     rest = body_html.replace(m.group(0), "")
     rest = re.sub(r"<script.*?</script>", "", rest, flags=re.S)
+
     # Keep only standalone overlay elements (drawer-mask / aside.drawer /
     # modal-mask blocks); discard the bg-decor and app wrappers entirely.
     def extract_overlay(html: str, start: int) -> str:
