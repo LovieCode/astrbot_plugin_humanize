@@ -111,6 +111,9 @@ class HumanizePlugin(Star):
         self._protocol_parser = ProtocolParser(self._plugin_config)
         self._envelope_builder = EnvelopeBuilder(self._plugin_config)
         self._prompt_cache_tracker = PromptCacheTracker()
+        # 协议修复频率监控：近端时间窗口内 repair 触发次数，用于向管理员告警
+        self._repair_timestamps: list[float] = []
+        self._repair_warned_at: float = 0.0
 
     async def initialize(self) -> None:
         self._container = Container.build(self._plugin_config, self.context)
@@ -1207,6 +1210,57 @@ class HumanizePlugin(Star):
         }:
             event.clear_result()
 
+    async def _warn_if_repair_frequent(self, event: AstrMessageEvent) -> None:
+        """私聊提醒管理员：协议修复在短时间窗口内频繁触发。
+
+        Args:
+            event: Active event whose platform/admins identify the warning target.
+        """
+        now = time.monotonic()
+        window_seconds = 600.0  # 10 分钟窗口
+        threshold = 3  # 窗口内触发 3 次视为频繁
+        self._repair_timestamps = [
+            stamp for stamp in self._repair_timestamps if now - stamp < window_seconds
+        ]
+        self._repair_timestamps.append(now)
+        if len(self._repair_timestamps) < threshold:
+            return
+        # 同窗口只告警一次，避免刷屏
+        if now - self._repair_warned_at < window_seconds:
+            return
+        self._repair_warned_at = now
+        admin_ids = self._plugin_config.admin_qq_ids
+        if not admin_ids:
+            logger.warning(
+                "[Humanize] protocol repair fired %d times in the last %ds "
+                "(no admin configured to notify)",
+                len(self._repair_timestamps),
+                window_seconds,
+            )
+            return
+        platform_name = event.get_platform_name()
+
+        message = (
+            f"[Humanize 警告] 协议修复在最近 {window_seconds // 60} 分钟内触发 "
+            f"{len(self._repair_timestamps)} 次，回复控制协议频繁校验失败。\n"
+            "可能原因：其他插件修改了回复文本、模型输出格式不稳定、或配置不当。\n"
+            "请检查 插件管理 → 协议日志 或上下文追踪页定位原因。"
+        )
+        for admin_id in admin_ids:
+            session = f"{platform_name}:FriendMessage:{admin_id}"
+            try:
+                await self.context.send_message(session, MessageChain([Plain(message)]))
+            except Exception:
+                logger.exception(
+                    "[Humanize] failed to notify admin %s about frequent repairs",
+                    admin_id,
+                )
+        logger.warning(
+            "[Humanize] protocol repair frequent (%d in %ds); admins notified",
+            len(self._repair_timestamps),
+            window_seconds,
+        )
+
     async def _attempt_protocol_repair(
         self, event: AstrMessageEvent, response: LLMResponse | None
     ) -> None:
@@ -1216,6 +1270,7 @@ class HumanizePlugin(Star):
             event: Active message event containing the failed response metadata.
             response: Mutable final LLM response from the original agent run.
         """
+        await self._warn_if_repair_frequent(event)
         event.set_extra(_REPAIR_PENDING_KEY, False)
         if response is None or self._container is None:
             await self._record_protocol_repair_failure(
