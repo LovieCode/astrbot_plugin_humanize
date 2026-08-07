@@ -298,6 +298,12 @@ textarea.form-input { resize: vertical; line-height: 1.6; }
 /* ---------- 任务详情居中弹窗 ---------- */
 .modal-mask#jobDrawerMask {
   z-index: 70;
+  /* 内容超高时允许滚动，避免 flex 居中把弹窗顶出视口 */
+  overflow-y: auto;
+  padding: 24px 0;
+}
+.modal-mask#jobDrawerMask .job-modal {
+  margin: auto;
 }
 .job-modal {
   width: min(640px, 94vw); max-height: 82vh;
