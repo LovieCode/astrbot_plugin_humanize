@@ -310,6 +310,8 @@ textarea.form-input { resize: vertical; line-height: 1.6; }
   background: var(--card); border: 1px solid var(--line);
   border-radius: var(--r-lg); box-shadow: var(--shadow-hover);
   display: flex; flex-direction: column; overflow: hidden;
+  /* flex 容器内 margin:auto 居中，且内容超高时可滚动而不溢出视口 */
+  margin: auto;
   transform: translateY(10px) scale(0.97); transition: transform var(--dur-mid) var(--ease-spring);
 }
 #jobDrawerMask.show .job-modal { transform: none; }

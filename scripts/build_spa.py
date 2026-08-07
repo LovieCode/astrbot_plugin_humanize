@@ -152,18 +152,36 @@ def view_main(view: str, mapping: dict[str, dict[str, str]]) -> str:
     rest = re.sub(r"<script.*?</script>", "", rest, flags=re.S)
     # Keep only standalone overlay elements (drawer-mask / aside.drawer /
     # modal-mask blocks); discard the bg-decor and app wrappers entirely.
-    overlay_parts = re.findall(
-        r'<div class="(?:drawer-mask|modal-mask)".*?</div>|<aside class="drawer".*?</aside>|<aside class="(?:[^"]*\s)?modal(?:\s[^"]*)?".*?</aside>',
+    def extract_overlay(html: str, start: int) -> str:
+        """Extract a balanced overlay element starting at ``start``.
+
+        Counts nested div/aside open/close tags so overlays that contain
+        inner elements (e.g. modal-mask wrapping an aside.modal) are not
+        truncated at the first closing tag.
+        """
+        depth = 0
+        for m in re.finditer(r"<(/?)(div|aside)(\s[^>]*)?>", html[start:], re.S):
+            if not m.group(1):
+                depth += 1
+            else:
+                depth -= 1
+            if depth == 0:
+                return html[start : start + m.end()]
+        return html[start:]
+
+    overlay_parts = []
+    covered_until = -1
+    for m in re.finditer(
+        r'<div class="(?:drawer-mask|modal-mask)"|<aside class="drawer"|<aside class="[^"]*modal[^"]*"',
         rest,
         re.S,
-    )
-    # Also capture any remaining element that carries an overlay id/class.
-    if not overlay_parts:
-        overlay_parts = re.findall(
-            r'<(?:div|aside)[^>]*(?:id="(?:mem-|jg-|ex-)?(?:drawer|modal)[^"]*"|class="[^"]*(?:drawer|modal)[^"]*")[^>]*>.*?</(?:div|aside)>',
-            rest,
-            re.S,
-        )
+    ):
+        if m.start() < covered_until:
+            # 已被外层 overlay（如 modal-mask 包 modal）覆盖
+            continue
+        extracted = extract_overlay(rest, m.start())
+        overlay_parts.append(extracted)
+        covered_until = m.start() + len(extracted)
     overlays = "\n\n    ".join(p.strip() for p in overlay_parts)
     if overlays:
         content += "\n\n    " + overlays
