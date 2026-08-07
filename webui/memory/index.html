@@ -221,6 +221,31 @@
   </div>
 </aside>
 
+<!-- 后台任务详情抽屉 -->
+<div class="drawer-mask" id="jobDrawerMask"></div>
+<aside class="drawer" id="jobDrawer">
+  <div class="drawer-head">
+    <span class="tag tag-pink" id="jobDetailType">任务</span>
+    <span class="tag tag-active" id="jobDetailStatus"><span class="tag-dot"></span></span>
+    <span class="drawer-title">任务详情</span>
+    <button class="drawer-close" id="jobDrawerClose">✕</button>
+  </div>
+  <div class="drawer-body" id="jobDrawerBody">
+    <div class="d-label">任务标识</div>
+    <div class="d-abstract" id="jobDetailKey"></div>
+    <div class="d-label">请求 ID</div>
+    <div class="d-abstract" id="jobDetailRequest"></div>
+    <div class="d-label">类型</div>
+    <div class="d-abstract" id="jobDetailTypeText"></div>
+    <div class="d-label">作用域</div>
+    <div class="d-abstract" id="jobDetailScope"></div>
+    <div class="d-label">错误信息</div>
+    <div class="d-content" id="jobDetailError"></div>
+    <div class="d-label">时间线</div>
+    <div id="jobDetailTimeline"></div>
+  </div>
+</aside>
+
 <!-- 新建记忆弹窗 -->
 <div class="drawer-mask" id="modalMask"></div>
 <aside class="drawer" id="memModal">

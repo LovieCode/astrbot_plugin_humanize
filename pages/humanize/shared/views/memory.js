@@ -983,6 +983,9 @@ HZ.renderTopbar(HZ.topbars["memory"]);
     state.jobs.forEach((j) => {
       const card = document.createElement("div");
       card.className = "job-card";
+      card.title = "点击查看详情";
+      card.style.cursor = "pointer";
+      card.addEventListener("click", () => openJobDetail(j));
       card.innerHTML = jobIcon(j);
       const main = document.createElement("div");
       main.className = "job-main";
@@ -1006,6 +1009,69 @@ HZ.renderTopbar(HZ.topbars["memory"]);
       list.appendChild(card);
     });
   }
+
+  /* ================= 后台任务详情抽屉 ================= */
+  const jobDrawer = $("jobDrawer");
+  const jobMask = $("jobDrawerMask");
+
+  function openJobDetail(job) {
+    if (!jobDrawer) return;
+    $("jobDetailType").textContent = job.job_type === "extract_turn" ? "记忆提取" : job.job_type === "embed_example" ? "示例嵌入" : job.job_type || "任务";
+    $("jobDetailStatus").className = "tag " + (JOB_STATUS_TAG[job.status] || "");
+    $("jobDetailStatus").innerHTML = '<span class="tag-dot"></span> ' + (JOB_STATUS_LABEL[job.status] || job.status || "");
+    $("jobDetailKey").textContent = job.job_key || "—";
+    $("jobDetailRequest").textContent = job.request_id || "—";
+    const typeText = job.job_type === "extract_turn" ? "记忆提取（turn）" : job.job_type === "embed_example" ? "示例嵌入" : job.job_type || "未知";
+    $("jobDetailTypeText").textContent = typeText + (job.provider_id ? " · " + job.provider_id : "");
+    const scopeText = (job.scope_label || job.scope_type || "global") + (job.agent_id && job.agent_id !== "default" ? " · " + job.agent_id.slice(0, 16) : "");
+    $("jobDetailScope").textContent = scopeText;
+    $("jobDetailError").textContent = job.error || "无";
+    $("jobDetailError").style.color = job.error ? "var(--danger, #e5484d)" : "";
+
+    // 时间线
+    const tl = $("jobDetailTimeline");
+    tl.innerHTML = "";
+    const rows = [
+      ["创建", job.created_at],
+      ["更新", job.updated_at],
+      ["完成", job.completed_at],
+      ["下次重试", job.next_run_at],
+    ];
+    rows.forEach(([label, val]) => {
+      if (!val) return;
+      const row = document.createElement("div");
+      row.className = "evi-row";
+      const q = document.createElement("span");
+      q.className = "evi-quote";
+      q.textContent = label;
+      const t = document.createElement("span");
+      t.className = "evi-meta";
+      t.textContent = timeLabel(val);
+      row.appendChild(q);
+      row.appendChild(t);
+      tl.appendChild(row);
+    });
+    if (!tl.children.length) {
+      const p = document.createElement("div");
+      p.className = "evi-empty";
+      p.textContent = "暂无时间信息";
+      tl.appendChild(p);
+    }
+
+    jobDrawer.classList.add("open");
+    if (jobMask) jobMask.classList.add("open");
+  }
+
+  function closeJobDrawer() {
+    if (jobDrawer) jobDrawer.classList.remove("open");
+    if (jobMask) jobMask.classList.remove("open");
+  }
+  if (jobMask) jobMask.addEventListener("click", closeJobDrawer);
+  const jobCloseBtn = $("jobDrawerClose");
+  if (jobCloseBtn) jobCloseBtn.addEventListener("click", closeJobDrawer);
+  document.addEventListener("keydown", (e) => {
+    if (e.key === "Escape") closeJobDrawer();
+  });
 
   function loadMiniJobs() {
     HZ.api
