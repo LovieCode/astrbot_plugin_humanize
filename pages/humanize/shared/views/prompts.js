@@ -19,6 +19,7 @@ HZ.views["prompts"] = { init: function () {
     sub: "5 个全局模板 · 修改立即生效并记录审计",
     search: "",
     actions: [{ label: "全部重置", icon: "refresh", variant: "ghost" }],
+    onRefresh: loadTemplates,
   };
 HZ.renderTopbar(HZ.topbars["prompts"]);
   HZ.initReveal();

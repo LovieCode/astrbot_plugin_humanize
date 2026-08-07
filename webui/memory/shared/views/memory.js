@@ -9,6 +9,7 @@
     sub: "OpenViking workspace · L0/L1/L2 分层召回 · 作用域隔离",
     search: "搜索记忆键、内容…",
     actions: [{ label: "新建记忆", icon: "plus", variant: "primary" }],
+    onRefresh: loadMemories,
   };
 HZ.renderTopbar(HZ.topbars["memory"]);
   HZ.initReveal();

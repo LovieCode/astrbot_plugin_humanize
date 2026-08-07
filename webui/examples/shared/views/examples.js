@@ -14,6 +14,7 @@
     sub: "审核通过后作为 few-shot 表达参考 · 绝不直接返回旧样例回复",
     search: "搜索标题、话题、关键词…",
     actions: [{ label: "新建样例", icon: "plus", variant: "primary" }],
+    onRefresh: loadList,
   };
 HZ.renderTopbar(HZ.topbars["examples"]);
   HZ.initReveal();

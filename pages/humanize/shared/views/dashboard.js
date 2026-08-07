@@ -16,6 +16,7 @@ HZ.views["dashboard"] = { init: function () {
       { label: "导出", icon: "export", variant: "ghost" },
       { label: "新建记忆", icon: "plus", variant: "primary" },
     ],
+    onRefresh: loadOverview,
   };
 HZ.renderTopbar(HZ.topbars["dashboard"]);
 

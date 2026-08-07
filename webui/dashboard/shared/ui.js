@@ -293,17 +293,25 @@
     const actions = (opts.actions || [])
       .map(
         (a) =>
-          `<button class="btn btn-${a.variant || "ghost"}${a.size ? " btn-" + a.size : ""}">${
-            a.icon ? HZ.icon(a.icon) : ""
-          }${a.label}</button>`
+          `<button class="btn btn-${a.variant || "ghost"}${a.size ? " btn-" + a.size : ""}" data-topbar-action="${
+            a.key || ""
+          }">${a.icon ? HZ.icon(a.icon) : ""}${a.label}</button>`
       )
       .join("");
+    // 刷新按钮：所有数据页通用，点击触发 onRefresh
+    const refreshBtn = opts.onRefresh
+      ? `<button class="btn btn-ghost" data-topbar-action="refresh" title="刷新">${HZ.icon("refresh")}</button>`
+      : "";
     host.innerHTML = `
       <div>
         <div class="page-title">${opts.title}</div>
         <div class="page-sub">${opts.sub || ""}</div>
       </div>
-      <div class="topbar-actions">${search}${actions}</div>`;
+      <div class="topbar-actions">${search}${actions}${refreshBtn}</div>`;
+    // 刷新按钮事件（委托，topbar 重建也不丢）
+    if (opts.onRefresh) {
+      host.querySelector('[data-topbar-action="refresh"]')?.addEventListener("click", () => opts.onRefresh());
+    }
   }
 
   global.HZ = global.HZ || {};

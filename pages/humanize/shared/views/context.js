@@ -13,6 +13,7 @@ HZ.views["context"] = { init: function () {
     sub: "每次 LLM 请求的区块组装与 token 预算全记录",
     search: "搜索请求 ID、消息内容…",
     actions: [],
+    onRefresh: loadList,
   };
 HZ.renderTopbar(HZ.topbars["context"]);
   HZ.initReveal();

@@ -16,6 +16,7 @@ HZ.views["jargon"] = { init: function () {
       { label: "导出", icon: "export", variant: "ghost" },
       { label: "新建词条", icon: "plus", variant: "primary" },
     ],
+    onRefresh: loadList,
   };
 HZ.renderTopbar(HZ.topbars["jargon"]);
   HZ.initReveal();

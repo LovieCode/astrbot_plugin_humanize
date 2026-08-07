@@ -40,7 +40,35 @@
     document.querySelectorAll(".nav-item").forEach((item) => {
       item.classList.toggle("active", item.dataset.nav === name);
     });
+    // 视图已初始化后再切换时才刷新数据（首次由 init 自己加载）
+    if (sections[name] && sections[name].dataset.inited) {
+      refreshView(name);
+    }
   }
+
+  // 当前激活视图 + 视图切换/窗口聚焦时自动刷新
+  let activeView = "dashboard";
+  function refreshView(name) {
+    const section = sections[name];
+    if (!section || !section.dataset.inited) return; // 未初始化（首次加载由 init 负责）
+    if (!window.HZ || !HZ.views || !HZ.views[name]) return;
+    const topbar = HZ.topbars && HZ.topbars[name];
+    if (topbar && typeof topbar.onRefresh === "function") {
+      try {
+        topbar.onRefresh();
+      } catch (e) {
+        console.error("Humanize refresh failed:", name, e);
+      }
+    }
+  }
+  function setActive(name) {
+    activeView = name;
+  }
+  // 窗口/标签页重新获得焦点时刷新当前视图
+  window.addEventListener("focus", () => refreshView(activeView));
+  document.addEventListener("visibilitychange", () => {
+    if (document.visibilityState === "visible") refreshView(activeView);
+  });
 
   if (window.HZ && HZ.renderSidebar) {
     HZ.renderSidebar("dashboard");
@@ -53,6 +81,7 @@
     const name = item.dataset.nav;
     if (name && sections[name]) {
       e.preventDefault();
+      setActive(name);
       show(name);
     }
   });
