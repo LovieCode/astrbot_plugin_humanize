@@ -543,7 +543,20 @@ class HumanizePlugin(Star):
             _CONTEXT_WINDOW_TOKEN_BUDGET_KEY,
             context_window_token_budget,
         )
-        event.set_extra(_CONTEXT_WINDOW_IMAGE_COUNT_KEY, len(req.image_urls or []))
+        event.set_extra(
+            _CONTEXT_WINDOW_IMAGE_COUNT_KEY,
+            len(req.image_urls or [])
+            or len(
+                [
+                    part
+                    for part in (getattr(req, "extra_user_content_parts", None) or [])
+                    if re.search(
+                        r"\[Image Attachment: path ",
+                        str(getattr(part, "text", "") or ""),
+                    )
+                ]
+            ),
+        )
         event.set_extra(_CONTEXT_TURN_REF_KEY, "")
         event.set_extra(_CONTEXT_WINDOW_PENDING_MESSAGES_KEY, ())
         event.set_extra(_CONTEXT_WINDOW_PENDING_ACTION_KEY, "")
