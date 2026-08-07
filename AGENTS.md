@@ -26,6 +26,13 @@
 - 前端改动必须跑 `scripts/build_spa.py` 构建并提交 `pages/` 产物；只改 `webui/` 源码线上不生效（脚本会自动构建并校验产物已提交）。
 - 远端重启若报 PermissionError，先 `sudo chown -R lovie:lovie /home/lovie/AstrBot/data /home/lovie/AstrBot/.venv /home/lovie/AstrBot/uv.lock`。
 
+## 环境与访问信息（本地专用，勿上传）
+
+- 远端部署凭据、Dashboard 地址、API key、SSH 端口等全部在 **`.deploy.local.md`**（未被 git 跟踪，`.git/info/exclude` 忽略，禁止提交/打包）。
+- 需要远端访问时读 `.deploy.local.md` 的 Target/SSH port/Password/Dashboard/API key 字段，不要在 AGENTS.md 或代码里重复写。
+- 插件 WebUI 地址：`<Dashboard>/#/plugin-page/astrbot_plugin_humanize/humanize`（SPA 单页）。
+- napcat WebUI 与 QQ 机器人服务跑在同一台远端（tmux `astrbot-service`），凭据见 `.deploy.local.md` 或远端 napcat 配置。
+
 ## 调试备忘（通用可复用）
 
 ### WebUI
