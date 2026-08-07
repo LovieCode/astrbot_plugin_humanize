@@ -839,7 +839,7 @@ class HumanizePlugin(Star):
         text = str(getattr(response, "completion_text", "") or "").strip()
         if not text:
             return []
-        from humanize.domain.models import ImageCache
+        from .humanize.domain.models import ImageCache
 
         return [ImageCache(text=text[:600])]
 
