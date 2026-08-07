@@ -611,7 +611,7 @@ HZ.renderTopbar(HZ.topbars["context"]);
     const copyBtn = el("button", "raw-copy", "复制全部");
     copyBtn.dataset.icon = "copy";
     copyBtn.addEventListener("click", async () => {
-      copyTextFallback(rawAllText(run, reqSnap, resSnap, protocol), "已复制全部");
+      copyTextFallback(rawAllText(run, reqSnap, resSnap, protocol, response), "已复制全部");
     });
     head.appendChild(copyBtn);
     card.appendChild(head);
@@ -690,64 +690,51 @@ HZ.renderTopbar(HZ.topbars["context"]);
       list.appendChild(empty);
     }
 
-    /* 响应分隔 + 响应消息：从 final_response.response 提取文本
-       （serialize_llm_response 输出 completion_text 在顶层，不在 fields） */
-    const llmResp = (resSnap.llm_response && resSnap.llm_response.final_response) || {};
-    const llmSnap = llmResp.response || {};
-    const llmFields = llmSnap.fields || {};
-    const llmText = String(
-      llmSnap.completion_text || llmFields.completion_text || llmFields.raw_completion || ""
-    );
-    if (resSnap.llm_response && (llmText || protocol)) {
-      list.appendChild(el("div", "raw-divider", "响应"));
-      const resp = el("div", "raw-msg response");
-      const respHead = el("div", "raw-msg-head");
-      respHead.appendChild(el("span", "raw-idx", "[R]"));
-      const role = el("span", "raw-role assistant", "assistant");
-      respHead.appendChild(role);
-      if (response && response.success !== undefined) {
-        respHead.appendChild(el("span", "tag " + (response.success ? "tag-ok" : "tag-failed"), response.success ? "OK" : "失败"));
-      } else if (protocol && protocol.success !== undefined) {
-        respHead.appendChild(el("span", "tag " + (protocol.success ? "tag-ok" : "tag-failed"), protocol.success ? "OK" : "失败"));
-      }
-      respHead.appendChild(el("span", "raw-len", llmText.length + " 字"));
-      resp.appendChild(respHead);
-      if (llmText) {
-        const body = el("div", "raw-body", llmText);
-        resp.appendChild(body);
-      } else {
-        const empty = el("div", "cx-empty", "无响应快照文本（可能为工具轮或快照未捕获）");
-        empty.style.padding = "10px 16px";
-        resp.appendChild(empty);
-      }
-      list.appendChild(resp);
+    /* 实际发送消息：协议解析后的干净文本（用户真正收到的） */
+    const sentMessages = Array.isArray(response && response.messages)
+      ? response.messages
+      : (protocol && Array.isArray(protocol.messages) ? protocol.messages : null);
+    if (sentMessages) {
+      list.appendChild(el("div", "raw-divider", "实际发送"));
+      sentMessages.forEach((text, i) => {
+        const item = el("div", "raw-msg sent");
+        const head = el("div", "raw-msg-head");
+        head.appendChild(el("span", "raw-idx", "[" + (i + 1) + "]"));
+        const role = el("span", "raw-role assistant", "assistant");
+        head.appendChild(role);
+        head.appendChild(el("span", "raw-len", String(text).length + " 字"));
+        item.appendChild(head);
+        item.appendChild(el("div", "raw-body", String(text)));
+        list.appendChild(item);
+      });
+    }
 
-      /* 模型原始输出（协议原文），默认折叠，与响应消息区分 */
-      if (protocol && protocol.raw_output) {
-        const rawBlock = el("div", "raw-raw collapsed");
-        const rawHead = el("div", "raw-msg-head");
-        rawHead.appendChild(el("span", "raw-idx", "[O]"));
-        rawHead.appendChild(el("span", "raw-role", "模型原始输出"));
-        rawHead.appendChild(el("span", "raw-len", String(protocol.raw_output).length + " 字"));
-        const rawBtn = el("button", "raw-collapse", "展开");
-        const paintRawIcon = () => {
-          rawBtn.querySelectorAll("svg").forEach((s) => s.remove());
-          rawBtn.insertAdjacentHTML("afterbegin", HZ.icon(rawBtn.dataset.icon));
-        };
-        rawBtn.dataset.icon = "arrow-down";
+    /* 模型原始输出（协议原文，含标签），默认折叠 */
+    if (protocol && protocol.raw_output) {
+      list.appendChild(el("div", "raw-divider", "模型原始输出"));
+      const rawBlock = el("div", "raw-raw collapsed");
+      const rawHead = el("div", "raw-msg-head");
+      rawHead.appendChild(el("span", "raw-idx", "[O]"));
+      rawHead.appendChild(el("span", "raw-role", "原文"));
+      rawHead.appendChild(el("span", "raw-len", String(protocol.raw_output).length + " 字"));
+      const rawBtn = el("button", "raw-collapse", "展开");
+      const paintRawIcon = () => {
+        rawBtn.querySelectorAll("svg").forEach((s) => s.remove());
+        rawBtn.insertAdjacentHTML("afterbegin", HZ.icon(rawBtn.dataset.icon));
+      };
+      rawBtn.dataset.icon = "arrow-down";
+      paintRawIcon();
+      rawHead.appendChild(rawBtn);
+      rawBtn.addEventListener("click", () => {
+        const collapsed = rawBlock.classList.toggle("collapsed");
+        rawBtn.textContent = collapsed ? "展开" : "收起";
+        rawBtn.dataset.icon = collapsed ? "arrow-down" : "arrow-up";
         paintRawIcon();
-        rawHead.appendChild(rawBtn);
-        rawBtn.addEventListener("click", () => {
-          const collapsed = rawBlock.classList.toggle("collapsed");
-          rawBtn.textContent = collapsed ? "展开" : "收起";
-          rawBtn.dataset.icon = collapsed ? "arrow-down" : "arrow-up";
-          paintRawIcon();
-        });
-        rawBlock.appendChild(rawHead);
-        const rawBody = el("div", "raw-body", String(protocol.raw_output));
-        rawBlock.appendChild(rawBody);
-        list.appendChild(rawBlock);
-      }
+      });
+      rawBlock.appendChild(rawHead);
+      const rawBody = el("div", "raw-body", String(protocol.raw_output));
+      rawBlock.appendChild(rawBody);
+      list.appendChild(rawBlock);
     }
     card.appendChild(list);
     return card;
@@ -791,7 +778,7 @@ HZ.renderTopbar(HZ.topbars["context"]);
     return box;
   }
 
-  function rawAllText(run, reqSnap, resSnap, protocol) {
+  function rawAllText(run, reqSnap, resSnap, protocol, response) {
     const parts = [];
     const pr = reqSnap.provider_request || {};
     const fields = pr.fields || {};
@@ -810,14 +797,11 @@ HZ.renderTopbar(HZ.topbars["context"]);
       if (text) parts.push("[temp_user]\n" + String(text));
     });
     if (prompt) parts.push("[user]\n" + prompt);
-    const llmResp = (resSnap.llm_response && resSnap.llm_response.final_response) || {};
-    const llmSnap = llmResp.response || {};
-    const llmFields = llmSnap.fields || {};
-    const llmText = String(
-      llmSnap.completion_text || llmFields.completion_text || llmFields.raw_completion || ""
-    );
-    if (llmText) {
-      parts.push("[response]\n" + llmText);
+    const sentMessages = Array.isArray(response && response.messages)
+      ? response.messages
+      : (protocol && Array.isArray(protocol.messages) ? protocol.messages : null);
+    if (sentMessages && sentMessages.length) {
+      parts.push("[sent]\n" + sentMessages.map(String).join("\n---\n"));
     }
     if (protocol && protocol.raw_output) {
       parts.push("[raw_output]\n" + String(protocol.raw_output));
