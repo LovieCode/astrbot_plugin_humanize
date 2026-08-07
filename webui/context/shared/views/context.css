@@ -169,6 +169,8 @@
   color: var(--text-2); white-space: pre-wrap; word-break: break-word;
   max-height: 220px; overflow-y: auto;
 }
+.raw-raw.collapsed .raw-body { max-height: 190px; overflow-y: auto; }
+.raw-raw .raw-body { max-height: none; overflow-y: visible; }
 .raw-meta .tag-src.noaction { color: var(--muted); }
 
 /* ---------- 区块展开按钮 ---------- */

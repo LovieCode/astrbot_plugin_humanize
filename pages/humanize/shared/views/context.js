@@ -690,13 +690,15 @@ HZ.renderTopbar(HZ.topbars["context"]);
       list.appendChild(empty);
     }
 
-    /* 响应分隔 + 响应消息：从 final_response.response.fields 提取文本 */
+    /* 响应分隔 + 响应消息：从 final_response.response 提取文本
+       （serialize_llm_response 输出 completion_text 在顶层，不在 fields） */
     const llmResp = (resSnap.llm_response && resSnap.llm_response.final_response) || {};
-    const llmFields = (llmResp.response && llmResp.response.fields) || {};
+    const llmSnap = llmResp.response || {};
+    const llmFields = llmSnap.fields || {};
     const llmText = String(
-      llmFields.completion_text || llmFields.raw_completion || ""
+      llmSnap.completion_text || llmFields.completion_text || llmFields.raw_completion || ""
     );
-    if (resSnap.llm_response) {
+    if (resSnap.llm_response && (llmText || protocol)) {
       list.appendChild(el("div", "raw-divider", "响应"));
       const resp = el("div", "raw-msg response");
       const respHead = el("div", "raw-msg-head");
@@ -710,14 +712,40 @@ HZ.renderTopbar(HZ.topbars["context"]);
       }
       respHead.appendChild(el("span", "raw-len", llmText.length + " 字"));
       resp.appendChild(respHead);
-      const body = el("div", "raw-body", llmText);
-      resp.appendChild(body);
+      if (llmText) {
+        const body = el("div", "raw-body", llmText);
+        resp.appendChild(body);
+      } else {
+        const empty = el("div", "cx-empty", "无响应快照文本（可能为工具轮或快照未捕获）");
+        empty.style.padding = "10px 16px";
+        resp.appendChild(empty);
+      }
       list.appendChild(resp);
 
-      /* raw_output 折叠显示 */
+      /* 模型原始输出（协议原文），默认折叠，与响应消息区分 */
       if (protocol && protocol.raw_output) {
-        const rawBlock = el("div", "raw-raw");
-        rawBlock.textContent = protocol.raw_output;
+        const rawBlock = el("div", "raw-raw collapsed");
+        const rawHead = el("div", "raw-msg-head");
+        rawHead.appendChild(el("span", "raw-idx", "[O]"));
+        rawHead.appendChild(el("span", "raw-role", "模型原始输出"));
+        rawHead.appendChild(el("span", "raw-len", String(protocol.raw_output).length + " 字"));
+        const rawBtn = el("button", "raw-collapse", "展开");
+        const paintRawIcon = () => {
+          rawBtn.querySelectorAll("svg").forEach((s) => s.remove());
+          rawBtn.insertAdjacentHTML("afterbegin", HZ.icon(rawBtn.dataset.icon));
+        };
+        rawBtn.dataset.icon = "arrow-down";
+        paintRawIcon();
+        rawHead.appendChild(rawBtn);
+        rawBtn.addEventListener("click", () => {
+          const collapsed = rawBlock.classList.toggle("collapsed");
+          rawBtn.textContent = collapsed ? "展开" : "收起";
+          rawBtn.dataset.icon = collapsed ? "arrow-down" : "arrow-up";
+          paintRawIcon();
+        });
+        rawBlock.appendChild(rawHead);
+        const rawBody = el("div", "raw-body", String(protocol.raw_output));
+        rawBlock.appendChild(rawBody);
         list.appendChild(rawBlock);
       }
     }
@@ -783,9 +811,10 @@ HZ.renderTopbar(HZ.topbars["context"]);
     });
     if (prompt) parts.push("[user]\n" + prompt);
     const llmResp = (resSnap.llm_response && resSnap.llm_response.final_response) || {};
-    const llmFields = (llmResp.response && llmResp.response.fields) || {};
+    const llmSnap = llmResp.response || {};
+    const llmFields = llmSnap.fields || {};
     const llmText = String(
-      llmFields.completion_text || llmFields.raw_completion || ""
+      llmSnap.completion_text || llmFields.completion_text || llmFields.raw_completion || ""
     );
     if (llmText) {
       parts.push("[response]\n" + llmText);
