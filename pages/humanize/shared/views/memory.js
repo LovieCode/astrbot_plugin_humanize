@@ -1066,7 +1066,10 @@ HZ.renderTopbar(HZ.topbars["memory"]);
     if (jobDrawer) jobDrawer.classList.remove("open");
     if (jobMask) jobMask.classList.remove("show");
   }
-  if (jobMask) jobMask.addEventListener("click", closeJobDrawer);
+  if (jobMask) jobMask.addEventListener("click", (e) => {
+    // 只有点击遮罩本身才关闭，点弹窗内部不关闭
+    if (e.target === jobMask) closeJobDrawer();
+  });
   const jobCloseBtn = $("jobDrawerClose");
   if (jobCloseBtn) jobCloseBtn.addEventListener("click", closeJobDrawer);
   document.addEventListener("keydown", (e) => {
