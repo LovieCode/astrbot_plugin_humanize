@@ -630,9 +630,7 @@ class HumanizePlugin(Star):
         #   的路径（如引用图片、工具轮），并替换 AstrBot 自带的 <image_caption>。
         # - tool：不主动转述，动态注入转述工具由 LLM 按需调用。
         mode = self._plugin_config.image_transcription_mode
-        event_transcriptions = event.get_extra(
-            _EVENT_IMAGE_TRANSCRIPTIONS_KEY, ()
-        )
+        event_transcriptions = event.get_extra(_EVENT_IMAGE_TRANSCRIPTIONS_KEY, ())
         image_urls = list(req.image_urls or [])
         attachment_paths: list[str] = []
         caption_index = -1
@@ -666,9 +664,7 @@ class HumanizePlugin(Star):
                     event.set_extra(_IMAGE_CACHE_KEY, tuple(transcriptions))
                     # 用结合上下文的转述替换 AstrBot 自带 caption
                     if caption_index >= 0 and isinstance(parts, list):
-                        replacement = "\n".join(
-                            str(item) for item in transcriptions
-                        )
+                        replacement = "\n".join(str(item) for item in transcriptions)
                         try:
                             parts[
                                 caption_index
@@ -730,9 +726,7 @@ class HumanizePlugin(Star):
             if index < 1 or index > len(paths):
                 return f"图片序号 {index} 无效，当前请求共有 {len(paths)} 张图片。"
             user_text = str(
-                event.get_message_str()
-                if hasattr(event, "get_message_str")
-                else ""
+                event.get_message_str() if hasattr(event, "get_message_str") else ""
             )
             try:
                 transcriptions = await self._transcribe_images(
@@ -743,11 +737,7 @@ class HumanizePlugin(Star):
             except Exception:
                 logger.exception("[Humanize] image transcription tool failed")
                 return "图片转述失败。"
-            return (
-                str(transcriptions[0])
-                if transcriptions
-                else "未生成转述文本。"
-            )
+            return str(transcriptions[0]) if transcriptions else "未生成转述文本。"
 
         tool = FunctionTool(
             name="humanize_transcribe_image",
