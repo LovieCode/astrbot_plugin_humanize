@@ -434,28 +434,42 @@
   </div>
 </aside>
 
-    <div class="drawer-mask" id="jobDrawerMask"></div>
+    <div class="modal-mask" id="jobDrawerMask"></div>
 
-    <aside class="drawer" id="jobDrawer">
-  <div class="drawer-head">
+    <aside class="modal job-modal" id="jobDrawer" role="dialog" aria-modal="true">
+  <div class="modal-head">
     <span class="tag tag-pink" id="jobDetailType">任务</span>
     <span class="tag tag-active" id="jobDetailStatus"><span class="tag-dot"></span></span>
-    <span class="drawer-title">任务详情</span>
+    <span class="modal-title" style="flex:1">任务详情</span>
     <button class="drawer-close" id="jobDrawerClose">✕</button>
   </div>
-  <div class="drawer-body" id="jobDrawerBody">
-    <div class="d-label">任务标识</div>
-    <div class="d-abstract" id="jobDetailKey"></div>
-    <div class="d-label">请求 ID</div>
-    <div class="d-abstract" id="jobDetailRequest"></div>
-    <div class="d-label">类型</div>
-    <div class="d-abstract" id="jobDetailTypeText"></div>
-    <div class="d-label">作用域</div>
-    <div class="d-abstract" id="jobDetailScope"></div>
-    <div class="d-label">错误信息</div>
-    <div class="d-content" id="jobDetailError"></div>
-    <div class="d-label">时间线</div>
-    <div id="jobDetailTimeline"></div>
+  <div class="modal-body" id="jobDrawerBody">
+    <div class="job-grid">
+      <div class="job-field">
+        <div class="d-label">任务标识</div>
+        <div class="d-abstract mono" id="jobDetailKey"></div>
+      </div>
+      <div class="job-field">
+        <div class="d-label">请求 ID</div>
+        <div class="d-abstract mono" id="jobDetailRequest"></div>
+      </div>
+      <div class="job-field">
+        <div class="d-label">类型</div>
+        <div class="d-abstract" id="jobDetailTypeText"></div>
+      </div>
+      <div class="job-field">
+        <div class="d-label">作用域</div>
+        <div class="d-abstract" id="jobDetailScope"></div>
+      </div>
+      <div class="job-field" style="grid-column:1/-1">
+        <div class="d-label">错误信息</div>
+        <div class="d-content" id="jobDetailError"></div>
+      </div>
+      <div class="job-field" style="grid-column:1/-1">
+        <div class="d-label">时间线</div>
+        <div id="jobDetailTimeline"></div>
+      </div>
+    </div>
   </div>
 </aside>
 

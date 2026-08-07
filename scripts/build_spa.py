@@ -153,7 +153,7 @@ def view_main(view: str, mapping: dict[str, dict[str, str]]) -> str:
     # Keep only standalone overlay elements (drawer-mask / aside.drawer /
     # modal-mask blocks); discard the bg-decor and app wrappers entirely.
     overlay_parts = re.findall(
-        r'<div class="(?:drawer-mask|modal-mask)".*?</div>|<aside class="drawer".*?</aside>',
+        r'<div class="(?:drawer-mask|modal-mask)".*?</div>|<aside class="drawer".*?</aside>|<aside class="(?:[^"]*\s)?modal(?:\s[^"]*)?".*?</aside>',
         rest,
         re.S,
     )

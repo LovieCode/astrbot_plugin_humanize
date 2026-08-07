@@ -1059,12 +1059,12 @@ HZ.renderTopbar(HZ.topbars["memory"]);
     }
 
     jobDrawer.classList.add("open");
-    if (jobMask) jobMask.classList.add("open");
+    if (jobMask) jobMask.classList.add("show");
   }
 
   function closeJobDrawer() {
     if (jobDrawer) jobDrawer.classList.remove("open");
-    if (jobMask) jobMask.classList.remove("open");
+    if (jobMask) jobMask.classList.remove("show");
   }
   if (jobMask) jobMask.addEventListener("click", closeJobDrawer);
   const jobCloseBtn = $("jobDrawerClose");
