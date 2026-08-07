@@ -664,9 +664,7 @@ class HumanizePlugin(Star):
                     event.set_extra(_IMAGE_CACHE_KEY, tuple(transcriptions))
                     # 把转述注入当前请求（模型本轮可见）；若 AstrBot 已有
                     # <image_caption> 则替换，否则追加一个转述 part
-                    replacement = "\n".join(
-                        str(item) for item in transcriptions
-                    )
+                    replacement = "\n".join(str(item) for item in transcriptions)
                     if caption_index >= 0 and isinstance(parts, list):
                         try:
                             parts[
