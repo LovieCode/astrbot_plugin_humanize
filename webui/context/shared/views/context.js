@@ -329,6 +329,7 @@ HZ.renderTopbar(HZ.topbars["context"]);
     const resSnap = data.response_snapshot || {};
     const protocol = resSnap.protocol || null;
     const response = data.response || null;
+    const responseSeq = Array.isArray(data.response_sequence) ? data.response_sequence : [];
     const durationMs =
       (response && response.duration_ms) ||
       (protocol && protocol.duration_ms) ||
@@ -340,6 +341,9 @@ HZ.renderTopbar(HZ.topbars["context"]);
     detailEl.appendChild(budgetCardEl(sections));
     detailEl.appendChild(sectionsCardEl(sections));
     detailEl.appendChild(rawCardEl(run, reqSnap, resSnap, protocol, response));
+    if (responseSeq.length) {
+      detailEl.appendChild(responseSeqCardEl(responseSeq));
+    }
     injectIcons(detailEl);
   }
 
@@ -776,6 +780,123 @@ HZ.renderTopbar(HZ.topbars["context"]);
     const body = el("div", "raw-body", content);
     box.appendChild(body);
     return box;
+  }
+
+  function responseSeqCardEl(seq) {
+    const card = el("div", "card");
+    const head = el("div", "raw-head");
+    const titleWrap = el("div", "card-title-wrap");
+    titleWrap.appendChild(el("span", "card-dot"));
+    titleWrap.appendChild(el("span", "card-title", "响应序列"));
+    titleWrap.appendChild(el("span", "tag tag-src", seq.length + " 轮"));
+    head.appendChild(titleWrap);
+    card.appendChild(head);
+
+    const list = el("div", "raw-list");
+    list.style.marginTop = "14px";
+    seq.forEach((item, i) => {
+      const block = el("div", "raw-msg" + (item.success ? "" : " failed"));
+      const headRow = el("div", "raw-msg-head");
+      headRow.appendChild(el("span", "raw-idx", "[" + (i + 1) + "]"));
+      headRow.appendChild(el("span", "raw-role " + (item.stage === "final" ? "assistant" : "tool"), item.stage === "final" ? "final" : "tool"));
+      headRow.appendChild(el("span", "tag " + (item.success ? "tag-ok" : "tag-failed"), item.success ? "OK" : (item.failure_code || "失败")));
+      if (item.action) headRow.appendChild(el("span", "tag tag-src", item.action));
+      list.appendChild(headRow);
+
+      // 快照详情
+      const snap = item.snapshot || {};
+      const fields = (snap.fields || {});
+      const snapResp = snap.final_response && snap.final_response.response ? snap.final_response.response : null;
+      const snapFields = snapResp ? (snapResp.fields || {}) : fields;
+
+      // 完成文本
+      const completion =
+        (snapFields._completion_text || snapFields.completion_text || "") ||
+        (snap.completion_text || "");
+      if (completion) {
+        list.appendChild(el("div", "d-label", "完成文本"));
+        const body = el("div", "raw-body", String(completion));
+        list.appendChild(body);
+      }
+
+      // 思考过程
+      const reasoning = snapFields.reasoning_content || "";
+      if (reasoning) {
+        list.appendChild(el("div", "d-label", "思考过程"));
+        const rBody = el("div", "raw-body reasoning", String(reasoning));
+        rBody.style.color = "var(--muted)";
+        list.appendChild(rBody);
+      }
+
+      // 工具调用
+      const toolNames = snapFields.tools_call_name || [];
+      const toolArgs = snapFields.tools_call_args || [];
+      if (toolNames && toolNames.length) {
+        list.appendChild(el("div", "d-label", "工具调用"));
+        const names = Array.isArray(toolNames) ? toolNames : [toolNames];
+        const args = Array.isArray(toolArgs) ? toolArgs : toolArgs ? [toolArgs] : [];
+        names.forEach((name, ti) => {
+          const row = el("div", "raw-msg tool-call");
+          const rowHead = el("div", "raw-msg-head");
+          rowHead.appendChild(el("span", "raw-role", String(name)));
+          list.appendChild(rowHead);
+          if (args[ti] != null) {
+            let argText = args[ti];
+            if (typeof argText !== "string") {
+              try { argText = JSON.stringify(argText, null, 2); } catch (e) { argText = String(argText); }
+            }
+            row.appendChild(el("div", "raw-body", argText));
+          }
+          list.appendChild(row);
+        });
+      }
+
+      // usage
+      const usage = snapFields.usage || {};
+      const usageFields = usage.fields || usage;
+      if (usageFields && (usageFields.input_cached !== undefined || usageFields.input_other !== undefined || usageFields.output !== undefined)) {
+        list.appendChild(el("div", "d-label", "Tokens"));
+        list.appendChild(el("span", "tag tag-src", "缓存 " + (usageFields.input_cached ?? 0) + " · 输入 " + (usageFields.input_other ?? 0) + " · 输出 " + (usageFields.output ?? 0)));
+      }
+
+      // 协议消息
+      if (item.messages && item.messages.length) {
+        list.appendChild(el("div", "d-label", "发送消息"));
+        item.messages.forEach((m) => {
+          const row = el("div", "raw-msg");
+          row.appendChild(el("div", "raw-body", String(m)));
+          list.appendChild(row);
+        });
+      }
+
+      // 原始输出
+      if (item.raw_output) {
+        const rawBlock = el("div", "raw-raw collapsed");
+        const rawHead = el("div", "raw-msg-head");
+        rawHead.appendChild(el("span", "raw-idx", "[O]"));
+        rawHead.appendChild(el("span", "raw-role", "原始输出"));
+        rawHead.appendChild(el("span", "raw-len", String(item.raw_output).length + " 字"));
+        const rawBtn = el("button", "raw-collapse", "展开");
+        const paintRawIcon = () => {
+          rawBtn.querySelectorAll("svg").forEach((s) => s.remove());
+          rawBtn.insertAdjacentHTML("afterbegin", HZ.icon(rawBtn.dataset.icon));
+        };
+        rawBtn.dataset.icon = "arrow-down";
+        paintRawIcon();
+        rawHead.appendChild(rawBtn);
+        rawBtn.addEventListener("click", () => {
+          const collapsed = rawBlock.classList.toggle("collapsed");
+          rawBtn.textContent = collapsed ? "展开" : "收起";
+          rawBtn.dataset.icon = collapsed ? "arrow-down" : "arrow-up";
+          paintRawIcon();
+        });
+        rawBlock.appendChild(rawHead);
+        rawBlock.appendChild(el("div", "raw-body", String(item.raw_output)));
+        list.appendChild(rawBlock);
+      }
+    });
+    card.appendChild(list);
+    return card;
   }
 
   function rawAllText(run, reqSnap, resSnap, protocol, response) {

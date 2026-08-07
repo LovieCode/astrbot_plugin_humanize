@@ -443,18 +443,36 @@ class ContextRepository:
                 """,
                 (request_id,),
             ).fetchone()
+            all_response_rows = conn.execute(
+                """
+                SELECT success, action, failure_code, failure_detail,
+                       raw_output_snapshot, raw_snapshot_complete, messages_json,
+                       response_snapshot_json, response_snapshot_complete,
+                       model, duration_ms, stage, created_at
+                FROM protocol_logs
+                WHERE request_id = ?
+                ORDER BY id ASC
+                """,
+                (request_id,),
+            ).fetchall()
             response = None
             response_snapshot = None
-            if response_row is not None:
-                response = dict(response_row)
-                raw_response_snapshot = response.pop("response_snapshot_json")
-                llm_snapshot_complete = bool(response.pop("response_snapshot_complete"))
-                response["success"] = bool(response["success"])
-                response["snapshot_complete"] = bool(
-                    response.pop("raw_snapshot_complete")
+            response_sequence: list[dict[str, Any]] = []
+            for row_index, response_row in enumerate(all_response_rows):
+                row_item = dict(response_row)
+                raw_response_snapshot = row_item.pop("response_snapshot_json")
+                llm_snapshot_complete = bool(
+                    row_item.pop("response_snapshot_complete")
                 )
-                response["raw_output"] = response.pop("raw_output_snapshot")
-                response["messages"] = json.loads(response.pop("messages_json"))
+                row_item["success"] = bool(row_item["success"])
+                row_item["snapshot_complete"] = bool(
+                    row_item.pop("raw_snapshot_complete")
+                )
+                row_item["raw_output"] = row_item.pop("raw_output_snapshot")
+                try:
+                    row_item["messages"] = json.loads(row_item.pop("messages_json"))
+                except (TypeError, json.JSONDecodeError):
+                    row_item["messages"] = []
                 try:
                     llm_response = json.loads(raw_response_snapshot)
                 except (TypeError, json.JSONDecodeError):
@@ -466,11 +484,27 @@ class ContextRepository:
                 response_snapshot = {
                     "snapshot_kind": "llm_response",
                     "snapshot_complete": bool(
-                        llm_snapshot_complete and response["snapshot_complete"]
+                        llm_snapshot_complete and row_item["snapshot_complete"]
                     ),
                     "llm_response": llm_response or None,
-                    "protocol": dict(response),
+                    "protocol": dict(row_item),
                 }
+                if row_index == 0:
+                    response = row_item
+                response_sequence.append(
+                    {
+                        "stage": row_item["stage"],
+                        "success": row_item["success"],
+                        "action": row_item["action"],
+                        "failure_code": row_item["failure_code"],
+                        "raw_output": row_item["raw_output"],
+                        "messages": row_item["messages"],
+                        "snapshot": llm_response or None,
+                        "snapshot_complete": bool(
+                            llm_snapshot_complete and row_item["snapshot_complete"]
+                        ),
+                    }
+                )
             snapshot_sections = [
                 {
                     "section_key": item["section_key"],
@@ -497,6 +531,7 @@ class ContextRepository:
                     "sections": snapshot_sections,
                 },
                 "response": response,
+                "response_sequence": response_sequence,
             }
 
         return await self._run(operation)
