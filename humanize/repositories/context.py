@@ -461,9 +461,7 @@ class ContextRepository:
             for row_index, response_row in enumerate(all_response_rows):
                 row_item = dict(response_row)
                 raw_response_snapshot = row_item.pop("response_snapshot_json")
-                llm_snapshot_complete = bool(
-                    row_item.pop("response_snapshot_complete")
-                )
+                llm_snapshot_complete = bool(row_item.pop("response_snapshot_complete"))
                 row_item["success"] = bool(row_item["success"])
                 row_item["snapshot_complete"] = bool(
                     row_item.pop("raw_snapshot_complete")
