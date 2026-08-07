@@ -212,10 +212,23 @@
           <div class="st-row">
             <div class="st-row-main">
               <span class="st-row-label">图片转述模型 <span class="st-row-key">图片转述模型提供商</span></span>
-              <span class="st-row-desc">可选。选择多模态 LLM 后，带图请求会先由它结合上下文转述图片含义再注入；未设置时使用 [图片] 占位，模型不应谈论看不到的图片。</span>
+              <span class="st-row-desc">可选。选择多模态 LLM 后用于图片转述；未设置时使用 [图片] 占位，模型不应谈论看不到的图片。</span>
             </div>
             <div class="st-row-control">
               <select class="st-select" data-key="image_transcription_provider_id"></select>
+            </div>
+          </div>
+          <div class="st-row">
+            <div class="st-row-main">
+              <span class="st-row-label">图片转述模式 <span class="st-row-key">转述模式</span></span>
+              <span class="st-row-desc">auto：每条带图消息自动转述（历史有描述，消耗多）；tool：注入转述工具由 LLM 按需调用（省消耗）；off：关闭。</span>
+            </div>
+            <div class="st-row-control">
+              <select class="st-select" data-key="image_transcription_mode">
+                <option value="auto">auto · 自动转述</option>
+                <option value="tool">tool · LLM 按需调用</option>
+                <option value="off">off · 关闭</option>
+              </select>
             </div>
           </div>
           <div class="st-row">

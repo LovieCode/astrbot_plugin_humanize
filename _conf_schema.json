@@ -492,7 +492,16 @@
         "_special": "select_provider",
         "condition": {},
         "collapsed": true,
-        "hint": "可选。选择多模态 LLM 后，带图请求会先由它结合上下文转述图片含义再注入；未设置时使用 [图片] 占位，模型不应谈论看不到的图片。"
+        "hint": "可选。选择多模态 LLM 后用于图片转述；未设置时使用 [图片] 占位。"
+      },
+      "image_transcription_mode": {
+        "description": "图片转述模式",
+        "type": "string",
+        "default": "auto",
+        "options": ["auto", "tool", "off"],
+        "condition": {},
+        "collapsed": true,
+        "hint": "auto：每条带图消息到达即自动转述（历史也有描述，消耗较多）；tool：不主动转述，仅向 LLM 注入转述工具按需调用（省消耗，历史图片为占位）；off：关闭转述。"
       }
     }
   }

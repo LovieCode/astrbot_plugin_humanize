@@ -63,6 +63,7 @@ _CONTEXT_WINDOW_PENDING_MESSAGES_KEY = "_humanize_context_window_pending_message
 _CONTEXT_WINDOW_PENDING_ACTION_KEY = "_humanize_context_window_pending_action"
 _CONTEXT_READ_CALLS_KEY = "_humanize_context_read_calls"
 _IMAGE_CACHE_KEY = "_humanize_image_cache"
+_EVENT_IMAGE_TRANSCRIPTIONS_KEY = "_humanize_event_image_transcriptions"
 _TOOL_HISTORY_KEY = "_humanize_tool_history_replacements"
 _SEND_GATE_KEY = "_humanize_send_gate_installed"
 _SEND_GATE_ERROR_KEY = "_humanize_send_gate_error"
@@ -181,9 +182,40 @@ class HumanizePlugin(Star):
 
     @filter.event_message_type(filter.EventMessageType.ALL, priority=_FIREWALL_PRIORITY)
     async def prepare_message_event(self, event: AstrMessageEvent) -> None:
-        if self._is_active:
-            event.set_extra("enable_streaming", False)
-            self._install_send_gate(event)
+        if not self._is_active:
+            return
+        event.set_extra("enable_streaming", False)
+        self._install_send_gate(event)
+        # auto 模式：消息到达即转述图片（早于主动回复概率门，保证历史有描述）
+        if (
+            self._plugin_config.image_transcription_mode == "auto"
+            and self._plugin_config.image_transcription_provider_id
+        ):
+            try:
+                image_paths: list[str] = []
+                for component in getattr(event.message_obj, "message", []) or []:
+                    if type(component).__name__ == "Image":
+                        convert = getattr(component, "convert_to_file_path", None)
+                        if callable(convert):
+                            path = await convert()
+                            if path:
+                                image_paths.append(str(path))
+                if image_paths:
+                    transcriptions = await self._transcribe_images(
+                        event,
+                        image_paths,
+                        str(
+                            event.get_message_str()
+                            if hasattr(event, "get_message_str")
+                            else ""
+                        ),
+                    )
+                    if transcriptions:
+                        event.set_extra(
+                            _EVENT_IMAGE_TRANSCRIPTIONS_KEY, tuple(transcriptions)
+                        )
+            except Exception:
+                logger.exception("[Humanize] auto image transcription failed")
 
     @filter.command("clear", alias={"reset"}, priority=_FIREWALL_PRIORITY)
     async def clear_managed_context(self, event: AstrMessageEvent) -> None:
@@ -592,10 +624,15 @@ class HumanizePlugin(Star):
         event.set_extra(_PREFIX_EPOCH_REASON_KEY, observation.epoch_reason)
         event.set_extra(_FIRST_RESPONSE_AT_KEY, None)
 
-        # 图片转述：带图请求且配置了转述 Provider 时，先由多模态模型结合上下文转述。
-        # AstrBot 主流程可能已用自带 caption（清空 req.image_urls），但
-        # extra_user_content_parts 里的 [Image Attachment: path ...] 仍保留路径，
-        # 从这里提取图片路径转述，并替换 AstrBot 注入的 <image_caption>。
+        # 图片转述：按配置模式处理。
+        # - auto：prepare_message_event 已转述（_EVENT_IMAGE_TRANSCRIPTIONS_KEY）；
+        #   此处补充 AstrBot 把图片放入 req.image_urls / [Image Attachment: path]
+        #   的路径（如引用图片、工具轮），并替换 AstrBot 自带的 <image_caption>。
+        # - tool：不主动转述，动态注入转述工具由 LLM 按需调用。
+        mode = self._plugin_config.image_transcription_mode
+        event_transcriptions = event.get_extra(
+            _EVENT_IMAGE_TRANSCRIPTIONS_KEY, ()
+        )
         image_urls = list(req.image_urls or [])
         attachment_paths: list[str] = []
         caption_index = -1
@@ -609,18 +646,29 @@ class HumanizePlugin(Star):
                 caption_index = index
         if not image_urls:
             image_urls = attachment_paths
-        if image_urls and self._plugin_config.image_transcription_provider_id:
+        if (
+            mode == "auto"
+            and image_urls
+            and self._plugin_config.image_transcription_provider_id
+        ):
             try:
-                transcriptions = await self._transcribe_images(
-                    event,
-                    image_urls,
-                    raw_user,
-                )
+                # 事件阶段已转述的图片直接复用，其余（引用图等）补转述
+                transcriptions = list(event_transcriptions)
+                if len(transcriptions) < len(image_urls):
+                    transcriptions.extend(
+                        await self._transcribe_images(
+                            event,
+                            image_urls[len(transcriptions) :],
+                            raw_user,
+                        )
+                    )
                 if transcriptions:
                     event.set_extra(_IMAGE_CACHE_KEY, tuple(transcriptions))
                     # 用结合上下文的转述替换 AstrBot 自带 caption
                     if caption_index >= 0 and isinstance(parts, list):
-                        replacement = "\n".join(str(item) for item in transcriptions)
+                        replacement = "\n".join(
+                            str(item) for item in transcriptions
+                        )
                         try:
                             parts[
                                 caption_index
@@ -631,6 +679,102 @@ class HumanizePlugin(Star):
                             )
             except Exception:
                 logger.exception("[Humanize] image transcription failed")
+        elif mode == "tool" and self._plugin_config.image_transcription_provider_id:
+            # 注入转述工具（LLM 按需调用），并保留 AstrBot caption 作为占位
+            self._inject_image_transcription_tool(event, req, image_urls)
+
+    def _inject_image_transcription_tool(
+        self,
+        event: AstrMessageEvent,
+        req: ProviderRequest,
+        image_urls: list[str],
+    ) -> None:
+        """tool 模式：动态注入图片转述工具，LLM 按需调用。
+
+        Args:
+            event: Active message event.
+            req: Provider request whose tool set receives the tool.
+            image_urls: Current request image paths (may be empty for历史图).
+        """
+        tool_set = getattr(req, "func_tool", None)
+        add_tool = getattr(tool_set, "add_tool", None)
+        if not callable(add_tool):
+            return
+        from astrbot.core.agent.tool import FunctionTool
+
+        provider_id = self._plugin_config.image_transcription_provider_id
+
+        async def transcribe_image(event: AstrMessageEvent, index: int) -> str:
+            """转述指定图片并结合当前聊天上下文。
+
+            Args:
+                event: Active message event.
+                index(int): 图片序号（1 起），对应当前消息中的 [Image Attachment]
+                    或历史群消息中的 [Image N] 占位。
+
+            Returns:
+                结合上下文的图片转述文本；失败时返回说明。
+            """
+            paths = list(image_urls)
+            # 事件消息里的图片路径（fallback）
+            for component in getattr(event.message_obj, "message", []) or []:
+                if type(component).__name__ == "Image":
+                    convert = getattr(component, "convert_to_file_path", None)
+                    if callable(convert):
+                        try:
+                            path = await convert()
+                        except Exception:
+                            path = None
+                        if path:
+                            paths.append(str(path))
+            if index < 1 or index > len(paths):
+                return f"图片序号 {index} 无效，当前请求共有 {len(paths)} 张图片。"
+            user_text = str(
+                event.get_message_str()
+                if hasattr(event, "get_message_str")
+                else ""
+            )
+            try:
+                transcriptions = await self._transcribe_images(
+                    event,
+                    [paths[index - 1]],
+                    user_text,
+                )
+            except Exception:
+                logger.exception("[Humanize] image transcription tool failed")
+                return "图片转述失败。"
+            return (
+                str(transcriptions[0])
+                if transcriptions
+                else "未生成转述文本。"
+            )
+
+        tool = FunctionTool(
+            name="humanize_transcribe_image",
+            description=(
+                "结合当前聊天上下文转述一张图片的含义和简单内容（不是干描述）。"
+                "当用户发送了图片但你看不到内容、或需要理解历史消息中的图片时调用。"
+            ),
+            parameters={
+                "type": "object",
+                "properties": {
+                    "index": {
+                        "type": "integer",
+                        "description": "图片序号（1 起），对应当前或历史消息中的图片占位序号",
+                    }
+                },
+                "required": ["index"],
+            },
+            handler=transcribe_image,
+            handler_module_path=__name__,
+            active=True,
+            is_background_task=False,
+        )
+        add_tool(tool)
+        logger.debug(
+            "[Humanize] injected image transcription tool (provider %s)",
+            provider_id,
+        )
 
     async def _transcribe_images(
         self,
