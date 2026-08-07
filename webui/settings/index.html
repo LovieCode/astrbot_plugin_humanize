@@ -211,6 +211,15 @@
           </div>
           <div class="st-row">
             <div class="st-row-main">
+              <span class="st-row-label">图片转述模型 <span class="st-row-key">图片转述模型提供商</span></span>
+              <span class="st-row-desc">可选。选择多模态 LLM 后，带图请求会先由它结合上下文转述图片含义再注入；未设置时使用 [图片] 占位，模型不应谈论看不到的图片。</span>
+            </div>
+            <div class="st-row-control">
+              <select class="st-select" data-key="image_transcription_provider_id"></select>
+            </div>
+          </div>
+          <div class="st-row">
+            <div class="st-row-main">
               <span class="st-row-label">身份密钥环境变量 <span class="st-row-key">身份密钥环境变量</span></span>
               <span class="st-row-desc">HMAC 派生作用域哈希的密钥来源，仅显示变量名，不显示值。</span>
             </div>

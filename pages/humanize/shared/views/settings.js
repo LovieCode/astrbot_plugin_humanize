@@ -180,12 +180,13 @@ HZ.renderTopbar(HZ.topbars["settings"]);
     if (secretCode && env) secretCode.textContent = String(env);
   }
 
-  /** 用 memory-providers 的 chat/embedding/rerank 列表填充三个服务商下拉并选中当前值。 */
+  /** 用 memory-providers 的 chat/embedding/rerank 列表填充服务商下拉并选中当前值。 */
   function fillProviderSelects(memData) {
     const groups = [
       ["memory_extraction_provider_id", "chat", "未配置（提取不可用）"],
       ["memory_embedding_provider_id", "embedding", "未配置（纯关键词召回）"],
       ["memory_rerank_provider_id", "rerank", "未配置"],
+      ["image_transcription_provider_id", "chat", "未配置（[图片] 占位）"],
     ];
     groups.forEach(([key, group, emptyLabel]) => {
       const sel = $('select[data-key="' + key + '"]');

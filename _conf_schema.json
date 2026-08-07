@@ -486,10 +486,10 @@
         }
       },
       "image_transcription_provider_id": {
-        "description": "图片转述 Provider",
+        "description": "图片转述模型",
         "type": "string",
         "default": "",
-        "_special": "select_provider:vision",
+        "_special": "select_provider",
         "condition": {},
         "collapsed": true,
         "hint": "可选。选择多模态 LLM 后，带图请求会先由它结合上下文转述图片含义再注入；未设置时使用 [图片] 占位，模型不应谈论看不到的图片。"
