@@ -16,13 +16,14 @@
 - LLM 提供的未知词和释义一律视为不可信输入，必须验证、限长并保留证据。
 - WebUI 动态内容使用 DOM 文本 API，禁止把持久化内容直接拼进 `innerHTML`。
 - 提交使用 Conventional Commits，并在本插件独立 Git 仓库内完成。
+- 禁止使用批量替换类脚本及类似操作
 
 ## 执行与部署（用户固定偏好）
 
 - 父目录 `AstrBot/AGENTS.md` 的“执行、验证与部署流程”是本插件的完整且优先的操作指南；本节只补充插件特例，不以文件数量替代风险判断。
 - 未明确要求部署时，插件改动完成定向测试、改动文件的 Ruff format/check、`git diff --check` 和本插件 commit 即结束；不打包、不 SSH、不重启、不做无关全量检查。
-- 明确要求部署且不涉及依赖、配置 schema、API、迁移、vendor、许可证、前端构建或跨模块契约时，调用 `bash scripts/deploy_hotfix.sh --pytest <相关测试> -- <改动文件...>`；先用 `--dry-run` 检查清单。
-- 部署脚本自动完成：本地定向检查 → 上传已提交文件 → SHA-256 校验 → 远端定向检查 → **插件热重载**（`POST /api/v1/plugins/reload`）。后端 Python 与前端页面均通过热重载生效，**不需要重启 AstrBot**；仅 `--restart` 显式指定或服务不健康时才重启。
+- 部署统一走 git：`bash scripts/deploy_git.sh`（先 `--dry-run`）。脚本自动：本地检查（pytest/ruff/SPA 构建一致性）→ push origin main → 远端 `git pull --ff-only` → **插件热重载**（`POST /api/v1/plugins/reload`）。后端与前端均通过热重载生效，**不需要重启 AstrBot**。
+- 远端必须是同一仓库的 git clone；`data/` 等运行时数据被 gitignore，不受影响。
 - 前端改动必须跑 `scripts/build_spa.py` 构建并提交 `pages/` 产物；只改 `webui/` 源码线上不生效（脚本会自动构建并校验产物已提交）。
 - 远端重启若报 PermissionError，先 `sudo chown -R lovie:lovie /home/lovie/AstrBot/data /home/lovie/AstrBot/.venv /home/lovie/AstrBot/uv.lock`。
 
