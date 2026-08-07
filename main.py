@@ -579,8 +579,23 @@ class HumanizePlugin(Star):
         event.set_extra(_PREFIX_EPOCH_REASON_KEY, observation.epoch_reason)
         event.set_extra(_FIRST_RESPONSE_AT_KEY, None)
 
-        # 图片转述：带图请求且配置了转述 Provider 时，先由多模态模型结合上下文转述
+        # 图片转述：带图请求且配置了转述 Provider 时，先由多模态模型结合上下文转述。
+        # AstrBot 主流程可能已用自带 caption（清空 req.image_urls），但
+        # extra_user_content_parts 里的 [Image Attachment: path ...] 仍保留路径，
+        # 从这里提取图片路径转述，并替换 AstrBot 注入的 <image_caption>。
         image_urls = list(req.image_urls or [])
+        attachment_paths: list[str] = []
+        caption_index = -1
+        parts = getattr(req, "extra_user_content_parts", None) or []
+        for index, part in enumerate(parts):
+            text = str(getattr(part, "text", "") or "")
+            match = re.search(r"\[Image Attachment: path ([^\]]+)\]", text)
+            if match:
+                attachment_paths.append(match.group(1).strip())
+            if "<image_caption>" in text:
+                caption_index = index
+        if not image_urls:
+            image_urls = attachment_paths
         if image_urls and self._plugin_config.image_transcription_provider_id:
             try:
                 transcriptions = await self._transcribe_images(
@@ -590,6 +605,19 @@ class HumanizePlugin(Star):
                 )
                 if transcriptions:
                     event.set_extra(_IMAGE_CACHE_KEY, tuple(transcriptions))
+                    # 用结合上下文的转述替换 AstrBot 自带 caption
+                    if caption_index >= 0 and isinstance(parts, list):
+                        replacement = "\n".join(
+                            str(item) for item in transcriptions
+                        )
+                        try:
+                            parts[caption_index].text = (
+                                f"<image_caption>{replacement}</image_caption>"
+                            )
+                        except Exception:
+                            logger.exception(
+                                "[Humanize] failed to replace image caption part"
+                            )
             except Exception:
                 logger.exception("[Humanize] image transcription failed")
 
