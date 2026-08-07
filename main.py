@@ -1302,29 +1302,27 @@ class HumanizePlugin(Star):
                     self._block_response(event, None, "decorated_response_text_changed")
                     return
                 outbound = self._without_tool_duplicates(event, original_messages)
-                dispatch_result = result
                 sent_media = event.get_extra(_TOOL_SENT_MEDIA_KEY, [])
                 if not isinstance(sent_media, list):
                     sent_media = []
-                if outbound != original_messages or sent_media:
-                    clean_text = "\n".join(outbound)
-                    components = []
-                    inserted_text = False
-                    remaining_sent_media = [str(item) for item in sent_media]
-                    for component in result.chain:
-                        if isinstance(component, Plain):
-                            if not inserted_text and clean_text:
-                                components.append(Plain(clean_text))
-                                inserted_text = True
-                            continue
-                        media_key = repr(component)
-                        try:
-                            remaining_sent_media.remove(media_key)
-                        except ValueError:
-                            components.append(component)
-                    dispatch_result = result.derive(components) if components else None
+                # 文本逐条发送（保留分段），媒体组件单独一条链发送
+                remaining_sent_media = [str(item) for item in sent_media]
+                media_components = []
+                for component in result.chain:
+                    if isinstance(component, Plain):
+                        continue
+                    media_key = repr(component)
+                    try:
+                        remaining_sent_media.remove(media_key)
+                    except ValueError:
+                        media_components.append(component)
+                dispatch_result = (
+                    result.derive(media_components) if media_components else None
+                )
                 event.clear_result()
                 try:
+                    if outbound:
+                        await self._send_messages(event, outbound)
                     if dispatch_result is not None:
                         await self._send_chain(event, dispatch_result)
                 except Exception:
