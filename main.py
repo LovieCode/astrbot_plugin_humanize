@@ -607,13 +607,11 @@ class HumanizePlugin(Star):
                     event.set_extra(_IMAGE_CACHE_KEY, tuple(transcriptions))
                     # 用结合上下文的转述替换 AstrBot 自带 caption
                     if caption_index >= 0 and isinstance(parts, list):
-                        replacement = "\n".join(
-                            str(item) for item in transcriptions
-                        )
+                        replacement = "\n".join(str(item) for item in transcriptions)
                         try:
-                            parts[caption_index].text = (
-                                f"<image_caption>{replacement}</image_caption>"
-                            )
+                            parts[
+                                caption_index
+                            ].text = f"<image_caption>{replacement}</image_caption>"
                         except Exception:
                             logger.exception(
                                 "[Humanize] failed to replace image caption part"
