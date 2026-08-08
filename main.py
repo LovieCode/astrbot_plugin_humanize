@@ -1207,43 +1207,82 @@ class HumanizePlugin(Star):
         self._set_assistant_message_text(assistant, response.completion_text)
 
     def _install_provider_hooks(self) -> None:
-        """Patch Provider.text_chat / text_chat_stream to capture real payloads.
+        """Patch concrete Provider subclasses to capture real payloads.
 
-        The patched wrappers capture the exact ``contexts``, tool schema,
-        system prompt, and media arguments passed to the Provider at call time.
-        This is the authoritative source for the final complete snapshot because
-        AstrBot assembles persona, knowledge base, file extraction, and tool
-        prompts inside the agent runner right before calling the Provider.
+        AstrBot's OpenAI/Anthropic/Gemini providers override ``text_chat`` and
+        ``text_chat_stream``, so patching only the base ``Provider`` class is
+        insufficient. This walks every concrete ``Provider`` subclass (including
+        derived ones such as Groq or KimiCode) and wraps the two methods that
+        actually exist on each class.
 
         Raises:
-            RuntimeError: If the base Provider class lacks the expected methods.
+            RuntimeError: If no Provider method could be patched.
         """
         if self._provider_hooks_installed:
             return
-        text_chat = getattr(_ProviderBase, "text_chat", None)
-        text_chat_stream = getattr(_ProviderBase, "text_chat_stream", None)
-        if not callable(text_chat) or not callable(text_chat_stream):
-            raise RuntimeError("Provider base class is incompatible")
+        # Ensure the concrete provider classes are registered before walking the
+        # subclass tree; AstrBot may import them lazily after plugin init.
+        try:
+            from astrbot.core.provider.sources import (  # noqa: F401
+                anthropic_source,
+                gemini_source,
+                openai_source,
+            )
+        except Exception:
+            logger.warning(
+                "[Humanize] provider source modules unavailable; "
+                "falling back to base-class hook",
+                exc_info=True,
+            )
         plugin = self
+        patched = 0
+        seen: set[type] = set()
 
-        async def hooked_text_chat(self, *args, **kwargs):
-            plugin._capture_provider_payload(self, kwargs)
-            return await text_chat(self, *args, **kwargs)
+        def patch_class(cls: type) -> None:
+            nonlocal patched
+            if cls in seen or cls.__dict__.get("_humanize_provider_patched", False):
+                return
+            seen.add(cls)
+            for method_name in ("text_chat", "text_chat_stream"):
+                original = cls.__dict__.get(method_name)
+                if original is None:
+                    continue
+                if method_name == "text_chat":
 
-        async def hooked_text_chat_stream(self, *args, **kwargs):
-            plugin._capture_provider_payload(self, kwargs)
-            async for item in text_chat_stream(self, *args, **kwargs):
-                yield item
+                    async def hooked_text_chat(self, *args, _orig=original, **kwargs):
+                        plugin._capture_provider_payload(self, kwargs)
+                        return await _orig(self, *args, **kwargs)
 
-        setattr(_ProviderBase, "text_chat", hooked_text_chat)
-        setattr(_ProviderBase, "text_chat_stream", hooked_text_chat_stream)
-        self._provider_originals = [
-            (_ProviderBase, "text_chat", text_chat),
-            (_ProviderBase, "text_chat_stream", text_chat_stream),
-        ]
+                    setattr(cls, method_name, hooked_text_chat)
+                else:
+
+                    async def hooked_text_chat_stream(
+                        self, *args, _orig=original, **kwargs
+                    ):
+                        plugin._capture_provider_payload(self, kwargs)
+                        async for item in _orig(self, *args, **kwargs):
+                            yield item
+
+                    setattr(cls, method_name, hooked_text_chat_stream)
+                self._provider_originals.append((cls, method_name, original))
+                patched += 1
+            setattr(cls, "_humanize_provider_patched", True)
+
+        patch_class(_ProviderBase)
+        pending = list(_ProviderBase.__subclasses__())
+        while pending:
+            cls = pending.pop()
+            patch_class(cls)
+            pending.extend(cls.__subclasses__())
+
+        if patched == 0:
+            raise RuntimeError("no Provider method could be patched")
         self._provider_hooks_installed = True
         logger.info(
-            "[Humanize] provider capture hooks installed (final snapshots enabled)"
+            "[Humanize] provider capture hooks installed on %d method(s) "
+            "across %d Provider class(es)",
+            patched,
+            len(seen),
         )
 
     def _uninstall_provider_hooks(self) -> None:
@@ -1255,6 +1294,10 @@ class HumanizePlugin(Star):
                 setattr(target, name, original)
             except Exception:
                 logger.exception("[Humanize] failed to restore %s.%s", target, name)
+            try:
+                delattr(target, "_humanize_provider_patched")
+            except AttributeError:
+                pass
         self._provider_originals = []
         self._provider_hooks_installed = False
         self._provider_capture.clear()
