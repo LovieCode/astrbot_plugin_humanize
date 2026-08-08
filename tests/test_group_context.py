@@ -150,7 +150,9 @@ def test_window_compacts_long_history_by_token_budget_and_keeps_latest_turns(
             for item in loaded.contexts
         )
         assert any(
-            item["role"] == "user" and item["content"] == "last message"
+            item["role"] == "user"
+            and item["content"].startswith("[小明 · ")
+            and "last message" in item["content"]
             for item in loaded.contexts
         )
 
@@ -732,5 +734,39 @@ def test_image_cache_objects_and_text_are_marked_into_turn(
         assert "纯文本转述第二条" in joined
         assert "[图片 1:" in joined
         assert "ImageCache(text=" not in joined
+
+    asyncio.run(scenario())
+
+
+def test_historical_turns_carry_sender_and_time_prefixes(tmp_path: Path) -> None:
+    """Rendered history includes the sender and a compact time label per message."""
+
+    async def scenario() -> None:
+        window, _, _ = await _window(tmp_path)
+        context = _context(3, user_text="晚上吃什么")
+        await window.append(
+            context,
+            action="Reply",
+            run_messages=[
+                {"role": "user", "content": "晚上吃什么"},
+                {"role": "assistant", "content": "火锅吧"},
+            ],
+            final_messages=("火锅吧",),
+            token_budget=30_000,
+        )
+        loaded = await window.load(_context(3), token_budget=30_000)
+        user_msgs = [
+            str(item["content"]) for item in loaded.contexts if item["role"] == "user"
+        ]
+        assert user_msgs, "expected at least one rendered user message"
+        assert user_msgs[0].startswith("[小明 · ")
+        assert "晚上吃什么" in user_msgs[0]
+        # assistant 消息带 Bot 前缀
+        assistant_msgs = [
+            str(item["content"])
+            for item in loaded.contexts
+            if item["role"] == "assistant"
+        ]
+        assert any(msg.startswith("[Bot · ") for msg in assistant_msgs)
 
     asyncio.run(scenario())

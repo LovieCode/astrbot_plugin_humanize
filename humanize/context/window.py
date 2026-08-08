@@ -9,6 +9,7 @@ import re
 import secrets
 from collections.abc import Sequence
 from dataclasses import dataclass
+from datetime import datetime
 from pathlib import Path
 from typing import Any
 
@@ -554,6 +555,9 @@ class ContextWindowService:
         cold: bool,
     ) -> list[dict[str, Any]]:
         rendered: list[dict[str, Any]] = []
+        sender_name = str(record.get("sender_name") or "").strip()
+        created_at = str(record.get("created_at") or "").strip()
+        time_label = self._format_time_label(created_at)
         for raw_message in record.get("messages", []):
             if not isinstance(raw_message, dict):
                 continue
@@ -566,6 +570,19 @@ class ContextWindowService:
             if cold:
                 limit = _COLD_TOOL_CHARS if role == "tool" else _COLD_TEXT_CHARS
                 content_text = self._fold(content_text, context_ref, limit)
+            # 群聊场景：历史消息补充发送人与发送时间，与 AstrBot 的
+            # <system_reminder> 对齐（最新消息由 AstrBot 注入，历史消息
+            # 由本插件补充，保证上下文里每条消息都有身份和时间）。
+            if role in {"user", "assistant"} and content_text:
+                speaker = (
+                    (sender_name if sender_name else "用户")
+                    if role == "user"
+                    else "Bot"
+                )
+                prefix = (
+                    f"[{speaker} · {time_label}] " if time_label else f"[{speaker}] "
+                )
+                content_text = prefix + content_text
             message["content"] = content_text
             if role == "assistant" and isinstance(raw_message.get("tool_calls"), list):
                 message["tool_calls"] = raw_message["tool_calls"]
@@ -620,6 +637,7 @@ class ContextWindowService:
             "action": action,
             "context_ref": context_ref,
             "created_at": context.occurred_at,
+            "sender_name": str(context.sender_name or "").strip(),
             "l0": l0,
             "messages": normalized,
             "source_complete": bool(context.source_complete),
@@ -895,6 +913,35 @@ class ContextWindowService:
     def _clip(value: str, limit: int) -> str:
         text = str(value or "")
         return text if len(text) <= limit else f"{text[:limit]}…"
+
+    @staticmethod
+    def _format_time_label(iso_value: str) -> str:
+        """Format an ISO timestamp into a compact clock label.
+
+        ``2026-08-08T14:05:17+00:00`` becomes ``22:05`` (local) or
+        ``08-08 22:05`` when the date differs from the current day. Empty or
+        unparsable input yields an empty label.
+
+        Args:
+            iso_value: ISO-8601 timestamp string from the L2 record.
+
+        Returns:
+            Compact time label, or an empty string when unavailable.
+        """
+        raw = str(iso_value or "").strip()
+        if not raw:
+            return ""
+        try:
+            parsed = datetime.fromisoformat(raw.replace("Z", "+00:00"))
+        except ValueError:
+            return raw[:16]
+        if parsed.tzinfo is not None:
+            parsed = parsed.astimezone()
+        today = datetime.now().astimezone().date()
+        clock = parsed.strftime("%H:%M")
+        if parsed.date() != today:
+            return f"{parsed.strftime('%m-%d')} {clock}"
+        return clock
 
     def _fold(self, value: str, context_ref: str, limit: int) -> str:
         if len(value) <= limit:
