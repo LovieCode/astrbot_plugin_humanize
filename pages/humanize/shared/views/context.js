@@ -654,6 +654,14 @@ HZ.renderTopbar(HZ.topbars["context"]);
         list.appendChild(el("div", "raw-msg", "[音频 " + (i + 1) + "] " + String(u)));
       });
     }
+    /* 图片转述（ImageCache）：部署后图片轮捕获，供后续轮次注入 */
+    const imageCache = Array.isArray(pr.image_cache) ? pr.image_cache : [];
+    if (imageCache.length) {
+      list.appendChild(el("div", "raw-divider", "图片转述 (ImageCache)"));
+      imageCache.forEach((text, i) => {
+        list.appendChild(el("div", "raw-msg", "[转述 " + (i + 1) + "] " + String(text)));
+      });
+    }
     /* 工具 schema */
     const funcTool = fields.func_tool || null;
     if (funcTool && Array.isArray(funcTool.tools) && funcTool.tools.length) {
@@ -775,6 +783,8 @@ HZ.renderTopbar(HZ.topbars["context"]);
     imageUrls.forEach((u, i) => parts.push("[image " + (i + 1) + "]\n" + String(u)));
     const audioUrls = Array.isArray(fields.audio_urls) ? fields.audio_urls : [];
     audioUrls.forEach((u, i) => parts.push("[audio " + (i + 1) + "]\n" + String(u)));
+    const imageCache = Array.isArray(pr.image_cache) ? pr.image_cache : [];
+    imageCache.forEach((text, i) => parts.push("[image_transcription " + (i + 1) + "]\n" + String(text)));
     const reasoning = extractReasoning(pr, resSnap, protocol, response);
     if (reasoning) parts.push("[reasoning]\n" + reasoning);
     const completion = extractCompletion(pr, resSnap, protocol, response);
