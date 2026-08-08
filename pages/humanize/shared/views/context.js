@@ -693,6 +693,8 @@ HZ.renderTopbar(HZ.topbars["context"]);
 
   /* 从最终快照 / 响应快照 / 响应序列中提取思考过程 */
   function extractReasoning(pr, resSnap, protocol, response) {
+    /* 新结构：provider_request_final 顶层 reasoning 字段 */
+    if (pr && typeof pr === "object" && pr.reasoning) return String(pr.reasoning);
     const fields = (pr && pr.fields) || {};
     if (Array.isArray(fields.contexts)) {
       for (const m of fields.contexts) {
@@ -715,6 +717,15 @@ HZ.renderTopbar(HZ.topbars["context"]);
 
   /* 从最终快照 / 响应快照 / 响应序列中提取最终完成文本 */
   function extractCompletion(pr, resSnap, protocol, response) {
+    /* 新结构：provider_request_final 内嵌 response */
+    if (pr && typeof pr === "object" && pr.response && typeof pr.response === "object") {
+      const rFields = pr.response.fields || {};
+      const direct =
+        rFields._completion_text ||
+        rFields.completion_text ||
+        (pr.response.completion_text);
+      if (direct) return String(direct);
+    }
     const resFields = ((resSnap && resSnap.llm_response && resSnap.llm_response.fields) || {});
     const completion =
       resFields._completion_text ||

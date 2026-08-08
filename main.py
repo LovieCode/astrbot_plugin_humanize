@@ -18,6 +18,7 @@ from astrbot.builtin_stars.builtin_commands.commands.conversation import (
     ConversationCommands,
 )
 from astrbot.core.agent.message import TextPart
+from astrbot.core.provider.provider import Provider as _ProviderBase
 
 from .humanize.config import PluginConfig
 from .humanize.container import Container
@@ -114,6 +115,11 @@ class HumanizePlugin(Star):
         self._protocol_parser = ProtocolParser(self._plugin_config)
         self._envelope_builder = EnvelopeBuilder(self._plugin_config)
         self._prompt_cache_tracker = PromptCacheTracker()
+        # Provider 调用拦截：在真实请求发生处捕获完整上下文（含 persona/KB/
+        # 文件/工具注入），这是最终快照的权威来源，不依赖 agent 钩子时序。
+        self._provider_hooks_installed = False
+        self._provider_originals: list[tuple] = []
+        self._provider_capture: dict[str, dict[str, Any]] = {}
         # 协议修复频率监控：近端时间窗口内 repair 触发次数，用于向管理员告警
         self._repair_timestamps: list[float] = []
         self._repair_warned_at: float = 0.0
@@ -181,6 +187,13 @@ class HumanizePlugin(Star):
             memory_status.get("state", "unknown"),
             memory_status.get("reason", "unknown"),
         )
+        try:
+            self._install_provider_hooks()
+        except Exception:
+            logger.exception(
+                "[Humanize] provider capture hooks installation failed; "
+                "final snapshots will be unavailable"
+            )
 
     @filter.event_message_type(filter.EventMessageType.ALL, priority=_FIREWALL_PRIORITY)
     async def prepare_message_event(self, event: AstrMessageEvent) -> None:
@@ -950,6 +963,13 @@ class HumanizePlugin(Star):
             if has_tool_calls or state == EventState.TOOL_RUNNING.value
             else "final"
         )
+        if stage == "final":
+            # Persist the provider-visible final context when the final response
+            # arrives; the provider payload was captured at the real Provider call.
+            try:
+                self._flush_provider_capture(event, response)
+            except Exception:
+                logger.exception("[Humanize] failed to flush final provider snapshot")
         await self._record_llm_usage_sample(
             event,
             response,
@@ -1168,11 +1188,9 @@ class HumanizePlugin(Star):
             EventState.NO_REPLY.value,
         }:
             try:
-                await self._capture_final_provider_snapshot(
-                    event, run_context, response
-                )
+                self._flush_provider_capture(event, response)
             except Exception:
-                logger.exception("[Humanize] failed to capture final provider snapshot")
+                logger.exception("[Humanize] failed to flush final provider snapshot")
 
         if state == EventState.NO_REPLY.value:
             self._set_response_text(response, _NO_REPLY_SENTINEL)
@@ -1188,87 +1206,174 @@ class HumanizePlugin(Star):
             return
         self._set_assistant_message_text(assistant, response.completion_text)
 
-    async def _capture_final_provider_snapshot(
+    def _install_provider_hooks(self) -> None:
+        """Patch Provider.text_chat / text_chat_stream to capture real payloads.
+
+        The patched wrappers capture the exact ``contexts``, tool schema,
+        system prompt, and media arguments passed to the Provider at call time.
+        This is the authoritative source for the final complete snapshot because
+        AstrBot assembles persona, knowledge base, file extraction, and tool
+        prompts inside the agent runner right before calling the Provider.
+
+        Raises:
+            RuntimeError: If the base Provider class lacks the expected methods.
+        """
+        if self._provider_hooks_installed:
+            return
+        text_chat = getattr(_ProviderBase, "text_chat", None)
+        text_chat_stream = getattr(_ProviderBase, "text_chat_stream", None)
+        if not callable(text_chat) or not callable(text_chat_stream):
+            raise RuntimeError("Provider base class is incompatible")
+        plugin = self
+
+        async def hooked_text_chat(self, *args, **kwargs):
+            plugin._capture_provider_payload(self, kwargs)
+            return await text_chat(self, *args, **kwargs)
+
+        async def hooked_text_chat_stream(self, *args, **kwargs):
+            plugin._capture_provider_payload(self, kwargs)
+            async for item in text_chat_stream(self, *args, **kwargs):
+                yield item
+
+        setattr(_ProviderBase, "text_chat", hooked_text_chat)
+        setattr(_ProviderBase, "text_chat_stream", hooked_text_chat_stream)
+        self._provider_originals = [
+            (_ProviderBase, "text_chat", text_chat),
+            (_ProviderBase, "text_chat_stream", text_chat_stream),
+        ]
+        self._provider_hooks_installed = True
+        logger.info(
+            "[Humanize] provider capture hooks installed (final snapshots enabled)"
+        )
+
+    def _uninstall_provider_hooks(self) -> None:
+        """Restore the original Provider methods when the plugin terminates."""
+        if not self._provider_hooks_installed:
+            return
+        for target, name, original in self._provider_originals:
+            try:
+                setattr(target, name, original)
+            except Exception:
+                logger.exception("[Humanize] failed to restore %s.%s", target, name)
+        self._provider_originals = []
+        self._provider_hooks_installed = False
+        self._provider_capture.clear()
+        logger.info("[Humanize] provider capture hooks uninstalled")
+
+    def _capture_provider_payload(self, provider: Any, kwargs: dict[str, Any]) -> None:
+        """Store the provider-visible payload keyed by the session identifier.
+
+        Args:
+            provider: Provider instance that is about to be called.
+            kwargs: Arguments passed to ``text_chat`` or ``text_chat_stream``.
+        """
+        if not self._is_active:
+            return
+        try:
+            session_id = str(kwargs.get("session_id") or "default")
+            model = kwargs.get("model") or ""
+            provider_id = ""
+            try:
+                meta = provider.meta()
+                provider_id = str(getattr(meta, "id", "") or "")
+            except Exception:
+                provider_id = ""
+            contexts = kwargs.get("contexts") or []
+            contexts = [
+                item.model_dump(mode="json") if hasattr(item, "model_dump") else item
+                for item in contexts
+            ]
+            func_tool = kwargs.get("func_tool")
+            tools_info = None
+            if func_tool is not None:
+                try:
+                    schema = getattr(func_tool, "openai_schema", None)
+                    if callable(schema):
+                        tools_info = schema()
+                except Exception:
+                    logger.warning(
+                        "[Humanize] tool schema capture failed", exc_info=True
+                    )
+            self._provider_capture[session_id] = {
+                "provider_id": provider_id,
+                "model": str(model or ""),
+                "contexts": contexts,
+                "tools": tools_info,
+                "system_prompt": str(kwargs.get("system_prompt") or ""),
+                "prompt": kwargs.get("prompt"),
+                "image_urls": list(kwargs.get("image_urls") or []),
+                "audio_urls": list(kwargs.get("audio_urls") or []),
+                "extra_user_content_parts": list(
+                    kwargs.get("extra_user_content_parts") or []
+                ),
+                "captured_at": time.monotonic(),
+            }
+        except Exception:
+            logger.exception("[Humanize] provider payload capture failed")
+
+    def _flush_provider_capture(
         self,
         event: AstrMessageEvent,
-        run_context: Any,
         response: LLMResponse | None,
-    ) -> None:
-        """Persist the provider-visible final context plus model output.
-
-        The final snapshot is assembled from the agent run context (the exact
-        messages assembled for the Provider), the untouched LLM response, and the
-        request metadata captured at the request hook. It is written as an
-        idempotent update to the existing context run.
+    ) -> bool:
+        """Assemble and persist the final complete snapshot for one request.
 
         Args:
             event: Active event carrying scoped request metadata.
-            run_context: Agent run context whose ``messages`` are provider-visible.
             response: Untouched final LLM response.
+
+        Returns:
+            ``True`` when a provider payload was found and the final snapshot
+            was persisted.
         """
         if self._container is None:
-            return
+            return False
         context = event.get_extra(_CONTEXT_KEY)
         if not isinstance(context, MessageContext):
-            return
-        messages = getattr(run_context, "messages", None)
-        if not isinstance(messages, list):
-            messages = []
-        initial_snapshot = event.get_extra(_REQUEST_SNAPSHOT_KEY, {})
-        if not isinstance(initial_snapshot, dict):
-            initial_snapshot = {}
-        initial_complete = bool(event.get_extra(_REQUEST_SNAPSHOT_COMPLETE_KEY, False))
-
-        provider_request_snapshot, provider_request_complete = (
-            serialize_provider_request(
-                ProviderRequest(
-                    prompt=None,
-                    contexts=[
-                        message.model_dump(mode="json")
-                        if hasattr(message, "model_dump")
-                        else message
-                        for message in messages
-                    ],
-                )
-            )
-        )
-        initial_fields = initial_snapshot.get("fields", {})
-        if not isinstance(initial_fields, dict):
-            initial_fields = {}
-        image_urls = initial_fields.get("image_urls", [])
-        audio_urls = initial_fields.get("audio_urls", [])
-        extra_user_content_parts = initial_fields.get("extra_user_content_parts", [])
-        func_tool = initial_fields.get("func_tool", None)
+            return False
+        session_id = str(event.unified_msg_origin or "default")
+        captured = self._provider_capture.pop(session_id, None)
+        if not isinstance(captured, dict) or not captured.get("contexts"):
+            return False
         response_snapshot, response_complete = serialize_llm_response(response)
+        reasoning = ""
+        if isinstance(response_snapshot, dict):
+            fields = response_snapshot.get("fields", {})
+            if isinstance(fields, dict):
+                reasoning = str(fields.get("reasoning_content") or "")
         final_snapshot = {
-            "capture_stage": "on_agent_done_final",
+            "capture_stage": "on_provider_call",
             "type": "provider_request_final",
             "fields": {
-                "contexts": provider_request_snapshot.get("fields", {}).get(
-                    "contexts", []
+                "contexts": captured.get("contexts", []),
+                "image_urls": captured.get("image_urls", []),
+                "audio_urls": captured.get("audio_urls", []),
+                "extra_user_content_parts": captured.get(
+                    "extra_user_content_parts", []
                 ),
-                "image_urls": image_urls,
-                "audio_urls": audio_urls,
-                "extra_user_content_parts": extra_user_content_parts,
-                "func_tool": func_tool,
-                "system_prompt": initial_fields.get("system_prompt", ""),
-                "prompt": initial_fields.get("prompt", ""),
-                "model": initial_fields.get("model", ""),
+                "func_tool": {"tools": captured.get("tools") or []}
+                if captured.get("tools")
+                else None,
+                "system_prompt": captured.get("system_prompt", ""),
+                "prompt": captured.get("prompt"),
+                "model": captured.get("model", ""),
             },
-            "serialization_issues": provider_request_snapshot.get(
-                "serialization_issues", []
-            ),
+            "provider_id": captured.get("provider_id", ""),
+            "reasoning": reasoning,
             "response": response_snapshot or {},
         }
-        final_complete = bool(
-            provider_request_complete and initial_complete and response_complete
-        )
-        if self._container is not None:
-            await self._container.service.update_context_trace_final_snapshot(
-                context,
-                request_snapshot_final=final_snapshot,
-                request_snapshot_final_complete=final_complete,
+        final_complete = bool(response_complete)
+        try:
+            asyncio.create_task(
+                self._container.service.update_context_trace_final_snapshot(
+                    context,
+                    request_snapshot_final=final_snapshot,
+                    request_snapshot_final_complete=final_complete,
+                )
             )
+        except Exception:
+            logger.exception("[Humanize] final snapshot persistence scheduling failed")
+        return True
 
     async def _persist_context_window(self, event: AstrMessageEvent) -> None:
         """Persist the validated run only after terminal dispatch succeeded.
@@ -2028,6 +2133,7 @@ class HumanizePlugin(Star):
     async def terminate(self) -> None:
         container = self._container
         self._container = None
+        self._uninstall_provider_hooks()
         if container is not None:
             await container.memory.stop()
         logger.info("[Humanize] plugin terminated")
