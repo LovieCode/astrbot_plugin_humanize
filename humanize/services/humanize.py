@@ -79,6 +79,8 @@ class HumanizeService:
         *,
         request_snapshot: dict[str, Any] | None = None,
         request_snapshot_complete: bool = False,
+        request_snapshot_final: dict[str, Any] | None = None,
+        request_snapshot_final_complete: bool = False,
     ) -> bool:
         """Persist a trace only after the adapter applied every section.
 
@@ -87,6 +89,9 @@ class HumanizeService:
             sections: Context sections successfully applied to the provider request.
             request_snapshot: Final provider request after every request hook mutation.
             request_snapshot_complete: Whether snapshot serialization was lossless.
+            request_snapshot_final: Provider-visible context after the agent run,
+                including model reasoning and the final response.
+            request_snapshot_final_complete: Whether final serialization was lossless.
 
         Returns:
             ``True`` only when the context trace was persisted within the bounded
@@ -100,11 +105,50 @@ class HumanizeService:
                     self._config.protocol_injection_mode,
                     request_snapshot,
                     request_snapshot_complete,
+                    request_snapshot_final,
+                    request_snapshot_final_complete,
                 )
                 return True
             except Exception:
                 logger.exception(
                     "[Humanize] failed to persist context trace (attempt %s/%s)",
+                    attempt,
+                    _PROTOCOL_RECORD_ATTEMPTS,
+                )
+                if attempt < _PROTOCOL_RECORD_ATTEMPTS:
+                    await asyncio.sleep(0.05 * attempt)
+        return False
+
+    async def update_context_trace_final_snapshot(
+        self,
+        context: MessageContext,
+        *,
+        request_snapshot_final: dict[str, Any] | None = None,
+        request_snapshot_final_complete: bool = False,
+    ) -> bool:
+        """Update an existing context trace with the provider-visible final context.
+
+        Args:
+            context: Trusted identifiers for the active request.
+            request_snapshot_final: Complete provider-visible context structure.
+            request_snapshot_final_complete: Whether final serialization was lossless.
+
+        Returns:
+            ``True`` only when the update was persisted within the bounded retry
+            budget.
+        """
+        for attempt in range(1, _PROTOCOL_RECORD_ATTEMPTS + 1):
+            try:
+                updated = await self._repository.update_context_run_final_snapshot(
+                    context,
+                    request_snapshot_final=request_snapshot_final,
+                    request_snapshot_final_complete=request_snapshot_final_complete,
+                )
+                return updated
+            except Exception:
+                logger.exception(
+                    "[Humanize] failed to persist final context snapshot "
+                    "(attempt %s/%s)",
                     attempt,
                     _PROTOCOL_RECORD_ATTEMPTS,
                 )

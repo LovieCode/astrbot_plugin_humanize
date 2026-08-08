@@ -438,6 +438,11 @@ def test_context_detail_links_full_final_response_snapshot(tmp_path: Path) -> No
             "snapshot_complete": True,
             "provider_request": request_snapshot,
         }
+        assert detail["request_snapshot_final"] == {
+            "snapshot_kind": "provider_request_final",
+            "snapshot_complete": False,
+            "provider_request": None,
+        }
         assert detail["response_snapshot"]["snapshot_kind"] == "llm_response"
         assert detail["response_snapshot"]["snapshot_complete"] is True
         assert detail["response_snapshot"]["llm_response"] == llm_snapshot
@@ -455,6 +460,136 @@ def test_context_detail_links_full_final_response_snapshot(tmp_path: Path) -> No
             "raw_output": raw_output,
             "messages": [body],
         }
+
+    asyncio.run(scenario())
+
+
+def test_context_run_final_snapshot_update_is_idempotent(tmp_path: Path) -> None:
+    async def scenario() -> None:
+        repository = SQLiteRepository(tmp_path / "humanize.db")
+        await repository.initialize()
+        section = ContextSection(
+            key="current_message",
+            ordinal=0,
+            priority=100,
+            source_type="message",
+            source_refs=("message:msg-1",),
+            targets=("prompt",),
+            required=True,
+            included=True,
+            budget_tokens=None,
+            estimated_tokens=4,
+            applied_tokens=4,
+            item_count=1,
+            reason="current_user_message",
+            content="测试",
+        )
+        context = _context("req-final")
+        request_snapshot = {
+            "capture_stage": "on_llm_request_finalizer",
+            "type": "ProviderRequest",
+            "fields": {"prompt": "<Msg>测试</Msg>"},
+        }
+        final_snapshot = {
+            "capture_stage": "on_agent_done_final",
+            "type": "provider_request_final",
+            "fields": {
+                "contexts": [
+                    {"role": "system", "content": "persona 注入"},
+                    {"role": "user", "content": "<Msg>测试</Msg>"},
+                ],
+                "image_urls": [],
+                "audio_urls": [],
+                "extra_user_content_parts": [],
+                "func_tool": None,
+                "system_prompt": "",
+                "prompt": "",
+                "model": "model-1",
+            },
+            "response": {
+                "type": "LLMResponse",
+                "fields": {
+                    "completion_text": "你好",
+                    "reasoning_content": "思考过程",
+                },
+            },
+        }
+
+        await repository.record_context_run(
+            context,
+            (section,),
+            "user",
+            request_snapshot=request_snapshot,
+            request_snapshot_complete=True,
+            request_snapshot_final=final_snapshot,
+            request_snapshot_final_complete=True,
+        )
+        # 幂等：相同数据重复写入不抛错
+        await repository.record_context_run(
+            context,
+            (section,),
+            "user",
+            request_snapshot=request_snapshot,
+            request_snapshot_complete=True,
+            request_snapshot_final=final_snapshot,
+            request_snapshot_final_complete=True,
+        )
+        detail = await repository.get_context_run("req-final")
+
+        assert detail is not None
+        assert detail["request_snapshot"]["provider_request"] == request_snapshot
+        assert detail["request_snapshot_final"]["provider_request"] == final_snapshot
+        assert detail["request_snapshot_final"]["snapshot_complete"] is True
+
+        # 独立更新最终快照（模拟 on_agent_done 覆盖）
+        second_final = {
+            "capture_stage": "on_agent_done_final",
+            "type": "provider_request_final",
+            "fields": {
+                "contexts": [
+                    {"role": "system", "content": "persona 注入 v2"},
+                    {"role": "user", "content": "<Msg>测试</Msg>"},
+                ],
+                "image_urls": ["http://img/1"],
+                "audio_urls": [],
+                "extra_user_content_parts": [],
+                "func_tool": None,
+                "system_prompt": "",
+                "prompt": "",
+                "model": "model-1",
+            },
+            "response": {
+                "type": "LLMResponse",
+                "fields": {
+                    "completion_text": "你好",
+                    "reasoning_content": "思考过程 v2",
+                },
+            },
+        }
+        updated = await repository.update_context_run_final_snapshot(
+            context,
+            request_snapshot_final=second_final,
+            request_snapshot_final_complete=True,
+        )
+        detail2 = await repository.get_context_run("req-final")
+
+        assert updated is True
+        assert detail2 is not None
+        assert detail2["request_snapshot"]["provider_request"] == request_snapshot
+        assert detail2["request_snapshot_final"]["provider_request"] == second_final
+        assert (
+            detail2["request_snapshot_final"]["provider_request"]["fields"]
+            == second_final["fields"]
+        )
+        assert detail2["request_snapshot_final"]["snapshot_complete"] is True
+
+        # 不存在的 request_id 返回 False
+        missing = await repository.update_context_run_final_snapshot(
+            _context("req-missing"),
+            request_snapshot_final=final_snapshot,
+            request_snapshot_final_complete=True,
+        )
+        assert missing is False
 
     asyncio.run(scenario())
 

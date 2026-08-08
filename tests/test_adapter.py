@@ -1601,7 +1601,7 @@ def test_core_run_agent_intermediate_text_reaches_action_gate() -> None:
 
 def test_request_appends_full_protocol_after_known_terms() -> None:
     class Service:
-        async def prepare_request(self, context):
+        async def prepare_request(self, context, **kwargs):
             return PreparedRequest(
                 protocol_prompt=EnvelopeBuilder(PluginConfig()).build_protocol_prompt(
                     context
@@ -1641,7 +1641,7 @@ def test_request_appends_full_protocol_after_known_terms() -> None:
 
 def test_both_injection_mode_keeps_user_protocol_and_system_copy() -> None:
     class Service:
-        async def prepare_request(self, context):
+        async def prepare_request(self, context, **kwargs):
             return PreparedRequest(
                 protocol_prompt=EnvelopeBuilder(PluginConfig()).build_protocol_prompt(
                     context
@@ -1670,7 +1670,7 @@ def test_both_injection_mode_keeps_user_protocol_and_system_copy() -> None:
 
 def test_prompt_cache_prefix_includes_captured_provider_identity() -> None:
     class Service:
-        async def prepare_request(self, context):
+        async def prepare_request(self, context, **kwargs):
             return PreparedRequest(
                 protocol_prompt="完整协议",
                 message_xml="<Msg>hello</Msg>",
@@ -1848,7 +1848,7 @@ def test_request_applies_composed_sections_before_recording_context_trace() -> N
         def __init__(self) -> None:
             self.recorded = False
 
-        async def prepare_request(self, context):
+        async def prepare_request(self, context, **kwargs):
             return PreparedRequest(
                 protocol_prompt="完整协议",
                 message_xml="<Msg>hello</Msg>",
@@ -1929,7 +1929,7 @@ def test_request_rejects_multiple_prompt_context_sections() -> None:
     class Service:
         recorded = False
 
-        async def prepare_request(self, context):
+        async def prepare_request(self, context, **kwargs):
             return PreparedRequest(
                 protocol_prompt="完整协议",
                 message_xml="<Msg>hello</Msg>",
@@ -1982,7 +1982,7 @@ def test_request_wraps_only_exact_user_segment_and_restores_full_prompt() -> Non
         def __init__(self) -> None:
             self.snapshots: list[dict] = []
 
-        async def prepare_request(self, context):
+        async def prepare_request(self, context, **kwargs):
             assert context.user_text == "hello"
             return PreparedRequest(
                 protocol_prompt="protocol",
@@ -1998,7 +1998,17 @@ def test_request_wraps_only_exact_user_segment_and_restores_full_prompt() -> Non
     async def scenario() -> None:
         service = Service()
         plugin = HumanizePlugin(SimpleNamespace(), {})
-        plugin._container = SimpleNamespace(service=service)
+
+        class Window:
+            async def load(self, context, *, token_budget: int):
+                del context, token_budget
+                return SimpleNamespace(
+                    contexts=(),
+                    entry_count=0,
+                    estimated_tokens=0,
+                )
+
+        plugin._container = SimpleNamespace(service=service, context_window=Window())
         plugin._build_message_context = _async_build_context
         event = _FakeEvent()
         original = "[time: 12:00]\nhello\n[external plugin note]"
@@ -2017,9 +2027,7 @@ def test_request_wraps_only_exact_user_segment_and_restores_full_prompt() -> Non
         assert event.get_extra("_humanize_wrapped_prompt") == wrapped
         assert service.snapshots[0]["fields"]["prompt"] == wrapped
         assert service.snapshots[0]["fields"]["system_prompt"] == "external system"
-        assert service.snapshots[0]["fields"]["contexts"] == [
-            {"role": "assistant", "content": "external history"}
-        ]
+        assert service.snapshots[0]["fields"]["contexts"] == []
         assert service.snapshots[0]["fields"]["extra_user_content_parts"] == [
             {"type": "text", "text": "external user injection"}
         ]

@@ -131,6 +131,16 @@ class SQLiteRepository(
                 "request_snapshot_complete",
                 "INTEGER NOT NULL DEFAULT 0",
             ),
+            (
+                "humanize_context_runs",
+                "request_snapshot_final_json",
+                "TEXT NOT NULL DEFAULT '{}'",
+            ),
+            (
+                "humanize_context_runs",
+                "request_snapshot_final_complete",
+                "INTEGER NOT NULL DEFAULT 0",
+            ),
             ("protocol_logs", "raw_output_snapshot", "TEXT NOT NULL DEFAULT ''"),
             ("protocol_logs", "raw_snapshot_complete", "INTEGER NOT NULL DEFAULT 0"),
             ("protocol_logs", "messages_json", "TEXT NOT NULL DEFAULT '[]'"),

@@ -188,7 +188,17 @@ class RepositoryPort(Protocol):
         protocol_mode: str,
         request_snapshot: dict[str, Any] | None = None,
         request_snapshot_complete: bool = False,
+        request_snapshot_final: dict[str, Any] | None = None,
+        request_snapshot_final_complete: bool = False,
     ) -> None: ...
+
+    async def update_context_run_final_snapshot(
+        self,
+        context: MessageContext,
+        *,
+        request_snapshot_final: dict[str, Any] | None = None,
+        request_snapshot_final_complete: bool = False,
+    ) -> bool: ...
 
     async def list_context_runs(
         self,

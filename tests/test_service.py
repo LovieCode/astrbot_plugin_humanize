@@ -388,6 +388,8 @@ def test_context_trace_persistence_uses_the_same_bounded_retry_budget() -> None:
             injection_mode,
             request_snapshot,
             request_snapshot_complete,
+            request_snapshot_final=None,
+            request_snapshot_final_complete=False,
         ):
             del (
                 context,
@@ -395,6 +397,8 @@ def test_context_trace_persistence_uses_the_same_bounded_retry_budget() -> None:
                 injection_mode,
                 request_snapshot,
                 request_snapshot_complete,
+                request_snapshot_final,
+                request_snapshot_final_complete,
             )
             self.calls += 1
             if self.calls < 3:

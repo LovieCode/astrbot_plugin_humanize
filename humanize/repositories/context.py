@@ -26,6 +26,8 @@ class ContextRepository:
         protocol_mode: str,
         request_snapshot: dict[str, Any] | None = None,
         request_snapshot_complete: bool = False,
+        request_snapshot_final: dict[str, Any] | None = None,
+        request_snapshot_final_complete: bool = False,
     ) -> None:
         """Persist one bounded context-composition trace transactionally.
 
@@ -33,8 +35,12 @@ class ContextRepository:
             context: Trusted identifiers for the active request.
             sections: Ordered context sections prepared for the provider request.
             protocol_mode: Configured protocol injection mode.
-            request_snapshot: Complete final ``ProviderRequest`` structure.
+            request_snapshot: Complete final ``ProviderRequest`` structure captured
+                at the request hook.
             request_snapshot_complete: Whether serialization avoided lossy fallbacks.
+            request_snapshot_final: Complete provider-visible context captured after
+                the agent run assembled the real request.
+            request_snapshot_final_complete: Whether final serialization was lossless.
         """
 
         def operation(conn: sqlite3.Connection) -> None:
@@ -54,6 +60,11 @@ class ContextRepository:
                 ensure_ascii=False,
                 sort_keys=True,
             )
+            request_snapshot_final_json = json.dumps(
+                request_snapshot_final or {},
+                ensure_ascii=False,
+                sort_keys=True,
+            )
             conn.execute("BEGIN IMMEDIATE")
             try:
                 existing = conn.execute(
@@ -61,7 +72,8 @@ class ContextRepository:
                     SELECT id, scope_type, scope_id, message_id, sender_id,
                            protocol_mode, estimated_tokens, included_sections,
                            omitted_sections, request_snapshot_json,
-                           request_snapshot_complete
+                           request_snapshot_complete, request_snapshot_final_json,
+                           request_snapshot_final_complete
                     FROM humanize_context_runs WHERE request_id = ?
                     """,
                     (context.request_id,),
@@ -78,6 +90,8 @@ class ContextRepository:
                         omitted_sections,
                         request_snapshot_json,
                         int(request_snapshot_complete),
+                        request_snapshot_final_json,
+                        int(request_snapshot_final_complete),
                     )
                     stored_run = tuple(
                         existing[key]
@@ -92,6 +106,8 @@ class ContextRepository:
                             "omitted_sections",
                             "request_snapshot_json",
                             "request_snapshot_complete",
+                            "request_snapshot_final_json",
+                            "request_snapshot_final_complete",
                         )
                     )
                     stored_sections = conn.execute(
@@ -142,8 +158,9 @@ class ContextRepository:
                         request_id, scope_type, scope_id, message_id, sender_id,
                         protocol_mode, estimated_tokens, included_sections,
                         omitted_sections, request_snapshot_json,
-                        request_snapshot_complete, created_at
-                    ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+                        request_snapshot_complete, request_snapshot_final_json,
+                        request_snapshot_final_complete, created_at
+                    ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
                     """,
                     (
                         context.request_id,
@@ -157,6 +174,8 @@ class ContextRepository:
                         omitted_sections,
                         request_snapshot_json,
                         int(request_snapshot_complete),
+                        request_snapshot_final_json,
+                        int(request_snapshot_final_complete),
                         now,
                     ),
                 )
@@ -265,6 +284,66 @@ class ContextRepository:
                 raise
 
         await self._run(operation)
+
+    async def update_context_run_final_snapshot(
+        self,
+        context: MessageContext,
+        request_snapshot_final: dict[str, Any] | None = None,
+        request_snapshot_final_complete: bool = False,
+    ) -> bool:
+        """Persist the provider-visible final context after the agent run.
+
+        The final snapshot is captured after AstrBot assembled the real request
+        (persona, knowledge base, file extraction, tool prompts included) and
+        after the model produced its reasoning and response. It is written as an
+        idempotent update to the existing context run.
+
+        Args:
+            context: Trusted identifiers for the active request.
+            request_snapshot_final: Complete provider-visible context structure.
+            request_snapshot_final_complete: Whether serialization was lossless.
+
+        Returns:
+            ``True`` only when an existing run was updated.
+        """
+
+        def operation(conn: sqlite3.Connection) -> bool:
+            request_snapshot_final_json = json.dumps(
+                request_snapshot_final or {},
+                ensure_ascii=False,
+                sort_keys=True,
+            )
+            conn.execute("BEGIN IMMEDIATE")
+            try:
+                existing = conn.execute(
+                    """
+                    SELECT id FROM humanize_context_runs WHERE request_id = ?
+                    """,
+                    (context.request_id,),
+                ).fetchone()
+                if existing is None:
+                    conn.rollback()
+                    return False
+                conn.execute(
+                    """
+                    UPDATE humanize_context_runs
+                    SET request_snapshot_final_json = ?,
+                        request_snapshot_final_complete = ?
+                    WHERE request_id = ?
+                    """,
+                    (
+                        request_snapshot_final_json,
+                        int(request_snapshot_final_complete),
+                        context.request_id,
+                    ),
+                )
+                conn.commit()
+                return True
+            except Exception:
+                conn.rollback()
+                raise
+
+        return await self._run(operation)
 
     async def list_context_runs(
         self,
@@ -381,7 +460,8 @@ class ContextRepository:
                 SELECT id, request_id, scope_type, scope_id, message_id, sender_id,
                        protocol_mode, estimated_tokens, included_sections,
                        omitted_sections, request_snapshot_json,
-                       request_snapshot_complete, created_at
+                       request_snapshot_complete, request_snapshot_final_json,
+                       request_snapshot_final_complete, created_at
                 FROM humanize_context_runs WHERE request_id = ?
                 """,
                 (request_id,),
@@ -415,6 +495,10 @@ class ContextRepository:
             run_item.pop("id", None)
             raw_request_snapshot = run_item.pop("request_snapshot_json")
             request_snapshot_complete = bool(run_item.pop("request_snapshot_complete"))
+            raw_request_snapshot_final = run_item.pop("request_snapshot_final_json")
+            request_snapshot_final_complete = bool(
+                run_item.pop("request_snapshot_final_complete")
+            )
             try:
                 stored_request_snapshot = json.loads(raw_request_snapshot)
             except (TypeError, json.JSONDecodeError):
@@ -427,6 +511,19 @@ class ContextRepository:
                 "snapshot_kind": "provider_request",
                 "snapshot_complete": request_snapshot_complete,
                 "provider_request": stored_request_snapshot or None,
+            }
+            try:
+                stored_request_snapshot_final = json.loads(raw_request_snapshot_final)
+            except (TypeError, json.JSONDecodeError):
+                stored_request_snapshot_final = {}
+                request_snapshot_final_complete = False
+            if not isinstance(stored_request_snapshot_final, dict):
+                stored_request_snapshot_final = {}
+                request_snapshot_final_complete = False
+            request_snapshot_final = {
+                "snapshot_kind": "provider_request_final",
+                "snapshot_complete": request_snapshot_final_complete,
+                "provider_request": stored_request_snapshot_final or None,
             }
             response_row = conn.execute(
                 """
@@ -519,6 +616,7 @@ class ContextRepository:
                 "run": run_item,
                 "sections": sections,
                 "request_snapshot": request_snapshot,
+                "request_snapshot_final": request_snapshot_final,
                 "response_snapshot": response_snapshot,
                 "snapshot": {
                     "snapshot_kind": "context_injection",

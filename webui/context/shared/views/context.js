@@ -326,6 +326,7 @@ HZ.renderTopbar(HZ.topbars["context"]);
     const run = data.run || {};
     const sections = (data.sections || []).slice().sort((a, b) => (a.ordinal ?? 0) - (b.ordinal ?? 0));
     const reqSnap = data.request_snapshot || {};
+    const reqSnapFinal = data.request_snapshot_final || {};
     const resSnap = data.response_snapshot || {};
     const protocol = resSnap.protocol || null;
     const response = data.response || null;
@@ -340,6 +341,9 @@ HZ.renderTopbar(HZ.topbars["context"]);
     detailEl.appendChild(headCardEl(run, durationMs, protocol));
     detailEl.appendChild(budgetCardEl(sections));
     detailEl.appendChild(sectionsCardEl(sections));
+    /* 最终完整快照：真实发给 Provider 的完整上下文 + 模型思考 + 最终响应 */
+    detailEl.appendChild(finalRawCardEl(run, reqSnapFinal, resSnap, protocol, response));
+    /* 中间快照：插件请求钩子结束时的原始请求（对比用） */
     detailEl.appendChild(rawCardEl(run, reqSnap, resSnap, protocol, response));
     if (responseSeq.length) {
       detailEl.appendChild(responseSeqCardEl(responseSeq));
@@ -589,6 +593,163 @@ HZ.renderTopbar(HZ.topbars["context"]);
     }
   }
 
+  /* 最终完整快照卡：真实发给 Provider 的完整上下文 + 思考 + 响应 */
+  function finalRawCardEl(run, reqSnapFinal, resSnap, protocol, response) {
+    const card = el("div", "card");
+    const head = el("div", "raw-head");
+    const titleWrap = el("div", "card-title-wrap");
+    titleWrap.appendChild(el("span", "card-dot"));
+    titleWrap.appendChild(el("span", "card-title", "最终完整快照"));
+    titleWrap.appendChild(el("span", "tag tag-required", "Agent 运行后 · 完整上下文"));
+    head.appendChild(titleWrap);
+    const actionTag = el("span", "tag");
+    if (response && response.action) {
+      actionTag.classList.add("tag-reply");
+      actionTag.textContent = "协议动作 · " + response.action;
+    } else if (protocol && protocol.action) {
+      actionTag.classList.add("tag-reply");
+      actionTag.textContent = "协议动作 · " + protocol.action;
+    } else {
+      actionTag.classList.add("tag-noreply", "noaction");
+      actionTag.textContent = "协议动作 · —";
+    }
+    head.appendChild(actionTag);
+    const copyBtn = el("button", "raw-copy", "复制全部");
+    copyBtn.dataset.icon = "copy";
+    copyBtn.addEventListener("click", async () => {
+      copyTextFallback(finalRawAllText(run, reqSnapFinal, resSnap, protocol, response), "已复制全部");
+    });
+    head.appendChild(copyBtn);
+    card.appendChild(head);
+
+    const pr = reqSnapFinal.provider_request || {};
+    const fields = pr.fields || {};
+    const ctxMessages = Array.isArray(fields.contexts) ? fields.contexts : [];
+    const list = el("div", "raw-list");
+    list.style.marginTop = "14px";
+    let rendered = 0;
+
+    /* 系统提示词 */
+    const systemPrompt = fields.system_prompt ? String(fields.system_prompt) : "";
+    if (systemPrompt) {
+      list.appendChild(rawMsgEl({ role: "system", content: systemPrompt }, rendered));
+      rendered += 1;
+    }
+    /* 完整上下文消息（persona / KB / 文件 / 工具注入均已包含） */
+    ctxMessages.forEach((msg, i) => {
+      if (msg && typeof msg === "object" && (msg.content || msg.tool_calls)) {
+        list.appendChild(rawMsgEl({ role: msg.role || "user", content: msg.content || "", tool_calls: msg.tool_calls }, rendered));
+        rendered += 1;
+      }
+    });
+    /* 图片 / 音频附件 */
+    const imageUrls = Array.isArray(fields.image_urls) ? fields.image_urls : [];
+    const audioUrls = Array.isArray(fields.audio_urls) ? fields.audio_urls : [];
+    if (imageUrls.length || audioUrls.length) {
+      list.appendChild(el("div", "raw-divider", "媒体附件"));
+      imageUrls.forEach((u, i) => {
+        list.appendChild(el("div", "raw-msg", "[图片 " + (i + 1) + "] " + String(u)));
+      });
+      audioUrls.forEach((u, i) => {
+        list.appendChild(el("div", "raw-msg", "[音频 " + (i + 1) + "] " + String(u)));
+      });
+    }
+    /* 工具 schema */
+    const funcTool = fields.func_tool || null;
+    if (funcTool && Array.isArray(funcTool.tools) && funcTool.tools.length) {
+      list.appendChild(el("div", "raw-divider", "工具 " + funcTool.tools.length + " 个"));
+      funcTool.tools.forEach((t) => {
+        const name = (t && t.name) || "?";
+        const desc = (t && t.description) ? String(t.description) : "";
+        const row = el("div", "raw-msg");
+        row.appendChild(el("span", "raw-role", String(name)));
+        if (desc) row.appendChild(el("div", "raw-body", desc));
+        list.appendChild(row);
+      });
+    }
+
+    /* 模型思考过程 */
+    const reasoning = extractReasoning(pr, resSnap, protocol, response);
+    if (reasoning) {
+      list.appendChild(el("div", "raw-divider", "模型思考过程"));
+      const rBody = el("div", "raw-body reasoning", reasoning);
+      rBody.style.color = "var(--muted)";
+      list.appendChild(rBody);
+    }
+
+    /* 最终响应 */
+    const completion = extractCompletion(pr, resSnap, protocol, response);
+    if (completion) {
+      list.appendChild(el("div", "raw-divider", "最终响应"));
+      list.appendChild(el("div", "raw-body", completion));
+    }
+
+    if (!rendered && !reasoning && !completion) {
+      list.appendChild(el("div", "cx-empty", "暂无可展示的最终快照（此请求可能未完成 Agent 运行）"));
+    }
+    card.appendChild(list);
+    return card;
+  }
+
+  /* 从最终快照 / 响应快照 / 响应序列中提取思考过程 */
+  function extractReasoning(pr, resSnap, protocol, response) {
+    const fields = (pr && pr.fields) || {};
+    if (Array.isArray(fields.contexts)) {
+      for (const m of fields.contexts) {
+        if (m && typeof m === "object" && Array.isArray(m.content)) {
+          for (const part of m.content) {
+            if (part && part.type === "think" && part.text) return String(part.text);
+          }
+        }
+      }
+    }
+    const resFields = ((resSnap && resSnap.llm_response && resSnap.llm_response.fields) || {});
+    const reasoning =
+      resFields.reasoning_content ||
+      (resFields.reasoning && (typeof resFields.reasoning === "string" ? resFields.reasoning : (resFields.reasoning.fields && resFields.reasoning.fields.text))) ||
+      "";
+    if (reasoning) return String(reasoning);
+    if (response && response.reasoning_content) return String(response.reasoning_content);
+    return "";
+  }
+
+  /* 从最终快照 / 响应快照 / 响应序列中提取最终完成文本 */
+  function extractCompletion(pr, resSnap, protocol, response) {
+    const resFields = ((resSnap && resSnap.llm_response && resSnap.llm_response.fields) || {});
+    const completion =
+      resFields._completion_text ||
+      resFields.completion_text ||
+      "";
+    if (completion) return String(completion);
+    if (response && response.messages && Array.isArray(response.messages)) {
+      return response.messages.map(String).join("\n");
+    }
+    return "";
+  }
+
+  function finalRawAllText(run, reqSnapFinal, resSnap, protocol, response) {
+    const parts = [];
+    const pr = reqSnapFinal.provider_request || {};
+    const fields = pr.fields || {};
+    const systemPrompt = fields.system_prompt ? String(fields.system_prompt) : "";
+    if (systemPrompt) parts.push("[system]\n" + systemPrompt);
+    const ctxMessages = Array.isArray(fields.contexts) ? fields.contexts : [];
+    ctxMessages.forEach((m) => {
+      if (m && typeof m === "object") {
+        parts.push("[" + (m.role || "user") + "]\n" + (m.content == null ? "" : String(m.content)));
+      }
+    });
+    const imageUrls = Array.isArray(fields.image_urls) ? fields.image_urls : [];
+    imageUrls.forEach((u, i) => parts.push("[image " + (i + 1) + "]\n" + String(u)));
+    const audioUrls = Array.isArray(fields.audio_urls) ? fields.audio_urls : [];
+    audioUrls.forEach((u, i) => parts.push("[audio " + (i + 1) + "]\n" + String(u)));
+    const reasoning = extractReasoning(pr, resSnap, protocol, response);
+    if (reasoning) parts.push("[reasoning]\n" + reasoning);
+    const completion = extractCompletion(pr, resSnap, protocol, response);
+    if (completion) parts.push("[response]\n" + completion);
+    return parts.join("\n\n");
+  }
+
   /* 原始上下文卡 */
   function rawCardEl(run, reqSnap, resSnap, protocol, response) {
     const card = el("div", "card");
@@ -598,7 +759,7 @@ HZ.renderTopbar(HZ.topbars["context"]);
     const titleWrap = el("div", "card-title-wrap");
     titleWrap.appendChild(el("span", "card-dot"));
     titleWrap.appendChild(el("span", "card-title", "原始上下文"));
-    titleWrap.appendChild(el("span", "tag tag-src", "仅预览 · 来自请求快照"));
+    titleWrap.appendChild(el("span", "tag tag-src", "请求钩子时 · 对比用"));
     head.appendChild(titleWrap);
     const actionTag = el("span", "tag");
     if (response && response.action) {
@@ -779,6 +940,24 @@ HZ.renderTopbar(HZ.topbars["context"]);
     box.appendChild(head);
     const body = el("div", "raw-body", content);
     box.appendChild(body);
+    /* 工具调用展示（最终快照中的 assistant tool_calls） */
+    if (Array.isArray(msg.tool_calls) && msg.tool_calls.length) {
+      const toolBox = el("div", "raw-tool-calls");
+      msg.tool_calls.forEach((call) => {
+        if (!call || typeof call !== "object") return;
+        const fn = call.function || {};
+        const name = (fn && fn.name) || call.name || "?";
+        let argsText = (fn && fn.arguments) || call.arguments || "";
+        if (argsText && typeof argsText !== "string") {
+          try { argsText = JSON.stringify(argsText, null, 2); } catch (e) { argsText = String(argsText); }
+        }
+        const row = el("div", "raw-msg tool-call");
+        row.appendChild(el("span", "raw-role", String(name)));
+        if (argsText) row.appendChild(el("div", "raw-body", String(argsText)));
+        toolBox.appendChild(row);
+      });
+      box.appendChild(toolBox);
+    }
     return box;
   }
 

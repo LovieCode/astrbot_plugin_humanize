@@ -150,6 +150,8 @@ CREATE TABLE IF NOT EXISTS humanize_context_runs (
     omitted_sections INTEGER NOT NULL,
     request_snapshot_json TEXT NOT NULL DEFAULT '{}',
     request_snapshot_complete INTEGER NOT NULL DEFAULT 0,
+    request_snapshot_final_json TEXT NOT NULL DEFAULT '{}',
+    request_snapshot_final_complete INTEGER NOT NULL DEFAULT 0,
     created_at TEXT NOT NULL
 );
 

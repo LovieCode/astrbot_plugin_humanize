@@ -85,6 +85,8 @@ _TOOL_SENT_MEDIA_KEY = "_humanize_tool_sent_media"
 _TOOL_PROCESSED_KEY = "_humanize_tool_processed_responses"
 _TOOL_SEND_LOCK_KEY = "_humanize_tool_send_lock"
 _REQUEST_FINGERPRINT_KEY = "_humanize_request_fingerprint"
+_REQUEST_SNAPSHOT_KEY = "_humanize_request_snapshot"
+_REQUEST_SNAPSHOT_COMPLETE_KEY = "_humanize_request_snapshot_complete"
 _PREFIX_FINGERPRINT_KEY = "_humanize_prefix_fingerprint"
 _PREFIX_EPOCH_KEY = "_humanize_prefix_epoch"
 _PREFIX_FIRST_DIFFERENCE_KEY = "_humanize_prefix_first_difference"
@@ -494,6 +496,8 @@ class HumanizePlugin(Star):
                 req
             )
             request_snapshot["capture_stage"] = "on_llm_request_finalizer"
+            event.set_extra(_REQUEST_SNAPSHOT_KEY, request_snapshot)
+            event.set_extra(_REQUEST_SNAPSHOT_COMPLETE_KEY, request_snapshot_complete)
             request_snapshot["humanize_context_window"] = {
                 "status": "active" if context_window_active else "unavailable",
                 "entry_count": context_window_entry_count,
@@ -1151,6 +1155,25 @@ class HumanizePlugin(Star):
         self, event: AstrMessageEvent, run_context, response: LLMResponse | None
     ) -> None:
         state = event.get_extra(_STATE_KEY, EventState.INACTIVE.value)
+
+        # Capture the provider-visible final context after the agent run assembled
+        # the real request (persona, KB, file extraction, tool prompts) and the
+        # model produced its reasoning and response. This is the true complete
+        # snapshot for the context trace; it is recorded for every terminal run
+        # state (including No Reply), not only validated replies.
+        if state in {
+            EventState.REQUESTED.value,
+            EventState.TOOL_RUNNING.value,
+            EventState.FINAL_VALID.value,
+            EventState.NO_REPLY.value,
+        }:
+            try:
+                await self._capture_final_provider_snapshot(
+                    event, run_context, response
+                )
+            except Exception:
+                logger.exception("[Humanize] failed to capture final provider snapshot")
+
         if state == EventState.NO_REPLY.value:
             self._set_response_text(response, _NO_REPLY_SENTINEL)
             return
@@ -1164,6 +1187,88 @@ class HumanizePlugin(Star):
         ):
             return
         self._set_assistant_message_text(assistant, response.completion_text)
+
+    async def _capture_final_provider_snapshot(
+        self,
+        event: AstrMessageEvent,
+        run_context: Any,
+        response: LLMResponse | None,
+    ) -> None:
+        """Persist the provider-visible final context plus model output.
+
+        The final snapshot is assembled from the agent run context (the exact
+        messages assembled for the Provider), the untouched LLM response, and the
+        request metadata captured at the request hook. It is written as an
+        idempotent update to the existing context run.
+
+        Args:
+            event: Active event carrying scoped request metadata.
+            run_context: Agent run context whose ``messages`` are provider-visible.
+            response: Untouched final LLM response.
+        """
+        if self._container is None:
+            return
+        context = event.get_extra(_CONTEXT_KEY)
+        if not isinstance(context, MessageContext):
+            return
+        messages = getattr(run_context, "messages", None)
+        if not isinstance(messages, list):
+            messages = []
+        initial_snapshot = event.get_extra(_REQUEST_SNAPSHOT_KEY, {})
+        if not isinstance(initial_snapshot, dict):
+            initial_snapshot = {}
+        initial_complete = bool(event.get_extra(_REQUEST_SNAPSHOT_COMPLETE_KEY, False))
+
+        provider_request_snapshot, provider_request_complete = (
+            serialize_provider_request(
+                ProviderRequest(
+                    prompt=None,
+                    contexts=[
+                        message.model_dump(mode="json")
+                        if hasattr(message, "model_dump")
+                        else message
+                        for message in messages
+                    ],
+                )
+            )
+        )
+        initial_fields = initial_snapshot.get("fields", {})
+        if not isinstance(initial_fields, dict):
+            initial_fields = {}
+        image_urls = initial_fields.get("image_urls", [])
+        audio_urls = initial_fields.get("audio_urls", [])
+        extra_user_content_parts = initial_fields.get("extra_user_content_parts", [])
+        func_tool = initial_fields.get("func_tool", None)
+        response_snapshot, response_complete = serialize_llm_response(response)
+        final_snapshot = {
+            "capture_stage": "on_agent_done_final",
+            "type": "provider_request_final",
+            "fields": {
+                "contexts": provider_request_snapshot.get("fields", {}).get(
+                    "contexts", []
+                ),
+                "image_urls": image_urls,
+                "audio_urls": audio_urls,
+                "extra_user_content_parts": extra_user_content_parts,
+                "func_tool": func_tool,
+                "system_prompt": initial_fields.get("system_prompt", ""),
+                "prompt": initial_fields.get("prompt", ""),
+                "model": initial_fields.get("model", ""),
+            },
+            "serialization_issues": provider_request_snapshot.get(
+                "serialization_issues", []
+            ),
+            "response": response_snapshot or {},
+        }
+        final_complete = bool(
+            provider_request_complete and initial_complete and response_complete
+        )
+        if self._container is not None:
+            await self._container.service.update_context_trace_final_snapshot(
+                context,
+                request_snapshot_final=final_snapshot,
+                request_snapshot_final_complete=final_complete,
+            )
 
     async def _persist_context_window(self, event: AstrMessageEvent) -> None:
         """Persist the validated run only after terminal dispatch succeeded.
