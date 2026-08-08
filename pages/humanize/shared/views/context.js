@@ -674,12 +674,16 @@ HZ.renderTopbar(HZ.topbars["context"]);
           } catch (e) {
             paramsText = String(params);
           }
-          const paramsEl = el("div", "raw-body mono", paramsText);
-          paramsEl.style.marginTop = "6px";
-          paramsEl.style.color = "var(--muted)";
-          paramsEl.style.fontSize = "12px";
-          paramsEl.style.whiteSpace = "pre-wrap";
-          row.appendChild(paramsEl);
+          const paramsWrap = el("div");
+          paramsWrap.style.marginTop = "6px";
+          paramsWrap.style.fontSize = "12px";
+          /* JSON 参数带语法高亮 */
+          try {
+            paramsWrap.appendChild(highlightJsonText(paramsText));
+          } catch (e) {
+            paramsWrap.appendChild(el("div", "raw-body", paramsText));
+          }
+          row.appendChild(paramsWrap);
         }
         list.appendChild(row);
       });
@@ -764,7 +768,7 @@ HZ.renderTopbar(HZ.topbars["context"]);
     const ctxMessages = Array.isArray(fields.contexts) ? fields.contexts : [];
     ctxMessages.forEach((m) => {
       if (m && typeof m === "object") {
-        parts.push("[" + (m.role || "user") + "]\n" + (m.content == null ? "" : String(m.content)));
+        parts.push("[" + (m.role || "user") + "]\n" + contentToText(m.content));
       }
     });
     const imageUrls = Array.isArray(fields.image_urls) ? fields.image_urls : [];
@@ -867,7 +871,7 @@ HZ.renderTopbar(HZ.topbars["context"]);
       }
     });
     extraParts.forEach((part) => {
-      const text = part && typeof part === "object" ? part.text : String(part);
+      const text = part && typeof part === "object" ? contentToText(part) : String(part);
       if (text) {
         list.appendChild(rawMsgEl({ role: "temp_user", content: text }, rendered));
         rendered += 1;
@@ -933,6 +937,79 @@ HZ.renderTopbar(HZ.topbars["context"]);
     return card;
   }
 
+  /* 把 JSON 文本转成带语法高亮的 DOM 节点（安全：只用 textContent 填内容） */
+  function highlightJsonText(text) {
+    const container = document.createElement("div");
+    container.className = "raw-body";
+    const tokenRe = /("(?:\\.|[^"\\])*"|\btrue\b|\bfalse\b|\bnull\b|-?\d+(?:\.\d+)?(?:[eE][+-]?\d+)?|[{}[\],:])/g;
+    let lastIndex = 0;
+    let match;
+    while ((match = tokenRe.exec(text)) !== null) {
+      if (match.index > lastIndex) {
+        container.appendChild(document.createTextNode(text.slice(lastIndex, match.index)));
+      }
+      const token = match[0];
+      const after = text.slice(tokenRe.lastIndex).replace(/^\s*/, "");
+      const isKey = token.startsWith("\"") && after.startsWith(":");
+      const span = document.createElement("span");
+      if (isKey) {
+        span.className = "jq-key";
+      } else if (token.startsWith("\"")) {
+        span.className = "jq-str";
+      } else if (token === "true" || token === "false") {
+        span.className = "jq-bool";
+      } else if (token === "null") {
+        span.className = "jq-null";
+      } else if (/^-?\d/.test(token)) {
+        span.className = "jq-num";
+      } else {
+        span.className = "jq-punc";
+      }
+      span.textContent = token;
+      container.appendChild(span);
+      lastIndex = tokenRe.lastIndex;
+    }
+    if (lastIndex < text.length) {
+      container.appendChild(document.createTextNode(text.slice(lastIndex)));
+    }
+    return container;
+  }
+
+  /* 把消息 content（字符串或 parts 数组）转成可读文本 */
+  function contentToText(content) {
+    if (content == null) return "";
+    if (typeof content === "string") return content;
+    if (Array.isArray(content)) {
+      const parts = [];
+      content.forEach((part) => {
+        if (!part || typeof part !== "object") return;
+        const type = part.type || "";
+        if (type === "text") {
+          const t = String(part.text || "");
+          if (t) parts.push(t);
+        } else if (type === "image_url") {
+          parts.push("[图片]");
+        } else if (type === "audio_url") {
+          parts.push("[音频]");
+        } else if (type === "think") {
+          const t = String(part.text || "");
+          if (t) parts.push("[思考] " + t);
+        } else if (type) {
+          parts.push("[" + type + "]");
+        }
+      });
+      return parts.join("\n");
+    }
+    if (typeof content === "object") {
+      try {
+        return JSON.stringify(content, null, 2);
+      } catch (e) {
+        return String(content);
+      }
+    }
+    return String(content);
+  }
+
   function rawMsgEl(msg, idx) {
     const box = el("div", "raw-msg");
     const head = el("div", "raw-msg-head");
@@ -943,7 +1020,7 @@ HZ.renderTopbar(HZ.topbars["context"]);
     if (role === "temp_user") {
       head.appendChild(el("span", "tag tag-required", "temp_user · 注入区块合并于此"));
     }
-    const content = msg.content == null ? "" : String(msg.content);
+    const content = contentToText(msg.content);
     head.appendChild(el("span", "raw-len", content.length + " 字"));
     const long = content.length > 300;
     /* 长消息默认折叠（190px 截断），按钮展开/收起；短消息无按钮 */
@@ -986,7 +1063,14 @@ HZ.renderTopbar(HZ.topbars["context"]);
         }
         const row = el("div", "raw-msg tool-call");
         row.appendChild(el("span", "raw-role", String(name)));
-        if (argsText) row.appendChild(el("div", "raw-body", String(argsText)));
+        if (argsText) {
+          /* JSON 参数带语法高亮 */
+          try {
+            row.appendChild(highlightJsonText(String(argsText)));
+          } catch (e) {
+            row.appendChild(el("div", "raw-body", String(argsText)));
+          }
+        }
         toolBox.appendChild(row);
       });
       box.appendChild(toolBox);
@@ -1121,7 +1205,7 @@ HZ.renderTopbar(HZ.topbars["context"]);
     if (systemPrompt) parts.push("[system]\n" + systemPrompt);
     ctxMessages.forEach((m) => {
       if (m && typeof m === "object") {
-        parts.push("[" + (m.role || "user") + "]\n" + (m.content == null ? "" : String(m.content)));
+        parts.push("[" + (m.role || "user") + "]\n" + contentToText(m.content));
       }
     });
     const extraParts = Array.isArray(fields.extra_user_content_parts) ? fields.extra_user_content_parts : [];

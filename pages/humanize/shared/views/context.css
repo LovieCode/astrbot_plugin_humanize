@@ -240,6 +240,13 @@
 }
 .raw-body::-webkit-scrollbar { width: 6px; }
 .raw-body::-webkit-scrollbar-thumb { background: var(--pink-line); border-radius: 3px; }
+/* JSON 语法高亮（键/字符串/数字/布尔/null） */
+.jq-key { color: var(--blue); }
+.jq-str { color: var(--green); }
+.jq-num { color: var(--orange); }
+.jq-bool { color: var(--pink-strong); }
+.jq-null { color: var(--violet); }
+.jq-punc { color: var(--muted); }
 .raw-divider {
   display: flex; align-items: center; gap: 10px;
   font-size: 10.5px; font-weight: 800; letter-spacing: 2px; color: var(--muted);
