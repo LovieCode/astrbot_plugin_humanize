@@ -1047,3 +1047,122 @@ def test_provider_capture_flushes_final_snapshot_with_reasoning_and_response(
         assert detail["request_snapshot_final"]["snapshot_complete"] is True
 
     asyncio.run(scenario())
+
+
+def test_provider_capture_flushes_image_turn_with_image_cache(
+    tmp_path: Path,
+) -> None:
+    """Image-only turns persist a final snapshot with image cache entries."""
+    from types import SimpleNamespace as _NS
+
+    from astrbot_plugin_humanize.humanize.domain.models import (
+        ImageCache as _MainImageCache,
+    )
+    from astrbot_plugin_humanize.humanize.domain.models import (
+        MessageContext as _MainMessageContext,
+    )
+    from astrbot_plugin_humanize.main import HumanizePlugin
+
+    async def scenario() -> None:
+        repository = SQLiteRepository(tmp_path / "humanize.db")
+        await repository.initialize()
+        config = PluginConfig()
+        service = HumanizeService(
+            config=config,
+            repository=repository,
+            envelope=EnvelopeBuilder(config),
+            parser=ProtocolParser(config),
+            matcher=JargonMatcher(),
+            composer=_NS(),
+        )
+        plugin = HumanizePlugin(_NS(), {})
+        plugin._container = _NS(service=service)
+        plugin._provider_capture = {}
+
+        context = _MainMessageContext(
+            request_id="req-image-turn",
+            scope_type="group",
+            scope_id="group-1",
+            message_id="message-1",
+            sender_id="user-1",
+            sender_name="小明",
+            user_text="",
+            chat_scene="QQ群",
+            admin_name="管理员",
+            admin_ids=("admin-1",),
+            conversation_id="conversation-1",
+            occurred_at="2026-07-19T00:00:00+00:00",
+            agent_id="default",
+        )
+        section = ContextSection(
+            key="current_message",
+            ordinal=0,
+            priority=100,
+            source_type="message",
+            source_refs=("message:msg-1",),
+            targets=("prompt",),
+            required=True,
+            included=True,
+            budget_tokens=None,
+            estimated_tokens=4,
+            applied_tokens=4,
+            item_count=1,
+            reason="current_user_message",
+            content="<Msg></Msg>",
+        )
+        await repository.record_context_run(
+            context,
+            (section,),
+            "user",
+            request_snapshot={
+                "capture_stage": "on_llm_request_finalizer",
+                "fields": {"prompt": ""},
+            },
+            request_snapshot_complete=True,
+        )
+
+        # 图片轮：contexts 为空，图片在 image_urls；event 带模型输出的 ImageCache
+        plugin._capture_provider_payload(
+            _NS(),
+            {
+                "session_id": "group-1",
+                "contexts": [],
+                "system_prompt": "persona",
+                "prompt": None,
+                "model": "model-1",
+                "image_urls": ["/tmp/img.jpg"],
+                "audio_urls": [],
+                "extra_user_content_parts": [],
+                "func_tool": None,
+            },
+        )
+        event = _NS(unified_msg_origin="group-1")
+        event.set_extra = lambda key, value: setattr(event, "__" + key, value)
+        event.get_extra = lambda key, default=None: getattr(event, "__" + key, default)
+        event.set_extra("_humanize_context", context)
+        event.set_extra(
+            "_humanize_image_cache",
+            (_MainImageCache(text="一只小猪瞪着无辜的眼睛"),),
+        )
+        response = _NS(
+            completion_text="<Action>Reply</Action>\n<Messages><Message>好可爱</Message></Messages>\n<ImageCache>一只小猪瞪着无辜的眼睛</ImageCache>",
+            reasoning_content="看到了图片",
+        )
+
+        flushed = plugin._flush_provider_capture(event, response)
+        assert flushed is True
+        await asyncio.sleep(0.05)
+
+        detail = await repository.get_context_run("req-image-turn")
+        assert detail is not None
+        final = detail["request_snapshot_final"]["provider_request"]
+        assert final["capture_stage"] == "on_provider_call"
+        # contexts 为空也写入（图片轮不因无 contexts 被丢弃）
+        assert final["fields"]["contexts"] == []
+        assert final["fields"]["image_urls"] == ["/tmp/img.jpg"]
+        # 模型输出的 ImageCache 保留在快照中
+        assert final["image_cache"] == ["一只小猪瞪着无辜的眼睛"]
+        assert final["reasoning"] == "看到了图片"
+        assert detail["request_snapshot_final"]["snapshot_complete"] is True
+
+    asyncio.run(scenario())

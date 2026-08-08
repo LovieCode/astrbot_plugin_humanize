@@ -1414,7 +1414,7 @@ class HumanizePlugin(Star):
             return False
         session_id = str(event.unified_msg_origin or "default")
         captured = self._provider_capture.pop(session_id, None)
-        if not isinstance(captured, dict) or not captured.get("contexts"):
+        if not isinstance(captured, dict):
             return False
         response_snapshot, response_complete = serialize_llm_response(response)
         reasoning = ""
@@ -1422,6 +1422,16 @@ class HumanizePlugin(Star):
             fields = response_snapshot.get("fields", {})
             if isinstance(fields, dict):
                 reasoning = str(fields.get("reasoning_content") or "")
+        # 图片转述（ImageCache）保存在 event 上，必须在快照中保留，供后续轮次
+        # 注入到 <Msg> 上下文。
+        image_cache = event.get_extra(_IMAGE_CACHE_KEY, ())
+        image_cache_texts: list[str] = []
+        for item in image_cache or ():
+            text = getattr(item, "text", None)
+            if isinstance(item, dict):
+                text = item.get("text", "")
+            if text:
+                image_cache_texts.append(str(text))
         final_snapshot = {
             "capture_stage": "on_provider_call",
             "type": "provider_request_final",
@@ -1439,6 +1449,7 @@ class HumanizePlugin(Star):
                 "prompt": captured.get("prompt"),
                 "model": captured.get("model", ""),
             },
+            "image_cache": image_cache_texts,
             "provider_id": captured.get("provider_id", ""),
             "reasoning": reasoning,
             "response": response_snapshot or {},

@@ -1245,9 +1245,11 @@ def test_tool_stage_media_is_preserved_and_mixed_text_is_validated() -> None:
         mixed_image = Image(file="https://example.com/mixed.png")
         await event.send(MessageChain([Plain(valid_text), mixed_image]))
 
-        sent = event.sent_chains[-1]
-        assert sent.get_plain_text() == "图片结果"
-        assert sent.chain[1] is mixed_image
+        # 5fa10b2: media-bearing chains now send validated text one by one
+        # (_send_messages) and media components as a separate chain.
+        texts = [chain.get_plain_text() for chain in event.sent_chains]
+        assert texts[-2:] == ["图片结果", ""]
+        assert event.sent_chains[-1].chain == [mixed_image]
 
         before = len(event.sent_chains)
         await event.send(MessageChain([Plain("没有控制头"), mixed_image]))
@@ -1288,9 +1290,11 @@ def test_repeated_tool_text_keeps_only_new_media() -> None:
         assert [chain.get_plain_text() for chain in event.sent_chains] == [
             "图片结果",
             "",
+            "",
         ]
-        assert event.sent_chains[0].chain[-1] is first_image
-        assert event.sent_chains[1].chain == [second_image]
+        assert event.sent_chains[0].chain == [Plain("图片结果")]
+        assert event.sent_chains[1].chain == [first_image]
+        assert event.sent_chains[2].chain == [second_image]
 
     asyncio.run(scenario())
 
@@ -1311,8 +1315,11 @@ def test_valid_final_media_chain_is_sent_when_validated_text_is_unchanged() -> N
 
         assert event.get_extra("_humanize_state") == EventState.DISPATCHED.value
         assert event.result is None
-        assert event.sent_chains[-1].get_plain_text() == "完成"
-        assert event.sent_chains[-1].chain[1] is image
+        # 5fa10b2: final media chains send validated text separately, then the
+        # media components as their own chain.
+        assert [chain.get_plain_text() for chain in event.sent_chains] == ["完成", ""]
+        assert event.sent_chains[0].chain == [Plain("完成")]
+        assert event.sent_chains[1].chain == [image]
 
     asyncio.run(scenario())
 
@@ -1367,8 +1374,11 @@ def test_final_media_does_not_repeat_a_tool_stage_chain() -> None:
         await plugin.dispatch_response(event)
 
         assert event.get_extra("_humanize_state") == EventState.DISPATCHED.value
-        assert len(event.sent_chains) == 1
-        assert event.sent_chains[0].chain[-1] is tool_image
+        # 5fa10b2: the tool stage already delivered text + media as separate
+        # chains; the final stage with the same image must not repeat it.
+        assert len(event.sent_chains) == 2
+        assert event.sent_chains[0].chain == [Plain("完成")]
+        assert event.sent_chains[1].chain == [tool_image]
 
     asyncio.run(scenario())
 
