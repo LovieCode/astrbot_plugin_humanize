@@ -20,6 +20,9 @@ from ..vendor.openviking_core.session.memory.utils.memory_file_utils import (
 )
 from .adapter import normalize_openviking_agent_id
 from .provider import OpenVikingProviderBridge
+from .type_quota import (
+    DEFAULT_QUOTAS,
+)
 from .workspace import OpenVikingWorkspace
 
 logger = logging.getLogger("astrbot")
@@ -73,6 +76,7 @@ class OpenVikingRecallAdapter:
         memory_type: str = "",
         conversation_hash: str = "",
         include_session_fallback: bool = True,
+        queries: tuple[str, ...] = (),
     ) -> OpenVikingRecallResult:
         """Recall active memories after final identity and expiry filtering.
 
@@ -90,14 +94,19 @@ class OpenVikingRecallAdapter:
             threshold: Minimum final relevance score.
             max_chars: Maximum rendered XML characters.
             memory_type: Optional exact memory type filter for admin debugging.
+            queries: Optional additional typed queries from intent analysis. Each
+                query is scored independently and the best score wins.
 
         Returns:
             Safe ``MemoryContext`` XML or an omitted fail-open result.
         """
         started = time.perf_counter()
-        clean_query = str(query or "").strip()
-        if not clean_query:
+        all_queries = tuple(
+            str(item).strip() for item in (query, *(queries or ())) if str(item).strip()
+        )
+        if not all_queries:
             return self._empty("empty_query", started)
+        clean_query = all_queries[0]
         try:
             clean_agent = normalize_openviking_agent_id(agent_id)
             filters = self._normalize_filters(scope_filters)
@@ -127,9 +136,12 @@ class OpenVikingRecallAdapter:
 
             for row in rows:
                 row["lexical_score"] = max(
-                    self._lexical_score(clean_query, str(row["abstract"])),
-                    self._lexical_score(clean_query, str(row["overview"])) * 0.95,
-                    self._lexical_score(clean_query, str(row["content"])) * 0.9,
+                    max(
+                        self._lexical_score(q, str(row["abstract"])),
+                        self._lexical_score(q, str(row["overview"])) * 0.95,
+                        self._lexical_score(q, str(row["content"])) * 0.9,
+                    )
+                    for q in all_queries
                 )
                 row["score"] = max(
                     float(row["lexical_score"]),
@@ -155,15 +167,22 @@ class OpenVikingRecallAdapter:
                 try:
                     vectors = await self._providers.embed(
                         (
-                            clean_query,
+                            *all_queries,
                             *(f"{row['abstract']}\n{row['overview']}" for row in rows),
                         )
                     )
-                    query_vector = vectors[0]
-                    for row, vector in zip(rows, vectors[1:], strict=True):
-                        vector_score = sum(
-                            left * right
-                            for left, right in zip(query_vector, vector, strict=True)
+                    query_vectors = vectors[: len(all_queries)]
+                    for row, vector in zip(
+                        rows, vectors[len(all_queries) :], strict=True
+                    ):
+                        vector_score = max(
+                            sum(
+                                left * right
+                                for left, right in zip(
+                                    query_vector, vector, strict=True
+                                )
+                            )
+                            for query_vector in query_vectors
                         )
                         row["embedding_score"] = vector_score
                         row["score"] = max(
@@ -215,26 +234,9 @@ class OpenVikingRecallAdapter:
                         type(exc).__name__,
                     )
 
-            selected: list[dict[str, Any]] = []
-            seen: set[str] = set()
-            for row in rows:
-                score = float(row.get("score", 0.0))
-                if not math.isfinite(score) or score < bounded_threshold:
-                    continue
-                fingerprint = hashlib.sha256(
-                    str(row["content"]).casefold().encode("utf-8")
-                ).hexdigest()
-                if fingerprint in seen:
-                    continue
-                seen.add(fingerprint)
-                selected.append(row)
-                if len(selected) >= bounded_limit:
-                    break
-            if any(row.get("source_kind") != "session" for row in selected):
-                selected = [
-                    row for row in selected if row.get("source_kind") != "session"
-                ]
-            content, used = self._render(selected, bounded_chars)
+            selected, content, used = self._select_and_render(
+                rows, bounded_limit, bounded_threshold, bounded_chars
+            )
             duration_ms = max(0, int((time.perf_counter() - started) * 1_000))
             return OpenVikingRecallResult(
                 included=bool(used),
@@ -256,6 +258,58 @@ class OpenVikingRecallAdapter:
                 exc_info=True,
             )
             return self._empty("source_error", started)
+
+    def _select_and_render(
+        self,
+        rows: list[dict[str, Any]],
+        bounded_limit: int,
+        bounded_threshold: float,
+        bounded_chars: int,
+    ) -> tuple[list[dict[str, Any]], str, list[dict[str, Any]]]:
+        """Select scored candidates by type quota, then render bounded XML.
+
+        Keeps the plugin's existing ``MemoryContext`` rendering contract while
+        applying OpenViking's type-quota strategy: candidates are grouped by
+        memory type, per-type quotas are enforced (with other-peer penalties),
+        and each fragment degrades from full content to summary to URI.
+
+        Args:
+            rows: Scored candidate rows from ``_read_candidates``.
+            bounded_limit: Maximum number of rendered memories.
+            bounded_threshold: Minimum final relevance score.
+            bounded_chars: Maximum rendered XML characters.
+
+        Returns:
+            Tuple of selected rows, rendered XML, and rows used in the render.
+        """
+        scored_rows = [
+            row
+            for row in rows
+            if math.isfinite(float(row.get("score", 0.0)))
+            and float(row.get("score", 0.0)) >= bounded_threshold
+        ]
+        if not scored_rows:
+            return [], "", []
+        # Per-type candidate cap so a single type cannot starve the others.
+        capped: list[dict[str, Any]] = []
+        per_type_count: dict[str, int] = {}
+        for row in sorted(
+            scored_rows, key=lambda item: float(item.get("score", 0.0)), reverse=True
+        ):
+            memory_type = str(row.get("memory_type") or "") or str(
+                row.get("source_kind") or ""
+            )
+            quota = DEFAULT_QUOTAS.get(memory_type, 10)
+            cap = max(quota * 2, bounded_limit * 4)
+            if per_type_count.get(memory_type, 0) >= cap:
+                continue
+            per_type_count[memory_type] = per_type_count.get(memory_type, 0) + 1
+            capped.append(row)
+        if any(row.get("source_kind") != "session" for row in capped):
+            capped = [row for row in capped if row.get("source_kind") != "session"]
+        selected = capped[: max(bounded_limit * 4, 20)]
+        content, used = self._render(selected, bounded_chars)
+        return selected, content, used
 
     def _read_candidates(
         self,
@@ -361,6 +415,7 @@ class OpenVikingRecallAdapter:
                             "memory_key": str(fields.get("memory_key") or ""),
                             "memory_type": str(memory.memory_type or memory_type),
                             "overview": overview or content[:600],
+                            "scope_type": scope["scope_type"],
                             "updated_at": (
                                 updated_at.isoformat()
                                 if isinstance(updated_at, datetime)

@@ -105,6 +105,7 @@ class PluginConfig:
     memory_recall_limit: int = 5
     memory_recall_score_threshold: float = 0.2
     memory_recall_max_chars: int = 2_500
+    memory_intent_analysis_enabled: bool = False
     memory_extract_batch_turns: int = 8
     memory_extract_idle_seconds: int = 180
     memory_job_max_attempts: int = 5
@@ -206,6 +207,9 @@ class PluginConfig:
             memory_recall_max_chars=_as_int(
                 data.get("memory_recall_max_chars"), 2_500, 256, 20_000
             ),
+            memory_intent_analysis_enabled=_as_bool(
+                data.get("memory_intent_analysis_enabled"), False
+            ),
             memory_extract_batch_turns=_as_int(
                 data.get("memory_extract_batch_turns"), 8, 1, 20
             ),
@@ -268,6 +272,7 @@ class PluginConfig:
             "memory_recall_limit": self.memory_recall_limit,
             "memory_recall_score_threshold": self.memory_recall_score_threshold,
             "memory_recall_max_chars": self.memory_recall_max_chars,
+            "memory_intent_analysis_enabled": self.memory_intent_analysis_enabled,
             "memory_extract_batch_turns": self.memory_extract_batch_turns,
             "memory_extract_idle_seconds": self.memory_extract_idle_seconds,
             "memory_job_max_attempts": self.memory_job_max_attempts,

@@ -26,6 +26,7 @@ from .openviking import (
     OpenVikingMemoryAdapter,
     OpenVikingRecallAdapter,
 )
+from .openviking.intent import IntentAnalyzer
 from .ports import RepositoryPort
 
 logger = logging.getLogger("astrbot")
@@ -305,6 +306,50 @@ class ChatMemoryService:
                 if not self._openviking_last_error:
                     self._openviking_last_error = "OpenVikingRecallUnavailable"
                 return self._empty_recall("source_error", started)
+            typed_queries: tuple[str, ...] = ()
+            if self._config.memory_intent_analysis_enabled:
+                provider = self._get_provider(
+                    self._config.memory_extraction_provider_id
+                )
+                if provider is not None and callable(
+                    getattr(provider, "text_chat", None)
+                ):
+
+                    async def _intent_completion(prompt: str) -> str:
+                        response = await asyncio.wait_for(
+                            provider.text_chat(
+                                prompt=prompt,
+                                session_id="",
+                                image_urls=[],
+                                audio_urls=[],
+                                func_tool=None,
+                                contexts=[],
+                                system_prompt="你只输出符合要求的 JSON。",
+                                tool_calls_result=None,
+                                extra_user_content_parts=[],
+                                request_max_retries=1,
+                            ),
+                            timeout=max(
+                                5.0, self._config.memory_recall_timeout_seconds * 10
+                            ),
+                        )
+                        return str(
+                            getattr(response, "completion_text", "") or ""
+                        ).strip()
+
+                    analyzer = IntentAnalyzer(_intent_completion)
+                    try:
+                        plan = await analyzer.analyze(current_message=query)
+                        typed_queries = tuple(
+                            item.query
+                            for item in plan.queries
+                            if item.query and item.context_type
+                        )
+                    except Exception as exc:
+                        logger.warning(
+                            "[Humanize] intent analysis degraded: %s",
+                            type(exc).__name__,
+                        )
             result = await self._openviking_recall.recall(
                 query=query,
                 agent_id=context.agent_id,
@@ -314,6 +359,7 @@ class ChatMemoryService:
                 threshold=self._config.memory_recall_score_threshold,
                 max_chars=self._config.memory_recall_max_chars,
                 include_session_fallback=include_session_fallback,
+                queries=typed_queries,
             )
             self._last_recall_at = self._now()
             self._last_recall_duration_ms = result.duration_ms
@@ -569,12 +615,19 @@ class ChatMemoryService:
             A full internal HMAC digest. It is never injected into a prompt.
 
         Raises:
-            ValueError: If the platform message identifier is unavailable.
+            ValueError: If both the platform message identifier and the request
+                identifier are unavailable.
         """
         identity = self.identity_for(context)
         source_message_id = str(context.message_id or "").strip()
         if not source_message_id:
-            raise ValueError("memory extraction requires a platform message id")
+            # Image-only turns and some platform events lack a message id; fall
+            # back to the request id so extraction still commits a turn.
+            source_message_id = str(context.request_id or "").strip()
+        if not source_message_id:
+            raise ValueError(
+                "memory extraction requires a platform message id or request id"
+            )
         agent_id = str(context.agent_id or "default").strip() or "default"
         return self._digest(
             "job:extract_turn",
@@ -1589,7 +1642,8 @@ class ChatMemoryService:
                 (
                     index
                     for index in range(len(source_texts) - 1, -1, -1)
-                    if evidence and evidence in source_texts[index]
+                    if evidence
+                    and self._evidence_matches_source(evidence, source_texts[index])
                 ),
                 -1,
             )
@@ -1632,6 +1686,50 @@ class ChatMemoryService:
                 }
             )
         return result
+
+    @staticmethod
+    def _evidence_matches_source(evidence: str, source: str) -> bool:
+        """Match LLM evidence against a source text with normalization.
+
+        LLM extractors often paraphrase the user text, so an exact substring
+        match is too strict and silently drops valid candidates. This helper
+        first normalizes both strings (casefold, whitespace collapse, strip
+        punctuation) and retries the substring match; if that still fails, it
+        accepts the evidence when at least 60% of its non-trivial tokens appear
+        in the source. The evidence is only used as provenance metadata, never
+        injected into prompts, so a loose match does not create an injection
+        vector.
+
+        Args:
+            evidence: LLM-provided evidence quote.
+            source: One source turn's user text.
+
+        Returns:
+            ``True`` when the evidence plausibly derives from the source.
+        """
+        if not evidence or not source:
+            return False
+
+        def normalize(text: str) -> str:
+            compact = re.sub(r"\s+", "", text.casefold())
+            return re.sub(r"[^\w\u4e00-\u9fff]", "", compact)
+
+        normalized_evidence = normalize(evidence)
+        normalized_source = normalize(source)
+        if not normalized_evidence:
+            return False
+        if normalized_evidence in normalized_source:
+            return True
+        # Token overlap fallback: most evidence tokens should appear in source.
+        tokens = [
+            token
+            for token in re.split(r"[\W_\s]+", evidence.casefold())
+            if len(token) > 1
+        ]
+        if not tokens:
+            return False
+        hits = sum(1 for token in tokens if token in source.casefold())
+        return hits / len(tokens) >= 0.6
 
     async def _embed_entity(self, entity_type: str, entity_id: int) -> bool:
         """Persist one current embedding while skipping fresh paid work.

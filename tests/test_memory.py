@@ -915,3 +915,95 @@ def test_management_lists_only_filter_agent_when_explicitly_requested() -> None:
         )
 
     asyncio.run(scenario())
+
+
+def test_intent_analysis_feeds_typed_queries_into_recall(monkeypatch) -> None:
+    """Enabled intent analysis produces typed queries for the recall adapter."""
+
+    class IntentExtractor:
+        async def text_chat(self, **kwargs):
+            del kwargs
+            return SimpleNamespace(
+                role="assistant",
+                tools_call_name=None,
+                tools_call_args=None,
+                completion_text=(
+                    '{"queries":[{"query":"喜欢吃什么","context_type":"preference",'
+                    '"intent":"偏好","priority":4}]}'
+                ),
+            )
+
+    class ProviderContext:
+        def get_provider_by_id(self, provider_id: str):
+            assert provider_id == "extractor"
+            return IntentExtractor()
+
+    class FakeRecall:
+        def __init__(self) -> None:
+            self.queries: tuple[str, ...] = ()
+
+        async def recall(self, **kwargs):
+            self.queries = kwargs.get("queries", ())
+            return SimpleNamespace(
+                included=False,
+                content="",
+                source_refs=(),
+                item_count=0,
+                reason="no_match",
+                duration_ms=1,
+            )
+
+    async def scenario() -> None:
+        fake = FakeRecall()
+        service = ChatMemoryService(
+            PluginConfig.from_mapping(
+                {
+                    "memory_intent_analysis_enabled": True,
+                    "memory_extraction_provider_id": "extractor",
+                }
+            ),
+            object(),  # type: ignore[arg-type]
+            ProviderContext(),
+        )
+        service._secret = _TEST_SECRET
+        service._state = "ready"
+        service._reason = "test_identity_secret"
+        service._openviking_ready = True
+        service._openviking_recall = fake  # type: ignore[assignment]
+
+        result = await service.recall_memories(_context(request_id="intent-1"))
+        assert result.reason == "no_match"
+        assert fake.queries == ("喜欢吃什么",)
+
+    asyncio.run(scenario())
+
+
+def test_intent_analysis_disabled_passes_no_typed_queries() -> None:
+    class FakeRecall:
+        def __init__(self) -> None:
+            self.queries: tuple[str, ...] = ()
+
+        async def recall(self, **kwargs):
+            self.queries = kwargs.get("queries", ())
+            return SimpleNamespace(
+                included=False,
+                content="",
+                source_refs=(),
+                item_count=0,
+                reason="no_match",
+                duration_ms=1,
+            )
+
+    async def scenario() -> None:
+        fake = FakeRecall()
+        service = ChatMemoryService(PluginConfig(), object())  # type: ignore[arg-type]
+        service._secret = _TEST_SECRET
+        service._state = "ready"
+        service._reason = "test_identity_secret"
+        service._openviking_ready = True
+        service._openviking_recall = fake  # type: ignore[assignment]
+
+        await service.recall_memories(_context(request_id="intent-2"))
+        assert fake.queries == ()
+
+    asyncio.run(scenario())
