@@ -341,10 +341,9 @@ HZ.renderTopbar(HZ.topbars["context"]);
     detailEl.appendChild(headCardEl(run, durationMs, protocol));
     detailEl.appendChild(budgetCardEl(sections));
     detailEl.appendChild(sectionsCardEl(sections));
-    /* 最终完整快照：真实发给 Provider 的完整上下文 + 模型思考 + 最终响应 */
+    /* 完整快照：提炼区（含消息/附件/图片转述/工具/思考/响应/实际发送/原始输出）
+       + 完整原始 JSON，一张卡展示全部，避免与请求快照重复 */
     detailEl.appendChild(finalRawCardEl(run, reqSnapFinal, resSnap, protocol, response));
-    /* 中间快照：插件请求钩子结束时的原始请求（对比用） */
-    detailEl.appendChild(rawCardEl(run, reqSnap, resSnap, protocol, response));
     if (responseSeq.length) {
       detailEl.appendChild(responseSeqCardEl(responseSeq));
     }
@@ -645,6 +644,30 @@ HZ.renderTopbar(HZ.topbars["context"]);
         rendered += 1;
       }
     });
+    /* 图片转述（ImageCache）作为消息记录展示，与 <Msg> 同位置；
+       转述内容会随 L2 会话记录持久化，下一轮在消息记录中可读 */
+    const imageCache = Array.isArray(pr.image_cache) ? pr.image_cache : [];
+    if (imageCache.length) {
+      imageCache.forEach((text, i) => {
+        list.appendChild(rawMsgEl({ role: "user", content: "[图片 " + (i + 1) + ": " + String(text) + "]" }, rendered));
+        rendered += 1;
+      });
+    }
+    /* 临时注入区块（extra_user_content_parts，与请求钩子时的原始上下文对齐） */
+    const extraParts = Array.isArray(fields.extra_user_content_parts) ? fields.extra_user_content_parts : [];
+    extraParts.forEach((part) => {
+      const text = part && typeof part === "object" ? contentToText(part) : String(part);
+      if (text) {
+        list.appendChild(rawMsgEl({ role: "temp_user", content: text }, rendered));
+        rendered += 1;
+      }
+    });
+    /* 请求钩子时的原始 prompt（中间快照独有，并入最终卡避免重复卡） */
+    const prompt = fields.prompt ? String(fields.prompt) : "";
+    if (prompt) {
+      list.appendChild(rawMsgEl({ role: "user", content: prompt }, rendered));
+      rendered += 1;
+    }
     /* 图片 / 音频附件 */
     const imageUrls = Array.isArray(fields.image_urls) ? fields.image_urls : [];
     const audioUrls = Array.isArray(fields.audio_urls) ? fields.audio_urls : [];
@@ -657,15 +680,7 @@ HZ.renderTopbar(HZ.topbars["context"]);
         list.appendChild(el("div", "raw-msg", "[音频 " + (i + 1) + "] " + String(u)));
       });
     }
-    /* 图片转述（ImageCache）：部署后图片轮捕获，供后续轮次注入 */
-    const imageCache = Array.isArray(pr.image_cache) ? pr.image_cache : [];
-    if (imageCache.length) {
-      list.appendChild(el("div", "raw-divider", "图片转述 (ImageCache)"));
-      imageCache.forEach((text, i) => {
-        list.appendChild(el("div", "raw-msg", "[转述 " + (i + 1) + "] " + String(text)));
-      });
-    }
-    /* 工具 schema */
+    /* 工具 schema（默认折叠） */
     const funcTool = fields.func_tool || null;
     if (funcTool && Array.isArray(funcTool.tools) && funcTool.tools.length) {
       list.appendChild(el("div", "raw-divider", "工具 " + funcTool.tools.length + " 个"));
@@ -675,8 +690,26 @@ HZ.renderTopbar(HZ.topbars["context"]);
         const name = (fn && fn.name) || (t && t.name) || "?";
         const desc = (fn && fn.description) ? String(fn.description) : "";
         const params = (fn && fn.parameters) ? fn.parameters : null;
-        const row = el("div", "raw-msg tool-call");
-        row.appendChild(el("span", "raw-role", String(name)));
+        const row = el("div", "raw-msg tool-call collapsed");
+        const rowHead = el("div", "raw-msg-head");
+        rowHead.appendChild(el("span", "raw-idx", "[T]"));
+        rowHead.appendChild(el("span", "raw-role tool", String(name)));
+        if (desc) rowHead.appendChild(el("span", "raw-len", desc.length + " 字"));
+        const toolBtn = el("button", "raw-collapse", "展开");
+        const paintToolIcon = () => {
+          toolBtn.querySelectorAll("svg").forEach((s) => s.remove());
+          toolBtn.insertAdjacentHTML("afterbegin", HZ.icon(toolBtn.dataset.icon));
+        };
+        toolBtn.dataset.icon = "arrow-down";
+        paintToolIcon();
+        rowHead.appendChild(toolBtn);
+        toolBtn.addEventListener("click", () => {
+          const collapsed = row.classList.toggle("collapsed");
+          toolBtn.textContent = collapsed ? "展开" : "收起";
+          toolBtn.dataset.icon = collapsed ? "arrow-down" : "arrow-up";
+          paintToolIcon();
+        });
+        row.appendChild(rowHead);
         if (desc) row.appendChild(el("div", "raw-body", desc));
         if (params) {
           let paramsText = "";
@@ -714,6 +747,51 @@ HZ.renderTopbar(HZ.topbars["context"]);
     if (completion) {
       list.appendChild(el("div", "raw-divider", "最终响应"));
       list.appendChild(el("div", "raw-body", completion));
+    }
+
+    /* 实际发送消息：协议解析后的干净文本（用户真正收到的） */
+    const sentMessages = Array.isArray(response && response.messages)
+      ? response.messages
+      : (protocol && Array.isArray(protocol.messages) ? protocol.messages : null);
+    if (sentMessages) {
+      list.appendChild(el("div", "raw-divider", "实际发送"));
+      sentMessages.forEach((text, i) => {
+        const item = el("div", "raw-msg sent");
+        const itemHead = el("div", "raw-msg-head");
+        itemHead.appendChild(el("span", "raw-idx", "[" + (i + 1) + "]"));
+        itemHead.appendChild(el("span", "raw-role assistant", "assistant"));
+        itemHead.appendChild(el("span", "raw-len", String(text).length + " 字"));
+        item.appendChild(itemHead);
+        item.appendChild(el("div", "raw-body", String(text)));
+        list.appendChild(item);
+      });
+    }
+
+    /* 模型原始输出（协议原文，含标签），默认折叠 */
+    if (protocol && protocol.raw_output) {
+      list.appendChild(el("div", "raw-divider", "模型原始输出"));
+      const rawBlock = el("div", "raw-raw collapsed");
+      const rawHead = el("div", "raw-msg-head");
+      rawHead.appendChild(el("span", "raw-idx", "[O]"));
+      rawHead.appendChild(el("span", "raw-role", "原文"));
+      rawHead.appendChild(el("span", "raw-len", String(protocol.raw_output).length + " 字"));
+      const rawBtn = el("button", "raw-collapse", "展开");
+      const paintRawIcon = () => {
+        rawBtn.querySelectorAll("svg").forEach((s) => s.remove());
+        rawBtn.insertAdjacentHTML("afterbegin", HZ.icon(rawBtn.dataset.icon));
+      };
+      rawBtn.dataset.icon = "arrow-down";
+      paintRawIcon();
+      rawHead.appendChild(rawBtn);
+      rawBtn.addEventListener("click", () => {
+        const collapsed = rawBlock.classList.toggle("collapsed");
+        rawBtn.textContent = collapsed ? "展开" : "收起";
+        rawBtn.dataset.icon = collapsed ? "arrow-down" : "arrow-up";
+        paintRawIcon();
+      });
+      rawBlock.appendChild(rawHead);
+      rawBlock.appendChild(el("div", "raw-body", String(protocol.raw_output)));
+      list.appendChild(rawBlock);
     }
 
     if (!rendered && !reasoning && !completion) {

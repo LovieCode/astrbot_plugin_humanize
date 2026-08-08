@@ -707,6 +707,7 @@ def test_image_cache_objects_and_text_are_marked_into_turn(
     tmp_path: Path,
 ) -> None:
     """ImageCache dataclass entries and plain text both become [图片 N: ...] markers."""
+
     async def scenario() -> None:
         window, _, _ = await _window(tmp_path)
         context = _context(1, user_text="")  # 图片轮：无文本
