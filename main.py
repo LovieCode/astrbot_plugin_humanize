@@ -692,7 +692,8 @@ class HumanizePlugin(Star):
         # 图片转述：按配置模式处理。
         # - auto：prepare_message_event 已转述（_EVENT_IMAGE_TRANSCRIPTIONS_KEY）；
         #   此处补充 AstrBot 把图片放入 req.image_urls / [Image Attachment: path]
-        #   的路径（如引用图片、工具轮），并替换 AstrBot 自带的 <image_caption>。
+        #   的路径（如引用图片、工具轮），并以 <ImageCache> 协议注入转述（与
+        #   模型输出的 ImageCache 标签同构，避免 AstrBot 的 <image_caption> 旧机制）。
         # - tool：不主动转述，动态注入转述工具由 LLM 按需调用。
         mode = self._plugin_config.image_transcription_mode
         event_transcriptions = event.get_extra(_EVENT_IMAGE_TRANSCRIPTIONS_KEY, ())
@@ -727,28 +728,39 @@ class HumanizePlugin(Star):
                     )
                 if transcriptions:
                     event.set_extra(_IMAGE_CACHE_KEY, tuple(transcriptions))
-                    # 把转述注入当前请求（模型本轮可见）；若 AstrBot 已有
-                    # <image_caption> 则替换，否则追加一个转述 part
+                    # 以 <ImageCache> 协议注入当前请求（模型本轮可见），保持与
+                    # 模型输出的 ImageCache 标签同构；不再使用 <image_caption>。
                     replacement = "\n".join(str(item) for item in transcriptions)
-                    if caption_index >= 0 and isinstance(parts, list):
+                    parts = list(parts)
+                    injected = False
+                    if caption_index >= 0:
                         try:
                             parts[
                                 caption_index
-                            ].text = f"<image_caption>{replacement}</image_caption>"
+                            ].text = f"<ImageCache>{replacement}</ImageCache>"
+                            injected = True
                         except Exception:
                             logger.exception(
                                 "[Humanize] failed to replace image caption part"
                             )
-                    elif replacement:
+                    if not injected and replacement:
                         try:
                             parts.append(
                                 TextPart(
-                                    text=f"<image_caption>{replacement}</image_caption>"
+                                    text=f"<ImageCache>{replacement}</ImageCache>"
                                 ).mark_as_temp()
                             )
+                            injected = True
                         except Exception:
                             logger.exception(
-                                "[Humanize] failed to inject image caption part"
+                                "[Humanize] failed to inject ImageCache part"
+                            )
+                    if injected:
+                        try:
+                            req.extra_user_content_parts = parts
+                        except Exception:
+                            logger.exception(
+                                "[Humanize] failed to update extra user content parts"
                             )
             except Exception:
                 logger.exception("[Humanize] image transcription failed")
