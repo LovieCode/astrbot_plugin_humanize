@@ -593,7 +593,8 @@ HZ.renderTopbar(HZ.topbars["context"]);
     }
   }
 
-  /* 最终完整快照卡：真实发给 Provider 的完整上下文 + 思考 + 响应 */
+  /* 最终完整快照卡：上半区展示提炼后的重要数据（格式化+高亮），
+     下半区展示完整原始 JSON（格式化+语法高亮），确保不丢失任何数据 */
   function finalRawCardEl(run, reqSnapFinal, resSnap, protocol, response) {
     const card = el("div", "card");
     const head = el("div", "raw-head");
@@ -625,6 +626,8 @@ HZ.renderTopbar(HZ.topbars["context"]);
     const pr = reqSnapFinal.provider_request || {};
     const fields = pr.fields || {};
     const ctxMessages = Array.isArray(fields.contexts) ? fields.contexts : [];
+
+    /* ---------- 上半区：提炼的重要数据 ---------- */
     const list = el("div", "raw-list");
     list.style.marginTop = "14px";
     let rendered = 0;
@@ -717,6 +720,24 @@ HZ.renderTopbar(HZ.topbars["context"]);
       list.appendChild(el("div", "cx-empty", "暂无可展示的最终快照（此请求可能未完成 Agent 运行）"));
     }
     card.appendChild(list);
+
+    /* ---------- 下半区：完整原始 JSON（格式化 + 语法高亮） ---------- */
+    let rawJsonText = "";
+    try {
+      rawJsonText = JSON.stringify(pr, null, 2);
+    } catch (e) {
+      rawJsonText = String(pr);
+    }
+    if (rawJsonText) {
+      card.appendChild(el("div", "raw-divider", "完整原始 JSON"));
+      const rawBox = el("div", "raw-body raw-json");
+      try {
+        rawBox.appendChild(highlightJsonText(rawJsonText));
+      } catch (e) {
+        rawBox.textContent = rawJsonText;
+      }
+      card.appendChild(rawBox);
+    }
     return card;
   }
 
