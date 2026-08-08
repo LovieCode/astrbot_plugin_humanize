@@ -106,6 +106,38 @@ _CONTROL_TAG_PATTERN = re.compile(
 )
 
 
+def _json_safe(value: Any) -> Any:
+    """Convert a runtime value into a JSON-serializable structure.
+
+    Args:
+        value: Arbitrary runtime value captured from a Provider payload.
+
+    Returns:
+        A JSON-compatible copy with dataclasses, pydantic models, and other
+        non-serializable objects reduced to plain dict/list/scalar values.
+    """
+    if value is None or isinstance(value, (str, bool, int, float)):
+        return value
+    dump = getattr(value, "model_dump", None)
+    if callable(dump):
+        try:
+            return _json_safe(dump(mode="json"))
+        except TypeError:
+            try:
+                return _json_safe(dump())
+            except Exception:
+                return str(value)
+        except Exception:
+            return str(value)
+    if hasattr(value, "__dict__"):
+        return {str(key): _json_safe(item) for key, item in vars(value).items()}
+    if isinstance(value, dict):
+        return {str(key): _json_safe(item) for key, item in value.items()}
+    if isinstance(value, (list, tuple, set, frozenset)):
+        return [_json_safe(item) for item in value]
+    return str(value)
+
+
 class HumanizePlugin(Star):
     def __init__(self, context: Context, config: dict | None = None) -> None:
         super().__init__(context, config)
@@ -1326,6 +1358,14 @@ class HumanizePlugin(Star):
                 item.model_dump(mode="json") if hasattr(item, "model_dump") else item
                 for item in contexts
             ]
+            extra_parts = kwargs.get("extra_user_content_parts") or []
+            extra_parts = [
+                item.model_dump(mode="json") if hasattr(item, "model_dump") else item
+                for item in extra_parts
+            ]
+            prompt = kwargs.get("prompt")
+            if hasattr(prompt, "model_dump"):
+                prompt = prompt.model_dump(mode="json")
             func_tool = kwargs.get("func_tool")
             tools_info = None
             if func_tool is not None:
@@ -1340,15 +1380,13 @@ class HumanizePlugin(Star):
             self._provider_capture[session_id] = {
                 "provider_id": provider_id,
                 "model": str(model or ""),
-                "contexts": contexts,
+                "contexts": _json_safe(contexts),
                 "tools": tools_info,
                 "system_prompt": str(kwargs.get("system_prompt") or ""),
-                "prompt": kwargs.get("prompt"),
+                "prompt": _json_safe(prompt),
                 "image_urls": list(kwargs.get("image_urls") or []),
                 "audio_urls": list(kwargs.get("audio_urls") or []),
-                "extra_user_content_parts": list(
-                    kwargs.get("extra_user_content_parts") or []
-                ),
+                "extra_user_content_parts": _json_safe(extra_parts),
                 "captured_at": time.monotonic(),
             }
         except Exception:
@@ -1405,6 +1443,7 @@ class HumanizePlugin(Star):
             "reasoning": reasoning,
             "response": response_snapshot or {},
         }
+        final_snapshot = _json_safe(final_snapshot)
         final_complete = bool(response_complete)
         try:
             asyncio.create_task(

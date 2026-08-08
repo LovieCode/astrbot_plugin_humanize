@@ -931,6 +931,8 @@ def test_provider_capture_flushes_final_snapshot_with_reasoning_and_response(
     )
     from astrbot_plugin_humanize.main import HumanizePlugin
 
+    from astrbot.core.agent.message import TextPart
+
     async def scenario() -> None:
         repository = SQLiteRepository(tmp_path / "humanize.db")
         await repository.initialize()
@@ -1004,13 +1006,21 @@ def test_provider_capture_flushes_final_snapshot_with_reasoning_and_response(
                 "model": "model-1",
                 "image_urls": [],
                 "audio_urls": [],
-                "extra_user_content_parts": [],
+                # 真实运行中 extra_user_content_parts 是 TextPart 等 ContentPart
+                "extra_user_content_parts": [
+                    TextPart(text="<KnownTerms>注入</KnownTerms>"),
+                    TextPart(text="<HumanizeProtocol>协议</HumanizeProtocol>"),
+                ],
                 "func_tool": None,
             },
         )
         assert plugin._provider_capture["group-1"]["contexts"][0]["content"] == (
             "persona 注入"
         )
+        # TextPart 必须被序列化为 JSON 安全结构，否则落库会 TypeError
+        extra = plugin._provider_capture["group-1"]["extra_user_content_parts"]
+        assert isinstance(extra, list) and len(extra) == 2
+        assert extra[0]["text"] == "<KnownTerms>注入</KnownTerms>"
 
         event = _NS(unified_msg_origin="group-1")
         event.set_extra = lambda key, value: setattr(event, "__" + key, value)
