@@ -659,11 +659,28 @@ HZ.renderTopbar(HZ.topbars["context"]);
     if (funcTool && Array.isArray(funcTool.tools) && funcTool.tools.length) {
       list.appendChild(el("div", "raw-divider", "工具 " + funcTool.tools.length + " 个"));
       funcTool.tools.forEach((t) => {
-        const name = (t && t.name) || "?";
-        const desc = (t && t.description) ? String(t.description) : "";
-        const row = el("div", "raw-msg");
+        /* openai_schema 结构：{type, function: {name, description, parameters}} */
+        const fn = (t && t.function) || t || {};
+        const name = (fn && fn.name) || (t && t.name) || "?";
+        const desc = (fn && fn.description) ? String(fn.description) : "";
+        const params = (fn && fn.parameters) ? fn.parameters : null;
+        const row = el("div", "raw-msg tool-call");
         row.appendChild(el("span", "raw-role", String(name)));
         if (desc) row.appendChild(el("div", "raw-body", desc));
+        if (params) {
+          let paramsText = "";
+          try {
+            paramsText = JSON.stringify(params, null, 2);
+          } catch (e) {
+            paramsText = String(params);
+          }
+          const paramsEl = el("div", "raw-body mono", paramsText);
+          paramsEl.style.marginTop = "6px";
+          paramsEl.style.color = "var(--muted)";
+          paramsEl.style.fontSize = "12px";
+          paramsEl.style.whiteSpace = "pre-wrap";
+          row.appendChild(paramsEl);
+        }
         list.appendChild(row);
       });
     }
@@ -959,6 +976,11 @@ HZ.renderTopbar(HZ.topbars["context"]);
         const fn = call.function || {};
         const name = (fn && fn.name) || call.name || "?";
         let argsText = (fn && fn.arguments) || call.arguments || "";
+        /* OpenAI 协议：arguments 是 JSON 字符串（中文可能被 \uXXXX 转义），
+           先解析成对象再美化，避免显示双重转义原文 */
+        if (typeof argsText === "string" && argsText.trim()) {
+          try { argsText = JSON.parse(argsText); } catch (e) { /* 保持原样 */ }
+        }
         if (argsText && typeof argsText !== "string") {
           try { argsText = JSON.stringify(argsText, null, 2); } catch (e) { argsText = String(argsText); }
         }
