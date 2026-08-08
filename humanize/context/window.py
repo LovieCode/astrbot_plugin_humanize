@@ -736,13 +736,25 @@ class ContextWindowService:
         result: list[str] = []
         seen: set[str] = set()
         for raw in image_cache:
-            value = self._safe_value(raw)
-            text = ""
-            if isinstance(value, str):
-                text = value
-            elif isinstance(value, dict):
-                # 兼容旧的结构化条目（description 兜底）
-                text = str(value.get("text") or value.get("description") or "")
+            # ImageCache dataclass 直接带 text 属性（无 model_dump，_safe_value
+            # 会把它们变成 repr 字符串），先取纯文本再走安全化。
+            if hasattr(raw, "text"):
+                text = str(getattr(raw, "text") or "")
+            else:
+                value = self._safe_value(raw)
+                text = ""
+                if isinstance(value, str):
+                    text = value
+                elif isinstance(value, dict):
+                    # 兼容旧的结构化条目（description 兜底）
+                    text = str(value.get("text") or value.get("description") or "")
+                elif isinstance(value, list):
+                    # ImageCache 对象经 _safe_value 变成 [{'text': ...}] 结构
+                    text = " ".join(
+                        str(item.get("text") or "")
+                        for item in value
+                        if isinstance(item, dict) and item.get("text")
+                    ).strip()
             text = self._clip(text.strip(), 600)
             if not text or text in seen:
                 continue

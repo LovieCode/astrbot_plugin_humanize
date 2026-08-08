@@ -9,7 +9,7 @@ import pytest
 from astrbot_plugin_humanize.main import HumanizePlugin
 from humanize.config import PluginConfig
 from humanize.context.window import ContextWindowService
-from humanize.domain.models import MessageContext, PreparedRequest
+from humanize.domain.models import ImageCache, MessageContext, PreparedRequest
 from humanize.memory import ChatMemoryService
 from humanize.openviking import (
     OpenVikingMemoryAdapter,
@@ -699,5 +699,37 @@ def test_request_takeover_omits_native_history_when_window_unavailable(
         assert (
             "context window unavailable; cleared AstrBot native history" in warnings[0]
         )
+
+    asyncio.run(scenario())
+
+
+def test_image_cache_objects_and_text_are_marked_into_turn(
+    tmp_path: Path,
+) -> None:
+    """ImageCache dataclass entries and plain text both become [图片 N: ...] markers."""
+    async def scenario() -> None:
+        window, _, _ = await _window(tmp_path)
+        context = _context(1, user_text="")  # 图片轮：无文本
+        await window.append(
+            context,
+            action="Reply",
+            run_messages=[
+                {"role": "user", "content": ""},
+                {"role": "assistant", "content": "看到了"},
+            ],
+            final_messages=("看到了",),
+            image_cache=(
+                ImageCache(text="图片用夸张的近距离视角表现两只卡通猪"),
+                "纯文本转述第二条",
+            ),
+            image_count=2,
+            token_budget=30_000,
+        )
+        loaded = await window.load(_context(1), token_budget=30_000)
+        joined = "\n".join(str(item.get("content", "")) for item in loaded.contexts)
+        assert "图片用夸张的近距离视角表现两只卡通猪" in joined
+        assert "纯文本转述第二条" in joined
+        assert "[图片 1:" in joined
+        assert "ImageCache(text=" not in joined
 
     asyncio.run(scenario())
