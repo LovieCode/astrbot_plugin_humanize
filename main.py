@@ -374,11 +374,11 @@ class HumanizePlugin(Star):
                 else str(persona_id or "default")
             )
             bot_name = str(
-                (persona_obj and persona_obj.get("name"))
-                or persona_id
-                or ""
+                (persona_obj and persona_obj.get("name")) or persona_id or ""
             ).strip()
-            message_context = replace(message_context, agent_id=agent_id, bot_name=bot_name)
+            message_context = replace(
+                message_context, agent_id=agent_id, bot_name=bot_name
+            )
         except Exception:
             logger.exception("[Humanize] failed to resolve the effective persona")
 
