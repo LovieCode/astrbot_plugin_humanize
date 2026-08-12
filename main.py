@@ -355,7 +355,7 @@ class HumanizePlugin(Star):
                 provider_settings = candidate_settings
             (
                 persona_id,
-                _,
+                persona_obj,
                 _,
                 use_webchat_default,
             ) = await self.context.persona_manager.resolve_selected_persona(
@@ -373,7 +373,12 @@ class HumanizePlugin(Star):
                 if use_webchat_default
                 else str(persona_id or "default")
             )
-            message_context = replace(message_context, agent_id=agent_id)
+            bot_name = str(
+                (persona_obj and persona_obj.get("name"))
+                or persona_id
+                or ""
+            ).strip()
+            message_context = replace(message_context, agent_id=agent_id, bot_name=bot_name)
         except Exception:
             logger.exception("[Humanize] failed to resolve the effective persona")
 

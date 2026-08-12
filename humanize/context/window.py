@@ -556,6 +556,7 @@ class ContextWindowService:
     ) -> list[dict[str, Any]]:
         rendered: list[dict[str, Any]] = []
         sender_name = str(record.get("sender_name") or "").strip()
+        bot_name = str(record.get("bot_name") or "").strip()
         created_at = str(record.get("created_at") or "").strip()
         time_label = self._format_time_label(created_at)
         for raw_message in record.get("messages", []):
@@ -574,11 +575,10 @@ class ContextWindowService:
             # <system_reminder> 对齐（最新消息由 AstrBot 注入，历史消息
             # 由本插件补充，保证上下文里每条消息都有身份和时间）。
             if role in {"user", "assistant"} and content_text:
-                speaker = (
-                    (sender_name if sender_name else "用户")
-                    if role == "user"
-                    else "Bot"
-                )
+                if role == "user":
+                    speaker = sender_name if sender_name else "用户"
+                else:
+                    speaker = bot_name if bot_name else "Bot"
                 prefix = (
                     f"[{speaker} · {time_label}] " if time_label else f"[{speaker}] "
                 )
@@ -638,6 +638,7 @@ class ContextWindowService:
             "context_ref": context_ref,
             "created_at": context.occurred_at,
             "sender_name": str(context.sender_name or "").strip(),
+            "bot_name": str(context.bot_name or "").strip(),
             "l0": l0,
             "messages": normalized,
             "source_complete": bool(context.source_complete),

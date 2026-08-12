@@ -99,6 +99,7 @@ class MessageContext:
     attachment_refs: tuple[dict[str, object], ...] = ()
     source_complete: bool = True
     agent_id: str = "default"
+    bot_name: str = ""
 
 
 @dataclass(frozen=True, slots=True)
