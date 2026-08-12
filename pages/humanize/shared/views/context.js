@@ -692,10 +692,22 @@ HZ.renderTopbar(HZ.topbars["context"]);
         list.appendChild(el("div", "raw-msg", "[音频 " + (i + 1) + "] " + String(u)));
       });
     }
-    /* 工具 schema（默认折叠） */
+    /* 工具 schema — 整个区块默认折叠，点击分隔行标题展开/收起 */
     const funcTool = fields.func_tool || null;
     if (funcTool && Array.isArray(funcTool.tools) && funcTool.tools.length) {
-      list.appendChild(el("div", "raw-divider", "工具 " + funcTool.tools.length + " 个"));
+      const toolDivider = el("div", "raw-divider");
+      const toolSectionBtn = el("button", "raw-collapse", "展开");
+      const paintToolSectionIcon = () => {
+        toolSectionBtn.querySelectorAll("svg").forEach((s) => s.remove());
+        toolSectionBtn.insertAdjacentHTML("afterbegin", HZ.icon(toolSectionBtn.dataset.icon));
+      };
+      toolSectionBtn.dataset.icon = "arrow-down";
+      paintToolSectionIcon();
+      toolDivider.appendChild(document.createTextNode("工具 " + funcTool.tools.length + " 个"));
+      toolDivider.appendChild(toolSectionBtn);
+      list.appendChild(toolDivider);
+
+      const toolsContainer = el("div", "raw-tools-block raw-tools-block-collapsed");
       funcTool.tools.forEach((t) => {
         /* openai_schema 结构：{type, function: {name, description, parameters}} */
         const fn = (t && t.function) || t || {};
@@ -733,7 +745,6 @@ HZ.renderTopbar(HZ.topbars["context"]);
           const paramsWrap = el("div");
           paramsWrap.style.marginTop = "6px";
           paramsWrap.style.fontSize = "12px";
-          /* JSON 参数带语法高亮 */
           try {
             paramsWrap.appendChild(highlightJsonText(paramsText));
           } catch (e) {
@@ -741,8 +752,15 @@ HZ.renderTopbar(HZ.topbars["context"]);
           }
           row.appendChild(paramsWrap);
         }
-        list.appendChild(row);
+        toolsContainer.appendChild(row);
       });
+      toolSectionBtn.addEventListener("click", () => {
+        const collapsed = toolsContainer.classList.toggle("raw-tools-block-collapsed");
+        toolSectionBtn.textContent = collapsed ? "展开" : "收起";
+        toolSectionBtn.dataset.icon = collapsed ? "arrow-down" : "arrow-up";
+        paintToolSectionIcon();
+      });
+      list.appendChild(toolsContainer);
     }
 
     /* 模型思考过程 */

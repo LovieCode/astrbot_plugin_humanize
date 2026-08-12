@@ -273,6 +273,10 @@
 /* ---------- 完整原始 JSON — 默认折叠 ---------- */
 .raw-body.raw-json.raw-json-collapsed { max-height: 0; overflow: hidden; padding: 0; margin-top: 0; border: none; }
 
+/* ---------- 工具 schema 区块 — 默认折叠 ---------- */
+.raw-tools-block { display: flex; flex-direction: column; gap: 6px; }
+.raw-tools-block.raw-tools-block-collapsed { display: none; }
+
 /* ---------- 图片转述缓存区 ---------- */
 .raw-img-cache {
   display: flex; align-items: baseline; gap: 10px;
