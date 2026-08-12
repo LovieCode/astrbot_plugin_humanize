@@ -398,7 +398,8 @@ class ContextRepository:
                        fp.action AS protocol_action,
                        fp.failure_code AS protocol_failure_code,
                        fp.duration_ms AS protocol_duration_ms,
-                       fp.model AS protocol_model
+                       fp.model AS protocol_model,
+                       mp.content_preview AS message_preview
                 FROM humanize_context_runs r
                 LEFT JOIN (
                     SELECT p.* FROM protocol_logs p
@@ -408,6 +409,8 @@ class ContextRepository:
                         GROUP BY request_id
                     ) latest ON latest.final_id = p.id
                 ) fp ON fp.request_id = r.request_id
+                LEFT JOIN humanize_context_sections mp
+                    ON mp.run_id = r.id AND mp.section_key = 'current_message'
                 {where}
                 ORDER BY r.created_at DESC, r.id DESC LIMIT ? OFFSET ?
                 """,

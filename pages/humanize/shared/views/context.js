@@ -248,8 +248,16 @@ HZ.renderTopbar(HZ.topbars["context"]);
     top.appendChild(el("span", "cx-run-time", item.created_at ? fmtAgo(item.created_at) : ""));
     card.appendChild(top);
 
-    /* 消息内容（后端未提供 message 文本，用 scope + sender 兜底） */
-    card.appendChild(el("div", "cx-run-msg", `${scopeText(item)} · 发送者 ${item.sender_id || "—"}`));
+    /* 消息内容：优先显示 message_preview（当前消息区块预览），降级为 scope + sender */
+    const msgPreview = item.message_preview ? String(item.message_preview) : "";
+    const msgLine = el("div", "cx-run-msg");
+    if (msgPreview) {
+      msgLine.textContent = msgPreview;
+      msgLine.title = msgPreview;
+    } else {
+      msgLine.textContent = scopeText(item) + " · 发送者 " + (item.sender_id || "—");
+    }
+    card.appendChild(msgLine);
 
     /* 元信息行 */
     const meta = el("div", "cx-run-meta");
@@ -361,7 +369,7 @@ HZ.renderTopbar(HZ.topbars["context"]);
   /* 概览胶囊 */
   function headCardEl(run, durationMs, protocol) {
     const card = el("div", "card cx-head-card");
-    const row = el("div", "cx-stats-row");
+    const row = el("div", "cx-head-row");
 
     const main = el("div", "cx-head-main");
     const headId = el("div", "cx-head-id");
@@ -644,13 +652,17 @@ HZ.renderTopbar(HZ.topbars["context"]);
         rendered += 1;
       }
     });
-    /* 图片转述（ImageCache）作为消息记录展示，与 <Msg> 同位置；
-       转述内容会随 L2 会话记录持久化，下一轮在消息记录中可读 */
+    /* 图片转述缓存（ImageCache）：独立区展示，不混入消息编号序列。
+       ImageCache 序列化为 {text: "..."} 对象或纯字符串，统一用 imgCacheText() 提取。 */
     const imageCache = Array.isArray(pr.image_cache) ? pr.image_cache : [];
     if (imageCache.length) {
-      imageCache.forEach((text, i) => {
-        list.appendChild(rawMsgEl({ role: "user", content: "[图片 " + (i + 1) + ": " + String(text) + "]" }, rendered));
-        rendered += 1;
+      list.appendChild(el("div", "raw-divider", "图片转述缓存 · " + imageCache.length + " 张"));
+      imageCache.forEach((item, i) => {
+        const text = imgCacheText(item);
+        const row = el("div", "raw-img-cache");
+        row.appendChild(el("span", "raw-img-cache-idx", "图片 " + (i + 1)));
+        row.appendChild(el("span", "raw-img-cache-text", text || "（无转述文本）"));
+        list.appendChild(row);
       });
     }
     /* 临时注入区块（extra_user_content_parts，与请求钩子时的原始上下文对齐） */
@@ -807,13 +819,30 @@ HZ.renderTopbar(HZ.topbars["context"]);
       rawJsonText = String(pr);
     }
     if (rawJsonText) {
-      card.appendChild(el("div", "raw-divider", "完整原始 JSON"));
-      const rawBox = el("div", "raw-body raw-json");
+      /* 完整原始 JSON — 默认折叠，避免冗长内容占满视图 */
+      const jsonDivider = el("div", "raw-divider");
+      jsonDivider.appendChild(document.createTextNode("完整原始 JSON"));
+      const jsonToggleBtn = el("button", "raw-collapse", "展开");
+      const paintJsonIcon = () => {
+        jsonToggleBtn.querySelectorAll("svg").forEach((s) => s.remove());
+        jsonToggleBtn.insertAdjacentHTML("afterbegin", HZ.icon(jsonToggleBtn.dataset.icon));
+      };
+      jsonToggleBtn.dataset.icon = "arrow-down";
+      paintJsonIcon();
+      jsonDivider.appendChild(jsonToggleBtn);
+      card.appendChild(jsonDivider);
+      const rawBox = el("div", "raw-body raw-json raw-json-collapsed");
       try {
         rawBox.appendChild(highlightJsonText(rawJsonText));
       } catch (e) {
         rawBox.textContent = rawJsonText;
       }
+      jsonToggleBtn.addEventListener("click", () => {
+        const collapsed = rawBox.classList.toggle("raw-json-collapsed");
+        jsonToggleBtn.textContent = collapsed ? "展开" : "收起";
+        jsonToggleBtn.dataset.icon = collapsed ? "arrow-down" : "arrow-up";
+        paintJsonIcon();
+      });
       card.appendChild(rawBox);
     }
     return card;
@@ -883,7 +912,7 @@ HZ.renderTopbar(HZ.topbars["context"]);
     const audioUrls = Array.isArray(fields.audio_urls) ? fields.audio_urls : [];
     audioUrls.forEach((u, i) => parts.push("[audio " + (i + 1) + "]\n" + String(u)));
     const imageCache = Array.isArray(pr.image_cache) ? pr.image_cache : [];
-    imageCache.forEach((text, i) => parts.push("[image_transcription " + (i + 1) + "]\n" + String(text)));
+    imageCache.forEach((item, i) => parts.push("[image_transcription " + (i + 1) + "]\n" + imgCacheText(item)));
     const reasoning = extractReasoning(pr, resSnap, protocol, response);
     if (reasoning) parts.push("[reasoning]\n" + reasoning);
     const completion = extractCompletion(pr, resSnap, protocol, response);
@@ -891,7 +920,21 @@ HZ.renderTopbar(HZ.topbars["context"]);
     return parts.join("\n\n");
   }
 
-  /* 原始上下文卡 */
+  /* ---- imgCacheText: 从 ImageCache 序列化项中安全提取纯文本 ----
+     ImageCache 是 Python dataclass {text: str}，JSON 序列化后为对象；
+     也可能已经是字符串（旧数据或直接序列化），统一兜底。 */
+  function imgCacheText(item) {
+    if (item == null) return "";
+    if (typeof item === "string") return item;
+    if (typeof item === "object") {
+      const t = item.text || item.description || item.content || "";
+      if (t) return String(t);
+      try { return JSON.stringify(item); } catch (e) { return String(item); }
+    }
+    return String(item);
+  }
+
+  /* 原始上下文卡（已废弃，保留符号引用检查用；renderDetail 不再调用） */
   function rawCardEl(run, reqSnap, resSnap, protocol, response) {
     const card = el("div", "card");
 
@@ -1200,81 +1243,92 @@ HZ.renderTopbar(HZ.topbars["context"]);
     const list = el("div", "raw-list");
     list.style.marginTop = "14px";
     seq.forEach((item, i) => {
-      const block = el("div", "raw-msg" + (item.success ? "" : " failed"));
+      /* 每轮用 .raw-seq-turn 包裹，确保视觉分隔和失败状态样式正确施加 */
+      const block = el("div", "raw-seq-turn" + (item.success ? "" : " failed"));
+
+      /* 顶行：轮次号 + 阶段角色标签 + 成功/失败标签 + 协议动作 */
       const headRow = el("div", "raw-msg-head");
       headRow.appendChild(el("span", "raw-idx", "[" + (i + 1) + "]"));
-      headRow.appendChild(el("span", "raw-role " + (item.stage === "final" ? "assistant" : "tool"), item.stage === "final" ? "final" : "tool"));
-      headRow.appendChild(el("span", "tag " + (item.success ? "tag-ok" : "tag-failed"), item.success ? "OK" : (item.failure_code || "失败")));
+      headRow.appendChild(el("span", "raw-role " + (item.stage === "final" ? "assistant" : "tool"),
+        item.stage === "final" ? "final" : (item.stage || "tool")));
+      headRow.appendChild(el("span", "tag " + (item.success ? "tag-ok" : "tag-failed"),
+        item.success ? "OK" : (item.failure_code || "失败")));
       if (item.action) headRow.appendChild(el("span", "tag tag-src", item.action));
-      list.appendChild(headRow);
+      block.appendChild(headRow);
 
-      // 快照详情
+      /* 快照详情 */
       const snap = item.snapshot || {};
       const fields = (snap.fields || {});
       const snapResp = snap.final_response && snap.final_response.response ? snap.final_response.response : null;
       const snapFields = snapResp ? (snapResp.fields || {}) : fields;
 
-      // 完成文本
+      /* 完成文本 */
       const completion =
         (snapFields._completion_text || snapFields.completion_text || "") ||
         (snap.completion_text || "");
       if (completion) {
-        list.appendChild(el("div", "d-label", "完成文本"));
-        const body = el("div", "raw-body", String(completion));
-        list.appendChild(body);
+        block.appendChild(el("div", "d-label", "完成文本"));
+        block.appendChild(el("div", "raw-body", String(completion)));
       }
 
-      // 思考过程
+      /* 思考过程 */
       const reasoning = snapFields.reasoning_content || "";
       if (reasoning) {
-        list.appendChild(el("div", "d-label", "思考过程"));
+        block.appendChild(el("div", "d-label", "思考过程"));
         const rBody = el("div", "raw-body reasoning", String(reasoning));
         rBody.style.color = "var(--muted)";
-        list.appendChild(rBody);
+        block.appendChild(rBody);
       }
 
-      // 工具调用
+      /* 工具调用：rowHead 作为 row 的子节点（修复原先错误地直接 append 到 list） */
       const toolNames = snapFields.tools_call_name || [];
       const toolArgs = snapFields.tools_call_args || [];
       if (toolNames && toolNames.length) {
-        list.appendChild(el("div", "d-label", "工具调用"));
+        block.appendChild(el("div", "d-label", "工具调用"));
         const names = Array.isArray(toolNames) ? toolNames : [toolNames];
         const args = Array.isArray(toolArgs) ? toolArgs : toolArgs ? [toolArgs] : [];
         names.forEach((name, ti) => {
           const row = el("div", "raw-msg tool-call");
           const rowHead = el("div", "raw-msg-head");
           rowHead.appendChild(el("span", "raw-role", String(name)));
-          list.appendChild(rowHead);
+          row.appendChild(rowHead);  /* 修复：rowHead 进 row，不直接进 list */
           if (args[ti] != null) {
             let argText = args[ti];
             if (typeof argText !== "string") {
               try { argText = JSON.stringify(argText, null, 2); } catch (e) { argText = String(argText); }
             }
-            row.appendChild(el("div", "raw-body", argText));
+            try {
+              row.appendChild(highlightJsonText(String(argText)));
+            } catch (e) {
+              row.appendChild(el("div", "raw-body", String(argText)));
+            }
           }
-          list.appendChild(row);
+          block.appendChild(row);
         });
       }
 
-      // usage
+      /* Token 用量 */
       const usage = snapFields.usage || {};
       const usageFields = usage.fields || usage;
       if (usageFields && (usageFields.input_cached !== undefined || usageFields.input_other !== undefined || usageFields.output !== undefined)) {
-        list.appendChild(el("div", "d-label", "Tokens"));
-        list.appendChild(el("span", "tag tag-src", "缓存 " + (usageFields.input_cached ?? 0) + " · 输入 " + (usageFields.input_other ?? 0) + " · 输出 " + (usageFields.output ?? 0)));
+        block.appendChild(el("div", "d-label", "Tokens"));
+        block.appendChild(el("span", "tag tag-src",
+          "缓存 " + (usageFields.input_cached ?? 0) +
+          " · 输入 " + (usageFields.input_other ?? 0) +
+          " · 输出 " + (usageFields.output ?? 0)));
       }
 
-      // 协议消息
+      /* 协议消息 */
       if (item.messages && item.messages.length) {
-        list.appendChild(el("div", "d-label", "发送消息"));
+        block.appendChild(el("div", "d-label", "发送消息"));
         item.messages.forEach((m) => {
           const row = el("div", "raw-msg");
           row.appendChild(el("div", "raw-body", String(m)));
-          list.appendChild(row);
+          block.appendChild(row);
         });
       }
 
-      // 原始输出
+      /* 原始输出（默认折叠） */
       if (item.raw_output) {
         const rawBlock = el("div", "raw-raw collapsed");
         const rawHead = el("div", "raw-msg-head");
@@ -1297,43 +1351,17 @@ HZ.renderTopbar(HZ.topbars["context"]);
         });
         rawBlock.appendChild(rawHead);
         rawBlock.appendChild(el("div", "raw-body", String(item.raw_output)));
-        list.appendChild(rawBlock);
+        block.appendChild(rawBlock);
       }
+
+      list.appendChild(block);  /* 修复：block 最终 append 到 list */
     });
     card.appendChild(list);
     return card;
   }
 
-  function rawAllText(run, reqSnap, resSnap, protocol, response) {
-    const parts = [];
-    const pr = reqSnap.provider_request || {};
-    const fields = pr.fields || {};
-    const ctxMessages = Array.isArray(fields.contexts) ? fields.contexts : [];
-    const prompt = fields.prompt ? String(fields.prompt) : "";
-    const systemPrompt = fields.system_prompt ? String(fields.system_prompt) : "";
-    if (systemPrompt) parts.push("[system]\n" + systemPrompt);
-    ctxMessages.forEach((m) => {
-      if (m && typeof m === "object") {
-        parts.push("[" + (m.role || "user") + "]\n" + contentToText(m.content));
-      }
-    });
-    const extraParts = Array.isArray(fields.extra_user_content_parts) ? fields.extra_user_content_parts : [];
-    extraParts.forEach((part) => {
-      const text = part && typeof part === "object" ? part.text : String(part);
-      if (text) parts.push("[temp_user]\n" + String(text));
-    });
-    if (prompt) parts.push("[user]\n" + prompt);
-    const sentMessages = Array.isArray(response && response.messages)
-      ? response.messages
-      : (protocol && Array.isArray(protocol.messages) ? protocol.messages : null);
-    if (sentMessages && sentMessages.length) {
-      parts.push("[sent]\n" + sentMessages.map(String).join("\n---\n"));
-    }
-    if (protocol && protocol.raw_output) {
-      parts.push("[raw_output]\n" + String(protocol.raw_output));
-    }
-    return parts.join("\n\n");
-  }
+  /* rawAllText 仅供 rawCardEl 内部使用（rawCardEl 已废弃），保留函数体避免运行时引用错误 */
+  function rawAllText(run, reqSnap, resSnap, protocol, response) { return ""; }
 
   /* ---------- 启动 ---------- */
   loadList().then(() => {
