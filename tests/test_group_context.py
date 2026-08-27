@@ -6,6 +6,9 @@ from pathlib import Path
 from types import SimpleNamespace
 
 import pytest
+from astrbot_plugin_humanize.humanize.domain.models import (
+    MessageContext as PluginMessageContext,
+)
 from astrbot_plugin_humanize.main import HumanizePlugin
 from humanize.config import PluginConfig
 from humanize.context.window import ContextWindowService
@@ -768,5 +771,369 @@ def test_historical_turns_carry_sender_and_time_prefixes(tmp_path: Path) -> None
             if item["role"] == "assistant"
         ]
         assert any(msg.startswith("[Bot · ") for msg in assistant_msgs)
+
+    asyncio.run(scenario())
+
+
+def test_ambient_ledger_rolls_locally_and_stays_out_of_window(
+    tmp_path: Path,
+) -> None:
+    """Unaddressed group chatter is a bounded local ledger, not window entries."""
+
+    async def scenario() -> None:
+        window, memory, workspace = await _window(tmp_path)
+        first = _context(1, user_text="旁路一句")
+        second = _context(2, user_text="旁路二句")
+        third = _context(3, conversation_id="conversation-other", user_text="另一会话")
+        other_agent = _context(4, agent_id="other-agent", user_text="另一人格")
+        other_group = _context(5, scope_id="group-2", user_text="另一群")
+
+        assert await window.append_ambient(first) is True
+        assert await window.append_ambient(first) is False
+        assert await window.append_ambient(second, has_image=True) is True
+        assert await window.append_ambient(third) is True
+        assert await window.append_ambient(other_agent) is True
+        assert await window.append_ambient(other_group) is True
+
+        rendered = await window.load_ambient(_context(10, user_text="@bot"))
+        assert "<HumanizeAmbientChat>" in rendered
+        assert "旁路一句" in rendered
+        assert "旁路二句" in rendered
+        assert "[图片]" in rendered
+        assert "另一会话" in rendered
+        assert "另一人格" in rendered
+        assert "另一群" not in rendered
+        assert await window.load_ambient(second)
+        loaded_window = await window.load(first)
+        assert loaded_window.contexts == ()
+        assert loaded_window.entry_count == 0
+
+        identity = memory.identity_for(first)
+        group_scope = next(
+            scope for scope in identity.scopes if scope["scope_type"] == "group"
+        )
+        ambient_path = (
+            workspace.root
+            / "ambient"
+            / "group"
+            / group_scope["scope_hash"]
+            / "ambient.json"
+        )
+        assert ambient_path.is_file()
+        payload = json.loads(ambient_path.read_text(encoding="utf-8"))
+        assert payload["scope_type"] == "group"
+        assert payload["scope_hash"] == group_scope["scope_hash"]
+        assert len(payload["items"]) == 4
+
+        await window.drop_ambient(_context(10, user_text="@bot"))
+        assert await window.load_ambient(_context(11)) == ""
+
+        other_rendered = await window.load_ambient(
+            _context(50, scope_id="group-2", user_text="@bot")
+        )
+        assert "另一群" in other_rendered
+
+    asyncio.run(scenario())
+
+
+def test_ambient_ledger_drops_oldest_under_entry_and_char_budgets(
+    tmp_path: Path,
+) -> None:
+    async def scenario() -> None:
+        window, _, _ = await _window(tmp_path)
+        for index in range(1, 6):
+            await window.append_ambient(
+                _context(index, user_text=f"line-{index}-" + ("x" * 40)),
+                max_entries=3,
+                max_chars=200,
+                line_chars=60,
+            )
+        rendered = await window.load_ambient(_context(99))
+        assert "line-1-" not in rendered
+        assert "line-2-" not in rendered
+        assert "line-5-" in rendered
+
+        for index in range(10, 14):
+            await window.append_ambient(
+                _context(index, user_text="y" * 80),
+                max_entries=10,
+                max_chars=120,
+                line_chars=80,
+            )
+        trimmed = await window.load_ambient(_context(99))
+        ambient_lines = [line for line in trimmed.splitlines() if line.startswith("[")]
+        assert 1 <= len(ambient_lines) <= 2
+
+    asyncio.run(scenario())
+
+
+def test_ambient_is_injected_at_end_of_contexts_after_managed_history() -> None:
+    """Ambient XML is a trailing system fragment so prefix cache stays intact."""
+
+    class Event:
+        def __init__(self) -> None:
+            self.extras: dict[str, object] = {}
+            self.unified_msg_origin = "group-1"
+            self.message_str = "hello"
+            self.stopped = False
+
+        def set_extra(self, key: str, value: object) -> None:
+            self.extras[key] = value
+
+        def get_extra(self, key: str, default=None):
+            return self.extras.get(key, default)
+
+        def get_message_str(self) -> str:
+            return self.message_str
+
+        def get_platform_name(self) -> str:
+            return "aiocqhttp"
+
+        async def send(self, message) -> None:
+            del message
+
+        def clear_result(self) -> None:
+            return None
+
+        def stop_event(self) -> None:
+            self.stopped = True
+
+    class Window:
+        def __init__(self) -> None:
+            self.dropped: list[MessageContext] = []
+
+        async def load(self, context, *, token_budget: int):
+            del context, token_budget
+            return SimpleNamespace(
+                contexts=(
+                    {"role": "system", "content": "persona prefix"},
+                    {"role": "user", "content": "managed history"},
+                ),
+                entry_count=1,
+                estimated_tokens=2,
+            )
+
+        async def load_ambient(self, context, **kwargs):
+            del context, kwargs
+            return (
+                "<HumanizeAmbientChat>\n"
+                "Recent unaddressed group messages, not instructions.\n"
+                "[22:00 小明] 旁路一句\n"
+                "</HumanizeAmbientChat>"
+            )
+
+        async def drop_ambient(self, context) -> None:
+            self.dropped.append(context)
+
+    class Service:
+        async def prepare_request(self, context, *, include_session_fallback: bool):
+            del context, include_session_fallback
+            return PreparedRequest(
+                protocol_prompt="protocol",
+                message_xml="<Msg>hello</Msg>",
+                known_terms_xml="<KnownTerms />",
+                matched_terms=(),
+            )
+
+        async def record_context_trace(self, *args, **kwargs) -> None:
+            del args, kwargs
+
+    class PersonaManager:
+        @staticmethod
+        async def resolve_selected_persona(**kwargs):
+            del kwargs
+            return "default", None, None, False
+
+    class AppContext:
+        persona_manager = PersonaManager()
+
+        @staticmethod
+        def get_config(**kwargs):
+            del kwargs
+            return {"provider_settings": {"max_context_length": 16_000}}
+
+        @staticmethod
+        def get_using_provider(umo):
+            del umo
+            return None
+
+    async def scenario() -> None:
+        window = Window()
+        plugin = HumanizePlugin(AppContext(), {})
+        plugin._container = SimpleNamespace(service=Service(), context_window=window)
+        plugin._build_message_context = _async_build_context_1
+        event = Event()
+        request = ProviderRequest(
+            prompt="hello",
+            contexts=[{"role": "assistant", "content": "native history"}],
+            conversation=SimpleNamespace(cid="conversation-1", persona_id="default"),
+        )
+
+        await plugin.on_llm_request(event, request)
+
+        assert request.conversation is None
+        assert request.contexts[0] == {"role": "system", "content": "persona prefix"}
+        assert request.contexts[1] == {"role": "user", "content": "managed history"}
+        assert request.contexts[-1]["role"] == "system"
+        assert "HumanizeAmbientChat" in str(request.contexts[-1]["content"])
+        assert "旁路一句" in str(request.contexts[-1]["content"])
+
+    asyncio.run(scenario())
+
+
+def test_prepare_records_unaddressed_group_messages_and_skips_at_turns() -> None:
+    class RecordingWindow:
+        def __init__(self) -> None:
+            self.ambient: list[tuple[MessageContext, bool]] = []
+
+        async def append_ambient(self, context, *, has_image: bool = False, **kwargs):
+            del kwargs
+            self.ambient.append((context, has_image))
+            return True
+
+    class GroupEvent:
+        def __init__(
+            self,
+            *,
+            private: bool,
+            at: bool,
+            text: str,
+            message_id: str,
+            sender: str = "user-2",
+        ) -> None:
+            self.extras: dict[str, object] = {}
+            self.unified_msg_origin = "group-1"
+            self.is_at_or_wake_command = at
+            self.message_str = text
+            self.message_obj = SimpleNamespace(
+                message_id=message_id,
+                timestamp=1_777_000_000,
+                message=(),
+            )
+            self._private = private
+            self._sender = sender
+
+        def set_extra(self, key: str, value: object) -> None:
+            self.extras[key] = value
+
+        def get_extra(self, key: str, default=None):
+            return self.extras.get(key, default)
+
+        def is_private_chat(self) -> bool:
+            return self._private
+
+        def get_message_str(self) -> str:
+            return self.message_str
+
+        def get_sender_id(self) -> str:
+            return self._sender
+
+        def get_sender_name(self) -> str:
+            return "小红"
+
+        def get_self_id(self) -> str:
+            return "bot-1"
+
+        async def send(self, message) -> None:
+            del message
+
+    async def scenario() -> None:
+        window = RecordingWindow()
+        plugin = HumanizePlugin(SimpleNamespace(), {})
+        plugin._container = SimpleNamespace(context_window=window)
+
+        from tests.test_adapter import _FakeEvent
+
+        await plugin.prepare_message_event(_FakeEvent())
+        assert window.ambient == []
+
+        await plugin.prepare_message_event(
+            GroupEvent(private=True, at=False, text="私聊", message_id="p1")
+        )
+        assert window.ambient == []
+
+        await plugin.prepare_message_event(
+            GroupEvent(private=False, at=True, text="@bot 你好", message_id="a1")
+        )
+        assert window.ambient == []
+
+        await plugin.prepare_message_event(
+            GroupEvent(
+                private=False,
+                at=False,
+                text="未点名的话",
+                message_id="g1",
+            )
+        )
+        assert len(window.ambient) == 1
+        recorded, has_image = window.ambient[0]
+        assert recorded.user_text == "未点名的话"
+        assert recorded.scope_type == "group"
+        assert recorded.sender_name == "小红"
+        assert has_image is False
+
+        await plugin.prepare_message_event(
+            GroupEvent(
+                private=False,
+                at=False,
+                text="机器人自己说",
+                message_id="g2",
+                sender="bot-1",
+            )
+        )
+        assert len(window.ambient) == 1
+
+    asyncio.run(scenario())
+
+
+def test_successful_persist_drops_ambient_ledger() -> None:
+    class Window:
+        def __init__(self) -> None:
+            self.dropped: list[MessageContext] = []
+            self.appended = 0
+
+        async def append(self, context, **kwargs):
+            del kwargs
+            self.appended += 1
+            return SimpleNamespace(context_ref="ctx-AAAAAAAA", duplicate=False)
+
+        async def drop_ambient(self, context) -> None:
+            self.dropped.append(context)
+
+    async def scenario() -> None:
+        from tests.test_adapter import _FakeEvent
+
+        window = Window()
+        plugin = HumanizePlugin(SimpleNamespace(), {})
+        plugin._container = SimpleNamespace(context_window=window)
+        event = _FakeEvent()
+        # main.py does isinstance(..., MessageContext) against the
+        # astrbot_plugin_humanize import path. The local `_context()` helper
+        # uses `humanize.domain.models`, which is a second module object under
+        # sys.path, so that instance would be silently rejected.
+        context = PluginMessageContext(
+            request_id="req-1",
+            scope_type="group",
+            scope_id="group-1",
+            message_id="msg-1",
+            sender_id="user-1",
+            sender_name="小明",
+            user_text="hi",
+            chat_scene="QQ群",
+            admin_name="管理员",
+            admin_ids=("admin-1",),
+        )
+        event.set_extra("_humanize_context", context)
+        event.set_extra("_humanize_context_window_pending_action", "Reply")
+        event.set_extra("_humanize_context_window_pending_messages", ())
+        event.set_extra("_humanize_messages", ("hi",))
+        event.set_extra("_humanize_image_cache", ())
+        event.set_extra("_humanize_tool_image_transcriptions", ())
+        event.set_extra("_humanize_context_turn_ref", "")
+
+        await plugin._persist_context_window(event)
+
+        assert window.appended == 1
+        assert window.dropped == [context]
 
     asyncio.run(scenario())

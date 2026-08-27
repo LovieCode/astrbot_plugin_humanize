@@ -12,7 +12,6 @@ from __future__ import annotations
 import asyncio
 from types import SimpleNamespace
 
-import pytest
 from astrbot_plugin_humanize.humanize.domain.models import (
     Action,
     EventState,
@@ -156,6 +155,7 @@ def _persisted_user_view(window) -> tuple:
         call["run_messages"],
         service._image_descriptions(call["image_cache"]),
         call["image_count"],
+        current_user_prompt=call.get("current_user_prompt", ""),
     )
     return tuple(normalized)
 
@@ -185,11 +185,6 @@ def test_image_text_tool_turn_reaches_window_append() -> None:
     asyncio.run(scenario())
 
 
-@pytest.mark.xfail(
-    reason="bug: tool-cached-image user message makes _current_turn_messages "
-    "drop the entire tool history (see docs/context-persistence-report.md)",
-    strict=True,
-)
 def test_image_tool_turn_with_tool_cached_image_reaches_window_append() -> None:
     async def scenario() -> None:
         plugin, window, memory = _make_plugin()

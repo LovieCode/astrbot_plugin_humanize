@@ -65,6 +65,7 @@ _CONTEXT_WINDOW_PENDING_ACTION_KEY = "_humanize_context_window_pending_action"
 _CONTEXT_READ_CALLS_KEY = "_humanize_context_read_calls"
 _IMAGE_CACHE_KEY = "_humanize_image_cache"
 _EVENT_IMAGE_TRANSCRIPTIONS_KEY = "_humanize_event_image_transcriptions"
+_TOOL_IMAGE_TRANSCRIPTIONS_KEY = "_humanize_tool_image_transcriptions"
 _TOOL_HISTORY_KEY = "_humanize_tool_history_replacements"
 _SEND_GATE_KEY = "_humanize_send_gate_installed"
 _SEND_GATE_ERROR_KEY = "_humanize_send_gate_error"
@@ -94,6 +95,8 @@ _PREFIX_FIRST_DIFFERENCE_KEY = "_humanize_prefix_first_difference"
 _PREFIX_COMMON_CHARS_KEY = "_humanize_prefix_common_chars"
 _PREFIX_EPOCH_REASON_KEY = "_humanize_prefix_epoch_reason"
 _FIRST_RESPONSE_AT_KEY = "_humanize_first_response_at"
+_PROVIDER_CAPTURE_TTL_SECONDS = 600.0
+_PROVIDER_CAPTURE_MAX_ENTRIES = 256
 _FIREWALL_PRIORITY = 100_000
 _DISPATCH_PRIORITY = -1_000_000
 _DECORATION_FINALIZER_PRIORITY = -1_000_001
@@ -263,6 +266,7 @@ class HumanizePlugin(Star):
                         )
             except Exception:
                 logger.exception("[Humanize] auto image transcription failed")
+        await self._maybe_record_ambient(event)
 
     @filter.command("clear", alias={"reset"}, priority=_FIREWALL_PRIORITY)
     async def clear_managed_context(self, event: AstrMessageEvent) -> None:
@@ -619,6 +623,24 @@ class HumanizePlugin(Star):
             event.stop_event()
             return
 
+        # Volatile group chatter is a trailing system fragment. Append it
+        # after prefix observation so persona / protocol / history stay a
+        # stable prefix-cache key; a changing ambient suffix must not
+        # invalidate that prefix fingerprint.
+        try:
+            loader = getattr(
+                getattr(self._container, "context_window", None),
+                "load_ambient",
+                None,
+            )
+            if callable(loader):
+                ambient = await loader(message_context)
+                if ambient:
+                    req.contexts = list(req.contexts or [])
+                    req.contexts.append({"role": "system", "content": ambient})
+        except Exception:
+            logger.debug("[Humanize] ambient context injection skipped", exc_info=True)
+
         event.set_extra(_STATE_KEY, EventState.REQUESTED.value)
         event.set_extra(_CONTEXT_KEY, message_context)
         event.set_extra(_MESSAGES_KEY, ())
@@ -831,7 +853,31 @@ class HumanizePlugin(Star):
             except Exception:
                 logger.exception("[Humanize] image transcription tool failed")
                 return "图片转述失败。"
-            return str(transcriptions[0]) if transcriptions else "未生成转述文本。"
+            if not transcriptions:
+                return "未生成转述文本。"
+            # Keep the tool-produced transcription so the persisted turn can
+            # still carry image markers when the model never echoes
+            # <ImageCache> (temporary fix; see context persistence report).
+            try:
+                existing = [
+                    str(item)
+                    for item in (
+                        event.get_extra(_TOOL_IMAGE_TRANSCRIPTIONS_KEY, ()) or ()
+                    )
+                ]
+                existing.extend(
+                    str(getattr(item, "text", item) or "") for item in transcriptions
+                )
+                event.set_extra(
+                    _TOOL_IMAGE_TRANSCRIPTIONS_KEY,
+                    tuple(item for item in existing if item.strip()),
+                )
+            except Exception:
+                logger.exception("[Humanize] failed to record tool transcription")
+            return str(
+                getattr(transcriptions[0], "text", transcriptions[0])
+                or "未生成转述文本。"
+            )
 
         tool = FunctionTool(
             name="humanize_transcribe_image",
@@ -1135,18 +1181,29 @@ class HumanizePlugin(Star):
             return
 
         if event.get_extra(_CONTEXT_WINDOW_ACTIVE_KEY, False):
-            if state in {EventState.FINAL_VALID.value, EventState.NO_REPLY.value}:
+            if state in {
+                EventState.FINAL_VALID.value,
+                EventState.NO_REPLY.value,
+                EventState.FINAL_BLOCKED.value,
+            }:
                 messages = getattr(run_context, "messages", ())
                 if isinstance(messages, list):
-                    user_index = max(
-                        (
-                            index
-                            for index, message in enumerate(messages)
-                            if getattr(message, "role", None) == "user"
+                    # Blocked turns keep the user side of the turn (message,
+                    # tool calls, tool results) with No Reply semantics; the
+                    # rejected assistant reply is stripped by the canonical
+                    # form. Locate the current user message by content so the
+                    # synthetic user messages AstrBot appends mid-turn cannot
+                    # shift the slice and drop the tool history.
+                    user_index = self._locate_current_user_message(
+                        run_context,
+                        str(
+                            event.get_extra(
+                                _WRAPPED_PROMPT_KEY,
+                                event.get_extra(_MESSAGE_XML_KEY, ""),
+                            )
                         ),
-                        default=-1,
                     )
-                    if user_index >= 0:
+                    if user_index is not None:
                         self._sanitize_tool_assistant_messages(
                             run_context,
                             user_index=user_index,
@@ -1159,9 +1216,9 @@ class HumanizePlugin(Star):
                 event.set_extra(
                     _CONTEXT_WINDOW_PENDING_ACTION_KEY,
                     (
-                        Action.NO_REPLY.value
-                        if state == EventState.NO_REPLY.value
-                        else Action.REPLY.value
+                        Action.REPLY.value
+                        if state == EventState.FINAL_VALID.value
+                        else Action.NO_REPLY.value
                     ),
                 )
             return
@@ -1394,6 +1451,8 @@ class HumanizePlugin(Star):
                     logger.warning(
                         "[Humanize] tool schema capture failed", exc_info=True
                     )
+            now = time.monotonic()
+            self._evict_stale_provider_capture(now)
             self._provider_capture[session_id] = {
                 "provider_id": provider_id,
                 "model": str(model or ""),
@@ -1404,10 +1463,43 @@ class HumanizePlugin(Star):
                 "image_urls": list(kwargs.get("image_urls") or []),
                 "audio_urls": list(kwargs.get("audio_urls") or []),
                 "extra_user_content_parts": _json_safe(extra_parts),
-                "captured_at": time.monotonic(),
+                "captured_at": now,
             }
         except Exception:
             logger.exception("[Humanize] provider payload capture failed")
+
+    def _evict_stale_provider_capture(self, now: float) -> None:
+        """Drop captures that no final response ever claimed.
+
+        A capture is only popped when a final response reaches
+        ``_flush_provider_capture``. Requests that error out, get cancelled, or
+        never reach the final stage would otherwise retain their full provider
+        payload (contexts plus tool schemas) for the lifetime of the process.
+
+        Args:
+            now: Current ``time.monotonic()`` reading.
+        """
+        capture = self._provider_capture
+        for session_id, entry in list(capture.items()):
+            captured_at = entry.get("captured_at") if isinstance(entry, dict) else None
+            if not isinstance(captured_at, (int, float)):
+                capture.pop(session_id, None)
+            elif now - captured_at > _PROVIDER_CAPTURE_TTL_SECONDS:
+                capture.pop(session_id, None)
+        overflow = len(capture) - _PROVIDER_CAPTURE_MAX_ENTRIES
+        if overflow <= 0:
+            return
+        oldest = sorted(
+            capture.items(),
+            key=lambda item: (
+                item[1].get("captured_at", 0.0) if isinstance(item[1], dict) else 0.0
+            ),
+        )
+        for session_id, _ in oldest[:overflow]:
+            capture.pop(session_id, None)
+        logger.warning(
+            "[Humanize] provider capture overflow, dropped %s stale entries", overflow
+        )
 
     def _flush_provider_capture(
         self,
@@ -1505,20 +1597,52 @@ class HumanizePlugin(Star):
         if not isinstance(messages, tuple):
             messages = ()
         try:
+            image_cache = tuple(event.get_extra(_IMAGE_CACHE_KEY, ()))
+            # Temporary ImageCache fallback: in tool transcription mode the
+            # model may never echo <ImageCache>; keep transcriptions produced
+            # by the injected tool so the saved turn still carries image
+            # markers. Deduplicated, order-preserving, bounded by image_count
+            # when rendered into markers.
+            tool_transcriptions = tuple(
+                str(item)
+                for item in (event.get_extra(_TOOL_IMAGE_TRANSCRIPTIONS_KEY, ()) or ())
+                if str(item).strip()
+            )
+            if tool_transcriptions:
+                known = {str(getattr(item, "text", item) or "") for item in image_cache}
+                merged = list(image_cache)
+                merged.extend(item for item in tool_transcriptions if item not in known)
+                image_cache = tuple(merged)
             result = await self._container.context_window.append(
                 context,
                 action=action,
                 run_messages=messages,
                 final_messages=tuple(event.get_extra(_MESSAGES_KEY, ())),
-                image_cache=tuple(event.get_extra(_IMAGE_CACHE_KEY, ())),
+                image_cache=image_cache,
                 image_count=int(
                     event.get_extra(_CONTEXT_WINDOW_IMAGE_COUNT_KEY, 0) or 0
                 ),
                 token_budget=int(
                     event.get_extra(_CONTEXT_WINDOW_TOKEN_BUDGET_KEY, 6_000) or 6_000
                 ),
+                current_user_prompt=str(
+                    event.get_extra(
+                        _WRAPPED_PROMPT_KEY,
+                        event.get_extra(_MESSAGE_XML_KEY, ""),
+                    )
+                ),
             )
             event.set_extra(_CONTEXT_TURN_REF_KEY, result.context_ref)
+            try:
+                dropper = getattr(
+                    getattr(self._container, "context_window", None),
+                    "drop_ambient",
+                    None,
+                )
+                if callable(dropper):
+                    await dropper(context)
+            except Exception:
+                logger.debug("[Humanize] ambient drop skipped", exc_info=True)
             committer = getattr(
                 getattr(self._container, "memory", None),
                 "commit_context_turn",
@@ -1737,6 +1861,19 @@ class HumanizePlugin(Star):
             EventState.DISPATCHED.value,
             EventState.FINAL_BLOCKED.value,
         }:
+            # A blocked turn still must persist its user side (message, tool
+            # calls, tool results) with No Reply semantics; only the rejected
+            # assistant reply is dropped. Idempotent via the turn reference,
+            # so a later repair-driven success write is unaffected.
+            if state == EventState.FINAL_BLOCKED.value and event.get_extra(
+                _CONTEXT_WINDOW_ACTIVE_KEY, False
+            ):
+                try:
+                    await self._persist_context_window(event)
+                except Exception:
+                    logger.exception(
+                        "[Humanize] blocked-turn context window persistence failed"
+                    )
             event.clear_result()
 
     async def _warn_if_repair_frequent(self, event: AstrMessageEvent) -> None:
@@ -2439,6 +2576,122 @@ class HumanizePlugin(Star):
             logger.exception("[Humanize] failed to resolve reset persona")
         return message_context
 
+    async def _maybe_record_ambient(self, event: AstrMessageEvent) -> None:
+        """Record unaddressed group chatter into a rolling ledger.
+
+        Plugin EventMessageType filters wake the event (``is_wake=True``) so
+        un-@ group messages still reach this hook, but AstrBot only runs the
+        LLM when ``is_at_or_wake_command`` is true. Those unaddressed lines
+        must not enter the managed window (that would compact and spend
+        tokens). Fail-open on test fakes that omit group/message metadata.
+
+        Args:
+            event: Incoming message event, possibly without a full AstrBot
+                surface.
+        """
+        if self._container is None:
+            return
+        appender = getattr(
+            getattr(self._container, "context_window", None),
+            "append_ambient",
+            None,
+        )
+        if not callable(appender):
+            return
+        is_private = getattr(event, "is_private_chat", None)
+        if not callable(is_private):
+            return
+        try:
+            if is_private():
+                return
+        except Exception:
+            return
+        if getattr(event, "is_at_or_wake_command", False):
+            return
+        message_obj = getattr(event, "message_obj", None)
+        if message_obj is None:
+            return
+        self_id_getter = getattr(event, "get_self_id", None)
+        sender_id_getter = getattr(event, "get_sender_id", None)
+        if callable(self_id_getter) and callable(sender_id_getter):
+            try:
+                self_id = str(self_id_getter() or "")
+                sender_id = str(sender_id_getter() or "")
+            except Exception:
+                self_id = ""
+                sender_id = ""
+            if self_id and sender_id and self_id == sender_id:
+                return
+        try:
+            ambient_context, has_image = self._ambient_record_from_event(event)
+        except Exception:
+            logger.debug("[Humanize] ambient context build skipped", exc_info=True)
+            return
+        if ambient_context is None:
+            return
+        try:
+            await appender(ambient_context, has_image=has_image)
+        except Exception:
+            logger.debug("[Humanize] ambient record skipped", exc_info=True)
+
+    def _ambient_record_from_event(
+        self, event: AstrMessageEvent
+    ) -> tuple[MessageContext | None, bool]:
+        """Build a cheap group-scope context for the ambient ledger.
+
+        Avoids display-name network lookups so unaddressed chatter stays a
+        local, zero-LLM append.
+
+        Args:
+            event: Incoming group message with a message object.
+
+        Returns:
+            Message metadata and whether the chain carried an image, or
+            ``(None, False)`` when there is nothing to record.
+        """
+        message_getter = getattr(event, "get_message_str", None)
+        user_text = str(message_getter() or "") if callable(message_getter) else ""
+        components = getattr(event.message_obj, "message", ()) or ()
+        has_image = any(type(component).__name__ == "Image" for component in components)
+        if not user_text.strip() and not has_image:
+            return None, False
+        raw_timestamp = getattr(event.message_obj, "timestamp", None)
+        try:
+            occurred_at = datetime.fromtimestamp(float(raw_timestamp), UTC).isoformat(
+                timespec="seconds"
+            )
+        except (TypeError, ValueError, OSError, OverflowError):
+            created_at = getattr(event, "created_at", None)
+            try:
+                occurred_at = datetime.fromtimestamp(float(created_at), UTC).isoformat(
+                    timespec="seconds"
+                )
+            except (TypeError, ValueError, OSError, OverflowError):
+                occurred_at = datetime.now(UTC).isoformat(timespec="seconds")
+        sender_getter = getattr(event, "get_sender_name", None)
+        sender_id_getter = getattr(event, "get_sender_id", None)
+        sender_name = (
+            str(sender_getter() or "").strip() if callable(sender_getter) else ""
+        )
+        sender_id = str(sender_id_getter() or "") if callable(sender_id_getter) else ""
+        return (
+            MessageContext(
+                request_id=uuid.uuid4().hex,
+                scope_type="group",
+                scope_id=event.unified_msg_origin,
+                message_id=self._message_id(event, user_text),
+                sender_id=sender_id,
+                sender_name=sender_name or sender_id or "someone",
+                user_text=user_text,
+                chat_scene="QQ群",
+                admin_name=self._plugin_config.admin_name,
+                admin_ids=self._plugin_config.admin_qq_ids,
+                conversation_id=event.unified_msg_origin,
+                occurred_at=occurred_at,
+            ),
+            has_image,
+        )
+
     @staticmethod
     def _message_id(event: AstrMessageEvent, user_text: str) -> str:
         raw_id = getattr(event.message_obj, "message_id", "")
@@ -3093,6 +3346,43 @@ class HumanizePlugin(Star):
         if response is not None:
             response.result_chain = MessageChain([Plain(text)]) if text else None
             response.completion_text = text
+
+    @staticmethod
+    def _locate_current_user_message(
+        run_context: Any, wrapped_prompt: str
+    ) -> int | None:
+        """Find the current user message by content, falling back to the last one.
+
+        Args:
+            run_context: Agent run context holding the message sequence.
+            wrapped_prompt: Wrapped provider prompt of the current user message.
+
+        Returns:
+            Message index, or ``None`` when no user message exists.
+        """
+        messages = getattr(run_context, "messages", None)
+        if not isinstance(messages, list):
+            return None
+        prompt = str(wrapped_prompt or "").strip()
+        if prompt:
+            for index in range(len(messages) - 1, -1, -1):
+                message = messages[index]
+                if getattr(message, "role", None) != "user":
+                    continue
+                content = getattr(message, "content", None)
+                if content == prompt:
+                    return index
+                if isinstance(content, list):
+                    for part in content:
+                        if (
+                            getattr(part, "type", "") == "text"
+                            and getattr(part, "text", None) == prompt
+                        ):
+                            return index
+        for index in range(len(messages) - 1, -1, -1):
+            if getattr(messages[index], "role", None) == "user":
+                return index
+        return None
 
     @staticmethod
     def _restore_current_user_message(
