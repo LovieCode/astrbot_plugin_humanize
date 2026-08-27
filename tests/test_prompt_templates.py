@@ -7,18 +7,21 @@ from pathlib import Path
 from typing import Any
 
 import pytest
-from humanize.config import PluginConfig
-from humanize.domain.models import MessageContext
-from humanize.domain.prompts import (
+from astrbot_plugin_humanize.humanize.config import PluginConfig
+from astrbot_plugin_humanize.humanize.domain.models import MessageContext
+from astrbot_plugin_humanize.humanize.domain.prompts import (
     DEFAULT_PROTOCOL_TEMPLATE,
     DEFAULT_REPAIR_TEMPLATE,
     LEGACY_PROTOCOL_TEMPLATE,
     LEGACY_REPAIR_TEMPLATE,
     PromptTemplates,
 )
-from humanize.protocol.envelope import EnvelopeBuilder
-from humanize.repositories.sqlite import _SCHEMA_VERSION, SQLiteRepository
-from humanize.web.routes import WebApi
+from astrbot_plugin_humanize.humanize.protocol.envelope import EnvelopeBuilder
+from astrbot_plugin_humanize.humanize.repositories.sqlite import (
+    _SCHEMA_VERSION,
+    SQLiteRepository,
+)
+from astrbot_plugin_humanize.humanize.web.routes import WebApi
 
 
 class _FakeRequest:

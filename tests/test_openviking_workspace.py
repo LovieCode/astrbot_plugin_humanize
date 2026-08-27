@@ -5,9 +5,15 @@ from concurrent.futures import ThreadPoolExecutor
 from pathlib import Path
 
 import pytest
-from humanize.openviking import OpenVikingWorkspace, WorkspacePathError
-from humanize.openviking.workspace import WorkspaceVersionError
-from humanize.vendor.openviking_core import UPSTREAM_COMMIT, UPSTREAM_TAG
+from astrbot_plugin_humanize.humanize.openviking import (
+    OpenVikingWorkspace,
+    WorkspacePathError,
+)
+from astrbot_plugin_humanize.humanize.openviking.workspace import WorkspaceVersionError
+from astrbot_plugin_humanize.humanize.vendor.openviking_core import (
+    UPSTREAM_COMMIT,
+    UPSTREAM_TAG,
+)
 
 
 def test_workspace_initializes_once_with_pinned_manifest(tmp_path: Path) -> None:

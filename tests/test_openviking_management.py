@@ -4,7 +4,7 @@ import json
 from pathlib import Path
 
 import pytest
-from humanize.openviking import (
+from astrbot_plugin_humanize.humanize.openviking import (
     OpenVikingManagementAdapter,
     OpenVikingMemoryAdapter,
     OpenVikingWorkspace,

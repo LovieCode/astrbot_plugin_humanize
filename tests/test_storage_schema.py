@@ -5,7 +5,10 @@ import json
 import sqlite3
 from pathlib import Path
 
-from humanize.repositories.sqlite import _SCHEMA_VERSION, SQLiteRepository
+from astrbot_plugin_humanize.humanize.repositories.sqlite import (
+    _SCHEMA_VERSION,
+    SQLiteRepository,
+)
 
 
 def test_fresh_database_keeps_only_plugin_owned_memory_support_tables(

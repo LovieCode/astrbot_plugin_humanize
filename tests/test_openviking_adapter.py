@@ -5,7 +5,10 @@ from concurrent.futures import ThreadPoolExecutor
 from pathlib import Path
 
 import pytest
-from humanize.openviking import OpenVikingMemoryAdapter, OpenVikingWorkspace
+from astrbot_plugin_humanize.humanize.openviking import (
+    OpenVikingMemoryAdapter,
+    OpenVikingWorkspace,
+)
 
 
 def _payload(*, commit: str = "a", action: str = "Reply") -> dict[str, object]:

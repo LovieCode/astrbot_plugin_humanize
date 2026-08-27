@@ -3,7 +3,7 @@ from __future__ import annotations
 import json
 from pathlib import Path
 
-from humanize.config import PluginConfig
+from astrbot_plugin_humanize.humanize.config import PluginConfig
 
 from astrbot.core.config.astrbot_config import AstrBotConfig
 

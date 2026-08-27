@@ -3,7 +3,7 @@ from __future__ import annotations
 from types import SimpleNamespace
 
 import pytest
-from humanize.openviking import OpenVikingProviderBridge
+from astrbot_plugin_humanize.humanize.openviking import OpenVikingProviderBridge
 
 
 class _ChatProvider:

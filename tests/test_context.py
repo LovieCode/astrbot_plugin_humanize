@@ -7,26 +7,26 @@ from pathlib import Path
 from typing import Any
 
 import pytest
-from humanize.config import PluginConfig
-from humanize.context.composer import ContextComposer
-from humanize.domain.models import (
+from astrbot_plugin_humanize.humanize.config import PluginConfig
+from astrbot_plugin_humanize.humanize.context.composer import ContextComposer
+from astrbot_plugin_humanize.humanize.domain.models import (
     ContextSection,
     JargonStatus,
     KnownTerm,
     MessageContext,
 )
-from humanize.jargon.matcher import JargonMatcher
-from humanize.memory import RecallResult
-from humanize.protocol.envelope import EnvelopeBuilder
-from humanize.protocol.parser import ProtocolParser
-from humanize.repositories.sqlite import (
+from astrbot_plugin_humanize.humanize.jargon.matcher import JargonMatcher
+from astrbot_plugin_humanize.humanize.memory import RecallResult
+from astrbot_plugin_humanize.humanize.protocol.envelope import EnvelopeBuilder
+from astrbot_plugin_humanize.humanize.protocol.parser import ProtocolParser
+from astrbot_plugin_humanize.humanize.repositories.sqlite import (
     _CONTEXT_SCHEMA,
     _SCHEMA,
     _SCHEMA_VERSION,
     SQLiteRepository,
 )
-from humanize.services.humanize import HumanizeService
-from humanize.web.routes import WebApi
+from astrbot_plugin_humanize.humanize.services.humanize import HumanizeService
+from astrbot_plugin_humanize.humanize.web.routes import WebApi
 
 
 def _context(request_id: str = "req-1") -> MessageContext:

@@ -4,12 +4,16 @@ import asyncio
 import sqlite3
 from pathlib import Path
 
-from humanize.config import PluginConfig
-from humanize.domain.models import JargonStatus, KnownSense, KnownTerm
-from humanize.jargon.matcher import JargonMatcher
-from humanize.jargon.normalizer import term_matches
-from humanize.protocol.envelope import EnvelopeBuilder
-from humanize.repositories.sqlite import (
+from astrbot_plugin_humanize.humanize.config import PluginConfig
+from astrbot_plugin_humanize.humanize.domain.models import (
+    JargonStatus,
+    KnownSense,
+    KnownTerm,
+)
+from astrbot_plugin_humanize.humanize.jargon.matcher import JargonMatcher
+from astrbot_plugin_humanize.humanize.jargon.normalizer import term_matches
+from astrbot_plugin_humanize.humanize.protocol.envelope import EnvelopeBuilder
+from astrbot_plugin_humanize.humanize.repositories.sqlite import (
     _CONTEXT_SCHEMA,
     _SCHEMA,
     _SCHEMA_VERSION,

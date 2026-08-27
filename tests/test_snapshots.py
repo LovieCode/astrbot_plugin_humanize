@@ -3,7 +3,7 @@ from __future__ import annotations
 import json
 from dataclasses import dataclass
 
-from humanize.snapshots import (
+from astrbot_plugin_humanize.humanize.snapshots import (
     serialize_attachment_reference,
     serialize_llm_response,
     serialize_provider_request,

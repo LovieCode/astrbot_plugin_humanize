@@ -6,10 +6,14 @@ from pathlib import Path
 from typing import Any
 
 import pytest
-from humanize.config import PluginConfig
-from humanize.domain.models import ContextSection, MessageContext, UnknownTerm
-from humanize.repositories.sqlite import SQLiteRepository
-from humanize.web.routes import WebApi
+from astrbot_plugin_humanize.humanize.config import PluginConfig
+from astrbot_plugin_humanize.humanize.domain.models import (
+    ContextSection,
+    MessageContext,
+    UnknownTerm,
+)
+from astrbot_plugin_humanize.humanize.repositories.sqlite import SQLiteRepository
+from astrbot_plugin_humanize.humanize.web.routes import WebApi
 
 
 class _FakeRequest:

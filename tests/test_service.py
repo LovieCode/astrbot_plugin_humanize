@@ -4,13 +4,13 @@ import asyncio
 from pathlib import Path
 from types import SimpleNamespace
 
-from humanize.config import PluginConfig
-from humanize.domain.models import Action, MessageContext
-from humanize.jargon.matcher import JargonMatcher
-from humanize.protocol.envelope import EnvelopeBuilder
-from humanize.protocol.parser import ProtocolParser
-from humanize.repositories.sqlite import SQLiteRepository
-from humanize.services.humanize import HumanizeService
+from astrbot_plugin_humanize.humanize.config import PluginConfig
+from astrbot_plugin_humanize.humanize.domain.models import Action, MessageContext
+from astrbot_plugin_humanize.humanize.jargon.matcher import JargonMatcher
+from astrbot_plugin_humanize.humanize.protocol.envelope import EnvelopeBuilder
+from astrbot_plugin_humanize.humanize.protocol.parser import ProtocolParser
+from astrbot_plugin_humanize.humanize.repositories.sqlite import SQLiteRepository
+from astrbot_plugin_humanize.humanize.services.humanize import HumanizeService
 
 
 def _context(

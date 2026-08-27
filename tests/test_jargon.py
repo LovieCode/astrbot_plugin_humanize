@@ -1,9 +1,13 @@
 from __future__ import annotations
 
 import pytest
-from humanize.domain.models import JargonStatus, KnownTerm, UnknownTerm
-from humanize.jargon.matcher import JargonMatcher
-from humanize.jargon.normalizer import (
+from astrbot_plugin_humanize.humanize.domain.models import (
+    JargonStatus,
+    KnownTerm,
+    UnknownTerm,
+)
+from astrbot_plugin_humanize.humanize.jargon.matcher import JargonMatcher
+from astrbot_plugin_humanize.humanize.jargon.normalizer import (
     is_valid_candidate,
     normalize_term,
     term_matches,

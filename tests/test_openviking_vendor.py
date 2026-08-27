@@ -4,12 +4,25 @@ import ast
 from datetime import datetime, timezone
 from pathlib import Path
 
-from humanize.vendor.openviking_core import UPSTREAM_COMMIT, UPSTREAM_TAG
-from humanize.vendor.openviking_core.core.namespace import uri_parts
-from humanize.vendor.openviking_core.core.peer_id import safe_peer_id
-from humanize.vendor.openviking_core.message import ImagePart, TextPart, part_from_dict
-from humanize.vendor.openviking_core.retrieve import hotness_score
-from humanize.vendor.openviking_core.session.memory import (
+from astrbot_plugin_humanize.humanize.vendor.openviking_core import (
+    UPSTREAM_COMMIT,
+    UPSTREAM_TAG,
+)
+from astrbot_plugin_humanize.humanize.vendor.openviking_core.core.namespace import (
+    uri_parts,
+)
+from astrbot_plugin_humanize.humanize.vendor.openviking_core.core.peer_id import (
+    safe_peer_id,
+)
+from astrbot_plugin_humanize.humanize.vendor.openviking_core.message import (
+    ImagePart,
+    TextPart,
+    part_from_dict,
+)
+from astrbot_plugin_humanize.humanize.vendor.openviking_core.retrieve import (
+    hotness_score,
+)
+from astrbot_plugin_humanize.humanize.vendor.openviking_core.session.memory import (
     MemoryData,
     MemoryFile,
     WikiLink,

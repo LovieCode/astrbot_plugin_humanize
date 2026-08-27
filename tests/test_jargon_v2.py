@@ -3,8 +3,8 @@ from __future__ import annotations
 import asyncio
 from pathlib import Path
 
-from humanize.domain.models import MessageContext, UnknownTerm
-from humanize.repositories.sqlite import SQLiteRepository
+from astrbot_plugin_humanize.humanize.domain.models import MessageContext, UnknownTerm
+from astrbot_plugin_humanize.humanize.repositories.sqlite import SQLiteRepository
 
 
 def _context(

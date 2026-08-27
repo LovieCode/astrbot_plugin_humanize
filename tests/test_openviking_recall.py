@@ -6,7 +6,7 @@ from pathlib import Path
 from types import SimpleNamespace
 
 import pytest
-from humanize.openviking import (
+from astrbot_plugin_humanize.humanize.openviking import (
     OpenVikingMemoryAdapter,
     OpenVikingRecallAdapter,
     OpenVikingWorkspace,

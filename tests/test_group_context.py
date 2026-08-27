@@ -6,21 +6,22 @@ from pathlib import Path
 from types import SimpleNamespace
 
 import pytest
+from astrbot_plugin_humanize.humanize.config import PluginConfig
+from astrbot_plugin_humanize.humanize.context.window import ContextWindowService
 from astrbot_plugin_humanize.humanize.domain.models import (
-    MessageContext as PluginMessageContext,
+    ImageCache,
+    MessageContext,
+    PreparedRequest,
 )
-from astrbot_plugin_humanize.main import HumanizePlugin
-from humanize.config import PluginConfig
-from humanize.context.window import ContextWindowService
-from humanize.domain.models import ImageCache, MessageContext, PreparedRequest
-from humanize.memory import ChatMemoryService
-from humanize.openviking import (
+from astrbot_plugin_humanize.humanize.memory import ChatMemoryService
+from astrbot_plugin_humanize.humanize.openviking import (
     OpenVikingMemoryAdapter,
     OpenVikingRecallAdapter,
     OpenVikingWorkspace,
 )
-from humanize.protocol.parser import ProtocolParser
-from humanize.repositories.sqlite import SQLiteRepository
+from astrbot_plugin_humanize.humanize.protocol.parser import ProtocolParser
+from astrbot_plugin_humanize.humanize.repositories.sqlite import SQLiteRepository
+from astrbot_plugin_humanize.main import HumanizePlugin
 
 from astrbot.api.provider import ProviderRequest
 
@@ -1107,22 +1108,7 @@ def test_successful_persist_drops_ambient_ledger() -> None:
         plugin = HumanizePlugin(SimpleNamespace(), {})
         plugin._container = SimpleNamespace(context_window=window)
         event = _FakeEvent()
-        # main.py does isinstance(..., MessageContext) against the
-        # astrbot_plugin_humanize import path. The local `_context()` helper
-        # uses `humanize.domain.models`, which is a second module object under
-        # sys.path, so that instance would be silently rejected.
-        context = PluginMessageContext(
-            request_id="req-1",
-            scope_type="group",
-            scope_id="group-1",
-            message_id="msg-1",
-            sender_id="user-1",
-            sender_name="小明",
-            user_text="hi",
-            chat_scene="QQ群",
-            admin_name="管理员",
-            admin_ids=("admin-1",),
-        )
+        context = _context(1, user_text="hi")
         event.set_extra("_humanize_context", context)
         event.set_extra("_humanize_context_window_pending_action", "Reply")
         event.set_extra("_humanize_context_window_pending_messages", ())

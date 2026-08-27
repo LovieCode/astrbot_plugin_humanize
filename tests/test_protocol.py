@@ -3,11 +3,11 @@ from __future__ import annotations
 import json
 
 import pytest
-from humanize.config import PluginConfig
-from humanize.domain.errors import ProtocolValidationError
-from humanize.domain.models import Action, MessageContext
-from humanize.protocol.envelope import EnvelopeBuilder
-from humanize.protocol.parser import ProtocolParser
+from astrbot_plugin_humanize.humanize.config import PluginConfig
+from astrbot_plugin_humanize.humanize.domain.errors import ProtocolValidationError
+from astrbot_plugin_humanize.humanize.domain.models import Action, MessageContext
+from astrbot_plugin_humanize.humanize.protocol.envelope import EnvelopeBuilder
+from astrbot_plugin_humanize.humanize.protocol.parser import ProtocolParser
 
 
 def _response(

@@ -2,20 +2,25 @@ from __future__ import annotations
 
 from datetime import UTC, datetime
 
-from humanize.vendor.openviking_core.message import Message, TextPart
-from humanize.vendor.openviking_core.session.memory import (
+from astrbot_plugin_humanize.humanize.vendor.openviking_core.message import (
+    Message,
+    TextPart,
+)
+from astrbot_plugin_humanize.humanize.vendor.openviking_core.session.memory import (
     MemoryField,
     MemoryFile,
     MemoryTypeSchema,
 )
-from humanize.vendor.openviking_core.session.memory.merge_op import FieldType
-from humanize.vendor.openviking_core.session.memory.utils.memory_file_utils import (
+from astrbot_plugin_humanize.humanize.vendor.openviking_core.session.memory.merge_op import (
+    FieldType,
+)
+from astrbot_plugin_humanize.humanize.vendor.openviking_core.session.memory.utils.memory_file_utils import (
     MemoryFileUtils,
 )
-from humanize.vendor.openviking_core.session.memory.utils.messages import (
+from astrbot_plugin_humanize.humanize.vendor.openviking_core.session.memory.utils.messages import (
     parse_memory_file_with_fields,
 )
-from humanize.vendor.openviking_core.session.memory.utils.uri import (
+from astrbot_plugin_humanize.humanize.vendor.openviking_core.session.memory.utils.uri import (
     generate_uri,
     validate_uri_template,
 )

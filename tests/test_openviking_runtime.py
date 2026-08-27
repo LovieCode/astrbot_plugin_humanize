@@ -5,10 +5,10 @@ from pathlib import Path
 from typing import Any
 
 import pytest
-from humanize.config import PluginConfig
-from humanize.domain.models import MessageContext
-from humanize.memory import ChatMemoryService
-from humanize.openviking import (
+from astrbot_plugin_humanize.humanize.config import PluginConfig
+from astrbot_plugin_humanize.humanize.domain.models import MessageContext
+from astrbot_plugin_humanize.humanize.memory import ChatMemoryService
+from astrbot_plugin_humanize.humanize.openviking import (
     OpenVikingManagementAdapter,
     OpenVikingMemoryAdapter,
     OpenVikingRecallAdapter,

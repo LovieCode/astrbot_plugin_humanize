@@ -1,8 +1,10 @@
 from __future__ import annotations
 
 import pytest
-from humanize.vendor.openviking_core.session.memory import MemoryField
-from humanize.vendor.openviking_core.session.memory.merge_op import (
+from astrbot_plugin_humanize.humanize.vendor.openviking_core.session.memory import (
+    MemoryField,
+)
+from astrbot_plugin_humanize.humanize.vendor.openviking_core.session.memory.merge_op import (
     FieldType,
     ImmutableOp,
     MergeOp,

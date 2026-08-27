@@ -3,8 +3,12 @@ from __future__ import annotations
 from typing import Any
 
 import pytest
-from humanize.openviking.intent import IntentAnalyzer, QueryPlan, TypedQuery
-from humanize.openviking.type_quota import (
+from astrbot_plugin_humanize.humanize.openviking.intent import (
+    IntentAnalyzer,
+    QueryPlan,
+    TypedQuery,
+)
+from astrbot_plugin_humanize.humanize.openviking.type_quota import (
     DEFAULT_QUOTAS,
     ORIGIN_ORDER,
     _extract_event_summary,

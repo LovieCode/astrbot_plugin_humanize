@@ -67,9 +67,9 @@ import json
 from astrbot_sdk import Context, MessageEvent, Star
 from astrbot_sdk.decorators import on_command
 
-from humanize.config import PluginConfig
-from humanize.repositories.sqlite import SQLiteRepository
-from humanize.web.routes import WebApi
+from astrbot_plugin_humanize.humanize.config import PluginConfig
+from astrbot_plugin_humanize.humanize.repositories.sqlite import SQLiteRepository
+from astrbot_plugin_humanize.humanize.web.routes import WebApi
 
 DB_PATH = Path({str(db_path)!r})
 
@@ -199,9 +199,9 @@ class HumanizeWebApiAdapter(Star):
         result["overview_pending_items"] = [i["term"] for i in ov.get("pending_items", [])]
 
         # 8. Record a protocol log + context run, then read protocol_summary.
-        from humanize.domain.models import MessageContext
-        from humanize.domain.models import ContextSection
-        from humanize.repositories.protocol import ProtocolRepository
+        from astrbot_plugin_humanize.humanize.domain.models import MessageContext
+        from astrbot_plugin_humanize.humanize.domain.models import ContextSection
+        from astrbot_plugin_humanize.humanize.repositories.protocol import ProtocolRepository
 
         context = MessageContext(
             request_id="sdk-webapi-run-1",
@@ -304,7 +304,7 @@ class HumanizeWebApiAdapter(Star):
 
 async def _repository(db_path: Path):
     """Open a fresh repository over the shared DB for direct assertions."""
-    from humanize.repositories.sqlite import SQLiteRepository
+    from astrbot_plugin_humanize.humanize.repositories.sqlite import SQLiteRepository
 
     repository = SQLiteRepository(db_path)
     await repository.initialize()
