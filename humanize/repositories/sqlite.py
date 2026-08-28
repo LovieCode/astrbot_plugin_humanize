@@ -9,6 +9,7 @@ from ..domain.prompts import (
     LEGACY_MESSAGES_PROTOCOL_TEMPLATE,
     LEGACY_PROTOCOL_TEMPLATE,
     LEGACY_REPAIR_TEMPLATE,
+    LEGACY_RULE_TEMPLATE,
     LEGACY_VERSIONED_REPAIR_TEMPLATE,
     PromptTemplates,
 )
@@ -370,6 +371,15 @@ class SQLiteRepository(
                         now,
                         LEGACY_VERSIONED_REPAIR_TEMPLATE,
                     ),
+                )
+            if version < 25:
+                # 新版基础规则：距离感表述更明确，并新增口语化要求；
+                # 只替换未修改过的旧默认，自定义模板保留原样。
+                conn.execute(
+                    "UPDATE humanize_prompt_templates "
+                    "SET rule_content = ?, updated_at = ? "
+                    "WHERE rule_content = ?",
+                    (PromptTemplates().rule, now, LEGACY_RULE_TEMPLATE),
                 )
 
         if self._fts_available and version < 18:

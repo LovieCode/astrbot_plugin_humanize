@@ -2,7 +2,7 @@
 
 from __future__ import annotations
 
-_SCHEMA_VERSION = 24
+_SCHEMA_VERSION = 25
 _CONTEXT_PREVIEW_CHARS = 1_000
 _SCHEMA = """
 CREATE TABLE IF NOT EXISTS jargon_entries (

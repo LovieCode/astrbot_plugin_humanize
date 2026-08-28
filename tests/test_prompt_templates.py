@@ -12,8 +12,10 @@ from astrbot_plugin_humanize.humanize.domain.models import MessageContext
 from astrbot_plugin_humanize.humanize.domain.prompts import (
     DEFAULT_PROTOCOL_TEMPLATE,
     DEFAULT_REPAIR_TEMPLATE,
+    DEFAULT_RULE_TEMPLATE,
     LEGACY_PROTOCOL_TEMPLATE,
     LEGACY_REPAIR_TEMPLATE,
+    LEGACY_RULE_TEMPLATE,
     PromptTemplates,
 )
 from astrbot_plugin_humanize.humanize.protocol.envelope import EnvelopeBuilder
@@ -169,8 +171,12 @@ def test_migration_updates_only_unmodified_legacy_protocol_templates(
         with sqlite3.connect(db_path) as connection:
             connection.execute(
                 "UPDATE humanize_prompt_templates "
-                "SET protocol_content = ?, repair_content = ?",
-                (LEGACY_PROTOCOL_TEMPLATE, LEGACY_REPAIR_TEMPLATE),
+                "SET protocol_content = ?, repair_content = ?, rule_content = ?",
+                (
+                    LEGACY_PROTOCOL_TEMPLATE,
+                    LEGACY_REPAIR_TEMPLATE,
+                    LEGACY_RULE_TEMPLATE,
+                ),
             )
             connection.execute("PRAGMA user_version = 21")
             connection.commit()
@@ -183,14 +189,18 @@ def test_migration_updates_only_unmodified_legacy_protocol_templates(
         assert (await upgraded.get_prompt_templates())["templates"][
             "repair"
         ] == DEFAULT_REPAIR_TEMPLATE
+        assert (await upgraded.get_prompt_templates())["templates"][
+            "rule"
+        ] == DEFAULT_RULE_TEMPLATE
 
         custom_protocol = "自定义协议 {{max_chars}}"
         custom_repair = "自定义修复 {{required_action}}"
+        custom_rule = "自定义规则 {{scene}}"
         with sqlite3.connect(db_path) as connection:
             connection.execute(
                 "UPDATE humanize_prompt_templates "
-                "SET protocol_content = ?, repair_content = ?",
-                (custom_protocol, custom_repair),
+                "SET protocol_content = ?, repair_content = ?, rule_content = ?",
+                (custom_protocol, custom_repair, custom_rule),
             )
             connection.execute("PRAGMA user_version = 21")
             connection.commit()
@@ -202,6 +212,9 @@ def test_migration_updates_only_unmodified_legacy_protocol_templates(
         ] == custom_protocol
         assert (await preserved.get_prompt_templates())["templates"]["repair"] == (
             custom_repair
+        )
+        assert (await preserved.get_prompt_templates())["templates"]["rule"] == (
+            custom_rule
         )
 
     asyncio.run(scenario())
