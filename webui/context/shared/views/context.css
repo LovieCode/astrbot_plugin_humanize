@@ -270,6 +270,46 @@
 .raw-reasoning { color: var(--muted); border-left: 2px solid var(--line); padding-left: 10px; margin-bottom: 8px; }
 .raw-reasoning b { color: var(--text-2); }
 
+/* ---------- 完整原始 JSON — 默认折叠 ---------- */
+.raw-body.raw-json.raw-json-collapsed { max-height: 0; overflow: hidden; padding: 0; margin-top: 0; border: none; }
+
+/* ---------- 工具 schema 区块 — 默认折叠 ---------- */
+.raw-tools-block { display: flex; flex-direction: column; gap: 6px; }
+.raw-tools-block.raw-tools-block-collapsed { display: none; }
+
+/* ---------- 图片转述缓存区 ---------- */
+.raw-img-cache {
+  display: flex; align-items: baseline; gap: 10px;
+  padding: 7px 12px; border-radius: var(--r-sm);
+  background: var(--bg); border: 1px solid var(--line);
+  font-size: 11.5px; line-height: 1.6;
+}
+.raw-img-cache-idx {
+  flex-shrink: 0; font-weight: 800; font-family: var(--font-mono);
+  font-size: 10.5px; color: var(--blue); padding: 2px 7px;
+  background: var(--blue-soft); border-radius: var(--r-full);
+}
+.raw-img-cache-text { color: var(--text-2); white-space: pre-wrap; word-break: break-word; flex: 1; min-width: 0; }
+
+/* ---------- 响应序列：每轮独立卡片 ---------- */
+.raw-seq-turn {
+  border: 1px solid var(--line); border-radius: var(--r-md);
+  overflow: hidden; background: var(--card);
+  display: flex; flex-direction: column;
+}
+.raw-seq-turn.failed { border-color: #f0cfcf; }
+.raw-seq-turn.failed .raw-msg-head { background: #fdf5f5; }
+.raw-seq-turn .d-label {
+  font-size: 10.5px; font-weight: 800; color: var(--muted);
+  letter-spacing: 1.5px; padding: 6px 12px 2px; text-transform: none;
+}
+.raw-seq-turn .raw-msg-head {
+  border-bottom: 1px solid var(--line);
+}
+.raw-seq-turn .raw-body { padding: 10px 12px; }
+.raw-seq-turn .tool-call { margin: 4px 10px 6px; }
+.tag-ok { background: var(--green-soft); color: var(--green-text); }
+
 /* ---------- 响应式 ---------- */
 @media (max-width: 860px) {
   .cx-layout { flex-direction: column; }
