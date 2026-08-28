@@ -79,11 +79,11 @@ class PluginConfig:
     message_interval_seconds: float = 0.8
     protocol_enabled: bool = True
     protocol_injection_mode: str = "user"
-    protocol_version: int = 1
     protocol_repair_retry_enabled: bool = True
     protocol_raw_log_chars: int = 4_000
     protocol_log_retention_days: int = 7
     max_unknown_terms: int = 8
+    max_messages_per_reply: int = 5
     no_reply_enabled: bool = True
     jargon_enabled: bool = True
     min_confidence_for_injection: float = 0.75
@@ -97,7 +97,8 @@ class PluginConfig:
     memory_embedding_provider_id: str = ""
     memory_rerank_provider_id: str = ""
     image_transcription_provider_id: str = ""
-    image_transcription_mode: str = "auto"
+    image_cache_enabled: bool = True
+    image_cache_max_entries: int = 100
     memory_identity_secret_env: str = "HUMANIZE_MEMORY_SECRET"
     memory_recall_timeout_seconds: float = 1.5
     memory_auto_activate_confidence: float = 0.88
@@ -143,7 +144,6 @@ class PluginConfig:
             ),
             protocol_enabled=_as_bool(data.get("protocol_enabled"), True),
             protocol_injection_mode=protocol_injection_mode,
-            protocol_version=_as_int(data.get("protocol_version"), 1, 1, 99),
             protocol_repair_retry_enabled=_as_bool(
                 data.get("protocol_repair_retry_enabled"), True
             ),
@@ -154,6 +154,9 @@ class PluginConfig:
                 data.get("protocol_log_retention_days"), 7, 1, 365
             ),
             max_unknown_terms=_as_int(data.get("max_unknown_terms"), 8, 0, 50),
+            max_messages_per_reply=_as_int(
+                data.get("max_messages_per_reply"), 5, 1, 20
+            ),
             no_reply_enabled=_as_bool(data.get("no_reply_enabled"), True),
             jargon_enabled=_as_bool(data.get("jargon_enabled"), True),
             min_confidence_for_injection=_as_float(
@@ -183,10 +186,9 @@ class PluginConfig:
             image_transcription_provider_id=_as_provider_id(
                 data.get("image_transcription_provider_id")
             ),
-            image_transcription_mode=_as_choice(
-                data.get("image_transcription_mode"),
-                ("off", "auto", "tool"),
-                "auto",
+            image_cache_enabled=_as_bool(data.get("image_cache_enabled"), True),
+            image_cache_max_entries=_as_int(
+                data.get("image_cache_max_entries"), 100, 1, 10_000
             ),
             memory_identity_secret_env=_as_identifier(
                 data.get("memory_identity_secret_env"), "HUMANIZE_MEMORY_SECRET"
@@ -251,9 +253,9 @@ class PluginConfig:
             "message_interval_seconds": self.message_interval_seconds,
             "protocol_enabled": self.protocol_enabled,
             "protocol_injection_mode": self.protocol_injection_mode,
-            "protocol_version": self.protocol_version,
             "protocol_repair_retry_enabled": self.protocol_repair_retry_enabled,
             "protocol_log_retention_days": self.protocol_log_retention_days,
+            "max_messages_per_reply": self.max_messages_per_reply,
             "no_reply_enabled": self.no_reply_enabled,
             "jargon_enabled": self.jargon_enabled,
             "min_confidence_for_injection": self.min_confidence_for_injection,
@@ -264,7 +266,8 @@ class PluginConfig:
             "memory_embedding_provider_id": self.memory_embedding_provider_id,
             "memory_rerank_provider_id": self.memory_rerank_provider_id,
             "image_transcription_provider_id": self.image_transcription_provider_id,
-            "image_transcription_mode": self.image_transcription_mode,
+            "image_cache_enabled": self.image_cache_enabled,
+            "image_cache_max_entries": self.image_cache_max_entries,
             "memory_identity_secret_env": self.memory_identity_secret_env,
             "memory_recall_timeout_seconds": self.memory_recall_timeout_seconds,
             "memory_auto_activate_confidence": (self.memory_auto_activate_confidence),

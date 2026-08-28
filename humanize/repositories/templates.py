@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import json
+import logging
 import sqlite3
 from typing import Any
 
@@ -10,6 +11,34 @@ from ..domain.prompts import PromptTemplates
 from .base import _json_value, _now
 
 __all__ = ["PromptTemplateRepository"]
+
+logger = logging.getLogger("astrbot")
+
+
+def _stored_templates(row: sqlite3.Row) -> PromptTemplates:
+    """Parse stored templates, falling back to defaults when incompatible.
+
+    Old databases may hold templates referencing variables that no longer
+    exist (e.g. ``{{version}}``). Validation stays strict for writes; loads
+    degrade to the built-in defaults instead of failing plugin startup.
+    """
+    try:
+        return PromptTemplates.from_mapping(
+            {
+                "rule": row["rule_content"],
+                "protocol": row["protocol_content"],
+                "repair": row["repair_content"],
+                "memory_extraction": row["memory_extraction_content"],
+                "reply_examples": row["reply_examples_content"],
+            }
+        )
+    except ValueError as exc:
+        logger.warning(
+            "[Humanize] stored prompt templates are invalid (%s); "
+            "using built-in defaults",
+            exc,
+        )
+        return PromptTemplates()
 
 
 class PromptTemplateRepository:
@@ -33,15 +62,7 @@ class PromptTemplateRepository:
             ).fetchone()
             if row is None:
                 raise RuntimeError("missing prompt template defaults")
-            templates = PromptTemplates.from_mapping(
-                {
-                    "rule": row["rule_content"],
-                    "protocol": row["protocol_content"],
-                    "repair": row["repair_content"],
-                    "memory_extraction": row["memory_extraction_content"],
-                    "reply_examples": row["reply_examples_content"],
-                }
-            )
+            templates = _stored_templates(row)
             return {
                 "templates": templates.as_dict(),
                 "updated_at": str(row["updated_at"]),
@@ -85,15 +106,7 @@ class PromptTemplateRepository:
             ).fetchone()
             if row is None:
                 raise RuntimeError("missing prompt template defaults")
-            current = PromptTemplates.from_mapping(
-                {
-                    "rule": row["rule_content"],
-                    "protocol": row["protocol_content"],
-                    "repair": row["repair_content"],
-                    "memory_extraction": row["memory_extraction_content"],
-                    "reply_examples": row["reply_examples_content"],
-                }
-            )
+            current = _stored_templates(row)
             updated = PromptTemplates.from_mapping(value, base=current)
             now = _now()
             conn.execute("BEGIN IMMEDIATE")

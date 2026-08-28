@@ -1638,11 +1638,10 @@ def test_request_appends_full_protocol_after_known_terms() -> None:
         ]
         contract = request.extra_user_content_parts[-1].text
         assert contract.startswith("<Rule>")
-        assert contract.count("回复控制协议 v1") == 1
-        assert "本块为已知信息" in contract
+        assert contract.count("<Protocol>") == 1
+        assert contract.count("</Protocol>") == 1
         assert "不符合要求的内容将发送失败" in contract
         assert "<Action>Reply</Action>" in contract
-        assert "即使只有一条消息，也必须使用Messages标签" in contract
         assert "不在<Message>标签中的内容将不会发送给用户" in contract
         assert '"confidence":0.86' in contract
 
@@ -1673,7 +1672,7 @@ def test_both_injection_mode_keeps_user_protocol_and_system_copy() -> None:
         injected = request.extra_user_content_parts[-1].text
         assert request.system_prompt == f"persona\n\n{injected}"
         assert injected.startswith("<Rule>")
-        assert "回复控制协议 v1" in injected
+        assert "<Protocol>" in injected
 
     asyncio.run(scenario())
 

@@ -70,7 +70,7 @@ def test_prompt_templates_persist_with_dedicated_audit(tmp_path: Path) -> None:
         await repository.initialize()
 
         defaults = await repository.get_prompt_templates()
-        custom = '协议 v{{version}}\n长度 {{max_chars}}\n{"word":"JSON 保持不变"}'
+        custom = '协议 自定义\n长度 {{max_chars}}\n{"word":"JSON 保持不变"}'
         updated = await repository.update_prompt_templates(
             {"protocol": custom}, reason="edit protocol template"
         )
@@ -128,14 +128,14 @@ def test_envelope_renders_only_declared_double_brace_variables() -> None:
         {
             "rule": "<Rule>{{scene}}|{{admin_name}}|{{admin_ids}}<Rule/>",
             "protocol": (
-                "v{{version}}/{{max_chars}} "
+                "长度 {{max_chars}} "
                 "<UnknownTerms>["
                 '{"word":"x","guess":"y","confidence":1,"reason":"z"}'
                 "]</UnknownTerms>"
             ),
-            "repair": "<Action>{{required_action}}</Action> v{{version}}",
+            "repair": "<Action>{{required_action}}</Action>",
             "memory_extraction": "只输出 JSON 数组",
-            "reply_examples": "<ReplyExamples>{{examples}}</ReplyExamples>",
+            "reply_examples": "<Examples>{{examples}}</Examples>",
         }
     )
     builder = EnvelopeBuilder(PluginConfig(max_message_chars=10), templates)
@@ -149,21 +149,13 @@ def test_envelope_renders_only_declared_double_brace_variables() -> None:
     )
 
     assert "<Rule>QQ群聊天|管理员|10001<Rule/>" in prompt
-    assert "v1/10" in prompt
+    assert "长度 10" in prompt
     assert '{"word":"x","guess":"y","confidence":1,"reason":"z"}' in prompt
-    assert repair == "<Action>Reply</Action> v1"
+    assert repair == "<Action>Reply</Action>"
     assert templates.render("memory_extraction", {}) == "只输出 JSON 数组"
     assert templates.render("reply_examples", {"examples": "<Example />"}) == (
-        "<ReplyExamples><Example /></ReplyExamples>"
+        "<Examples><Example /></Examples>"
     )
-
-
-def test_default_protocol_template_covers_messages_and_terms() -> None:
-    assert "即使只有一条消息，也必须使用Messages标签" in DEFAULT_PROTOCOL_TEMPLATE
-    assert "不在<Message>标签中的内容将不会发送给用户" in DEFAULT_PROTOCOL_TEMPLATE
-    assert "看不到图片内容时不要谈论图片" in DEFAULT_PROTOCOL_TEMPLATE
-    assert "Message标签中的标签不会被解析" in DEFAULT_PROTOCOL_TEMPLATE
-    assert "不具有普适性的内容必须说明适用范围" in DEFAULT_REPAIR_TEMPLATE
 
 
 def test_migration_updates_only_unmodified_legacy_protocol_templates(
@@ -192,8 +184,8 @@ def test_migration_updates_only_unmodified_legacy_protocol_templates(
             "repair"
         ] == DEFAULT_REPAIR_TEMPLATE
 
-        custom_protocol = "自定义协议 {{version}}/{{max_chars}}"
-        custom_repair = "自定义修复 {{version}}/{{required_action}}"
+        custom_protocol = "自定义协议 {{max_chars}}"
+        custom_repair = "自定义修复 {{required_action}}"
         with sqlite3.connect(db_path) as connection:
             connection.execute(
                 "UPDATE humanize_prompt_templates "
@@ -251,11 +243,11 @@ def test_web_api_supports_get_save_bulk_update_and_reset(
             "memory_extraction",
             "reply_examples",
         ]
-        assert "{{version}}" in data["items"][1]["variables"]
+        assert "{{max_chars}}" in data["items"][1]["variables"]
         assert data["items"][3]["variables"] == []
         assert data["items"][4]["required_variables"] == ["{{examples}}"]
 
-        custom_protocol = 'CUSTOM {{version}}/{{max_chars}} {"json":true}'
+        custom_protocol = 'CUSTOM {{max_chars}} 自定义 {"json":true}'
         monkeypatch.setattr(
             astrbot_web,
             "request",
@@ -271,7 +263,9 @@ def test_web_api_supports_get_save_bulk_update_and_reset(
         saved = _payload(await api.dispatch("prompt-templates"))["data"]
         assert saved["item"]["content"] == custom_protocol
         assert saved["updated"] == ["protocol"]
-        assert 'CUSTOM 1/10 {"json":true}' in envelope.build_protocol_prompt(_context())
+        assert 'CUSTOM 10 自定义 {"json":true}' in envelope.build_protocol_prompt(
+            _context()
+        )
 
         monkeypatch.setattr(
             astrbot_web,
@@ -300,6 +294,7 @@ def test_web_api_supports_get_save_bulk_update_and_reset(
         )
         reset = _payload(await api.dispatch("prompt-templates"))["data"]
         assert reset["reset"] == ["protocol"]
-        assert "回复控制协议 v1" in envelope.build_protocol_prompt(_context())
+        assert "<Protocol>" in envelope.build_protocol_prompt(_context())
+        assert "</Protocol>" in envelope.build_protocol_prompt(_context())
 
     asyncio.run(scenario())

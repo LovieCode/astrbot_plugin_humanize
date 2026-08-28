@@ -2,7 +2,7 @@
 
 from __future__ import annotations
 
-_SCHEMA_VERSION = 23
+_SCHEMA_VERSION = 24
 _CONTEXT_PREVIEW_CHARS = 1_000
 _SCHEMA = """
 CREATE TABLE IF NOT EXISTS jargon_entries (
@@ -84,11 +84,24 @@ CREATE TABLE IF NOT EXISTS protocol_logs (
     raw_output_snapshot TEXT NOT NULL DEFAULT '',
     raw_snapshot_complete INTEGER NOT NULL DEFAULT 0,
     messages_json TEXT NOT NULL DEFAULT '[]',
+    no_reply_reason TEXT NOT NULL DEFAULT '',
     response_snapshot_json TEXT NOT NULL DEFAULT '{}',
     response_snapshot_complete INTEGER NOT NULL DEFAULT 0,
     model TEXT NOT NULL,
     duration_ms INTEGER NOT NULL,
     created_at TEXT NOT NULL
+);
+
+CREATE TABLE IF NOT EXISTS humanize_image_cache (
+    id INTEGER PRIMARY KEY AUTOINCREMENT,
+    file_hash TEXT NOT NULL UNIQUE,
+    file_path TEXT NOT NULL,
+    message_id TEXT NOT NULL DEFAULT '',
+    scope_type TEXT NOT NULL DEFAULT '',
+    scope_id TEXT NOT NULL DEFAULT '',
+    file_size INTEGER NOT NULL DEFAULT 0,
+    created_at TEXT NOT NULL,
+    last_hit_at TEXT NOT NULL
 );
 
 CREATE INDEX IF NOT EXISTS idx_jargon_entries_scope

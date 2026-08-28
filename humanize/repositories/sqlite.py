@@ -6,8 +6,10 @@ from pathlib import Path
 from typing import Any, TypeVar
 
 from ..domain.prompts import (
+    LEGACY_MESSAGES_PROTOCOL_TEMPLATE,
     LEGACY_PROTOCOL_TEMPLATE,
     LEGACY_REPAIR_TEMPLATE,
+    LEGACY_VERSIONED_REPAIR_TEMPLATE,
     PromptTemplates,
 )
 from ..jargon.normalizer import normalize_term
@@ -17,6 +19,7 @@ from .base import (
 )
 from .context import ContextRepository
 from .embeddings import EmbeddingsRepository
+from .image_cache import ImageCacheRepository
 from .jargon import JargonRepository
 from .memory_jobs import MemoryJobsRepository
 from .migrations import (
@@ -45,6 +48,7 @@ class SQLiteRepository(
     SQLiteRepositoryBase,
     ContextRepository,
     EmbeddingsRepository,
+    ImageCacheRepository,
     JargonRepository,
     MemoryJobsRepository,
     ObservabilityRepository,
@@ -145,6 +149,7 @@ class SQLiteRepository(
             ("protocol_logs", "raw_snapshot_complete", "INTEGER NOT NULL DEFAULT 0"),
             ("protocol_logs", "messages_json", "TEXT NOT NULL DEFAULT '[]'"),
             ("protocol_logs", "response_snapshot_json", "TEXT NOT NULL DEFAULT '{}'"),
+            ("protocol_logs", "no_reply_reason", "TEXT NOT NULL DEFAULT ''"),
             (
                 "protocol_logs",
                 "response_snapshot_complete",
@@ -342,6 +347,29 @@ class SQLiteRepository(
                     "SET repair_content = ?, updated_at = ? "
                     "WHERE repair_content = ?",
                     (PromptTemplates().repair, now, LEGACY_REPAIR_TEMPLATE),
+                )
+            if version < 24:
+                # 新版协议：去掉版本号、<Messages> 必填、No Reply 写原因；
+                # 只替换未修改过的旧默认，自定义模板保留原样。
+                conn.execute(
+                    "UPDATE humanize_prompt_templates "
+                    "SET protocol_content = ?, updated_at = ? "
+                    "WHERE protocol_content = ?",
+                    (
+                        PromptTemplates().protocol,
+                        now,
+                        LEGACY_MESSAGES_PROTOCOL_TEMPLATE,
+                    ),
+                )
+                conn.execute(
+                    "UPDATE humanize_prompt_templates "
+                    "SET repair_content = ?, updated_at = ? "
+                    "WHERE repair_content = ?",
+                    (
+                        PromptTemplates().repair,
+                        now,
+                        LEGACY_VERSIONED_REPAIR_TEMPLATE,
+                    ),
                 )
 
         if self._fts_available and version < 18:

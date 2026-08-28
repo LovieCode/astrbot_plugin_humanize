@@ -27,6 +27,7 @@ class ProtocolRepository:
         failure_detail: str,
         raw_output: str,
         messages: Sequence[str] = (),
+        no_reply_reason: str = "",
         response_snapshot: dict[str, Any] | None = None,
         response_snapshot_complete: bool = False,
         model: str,
@@ -42,9 +43,10 @@ class ProtocolRepository:
                     request_id, scope_type, scope_id, message_id, sender_id,
                     success, action, failure_code, failure_detail, raw_output,
                     raw_output_snapshot, raw_snapshot_complete, messages_json,
+                    no_reply_reason,
                     response_snapshot_json, response_snapshot_complete, model,
                     duration_ms, stage, created_at
-                ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+                ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
                 """,
                 (
                     context.request_id,
@@ -60,6 +62,7 @@ class ProtocolRepository:
                     raw_output,
                     1,
                     json.dumps(tuple(messages), ensure_ascii=False),
+                    str(no_reply_reason or "")[:500],
                     json.dumps(
                         response_snapshot or {},
                         ensure_ascii=False,
@@ -131,6 +134,7 @@ class ProtocolRepository:
         failure_code: str = "",
         failure_detail: str = "",
         messages: Sequence[str] = (),
+        no_reply_reason: str = "",
         response_snapshot: dict[str, Any] | None = None,
         response_snapshot_complete: bool | None = None,
         stage: str = "final",
@@ -286,9 +290,10 @@ class ProtocolRepository:
                             request_id, scope_type, scope_id, message_id, sender_id,
                             success, action, failure_code, failure_detail, raw_output,
                             raw_output_snapshot, raw_snapshot_complete, messages_json,
+                            no_reply_reason,
                             response_snapshot_json, response_snapshot_complete, model,
                             duration_ms, stage, created_at
-                        ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, 1, ?, ?, ?, ?, ?, ?, ?)
+                        ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, 1, ?, ?, ?, ?, ?, ?, ?, ?)
                         """,
                         (
                             context.request_id,
@@ -303,6 +308,7 @@ class ProtocolRepository:
                             str(raw_output or "")[: self._raw_log_chars],
                             str(raw_output or ""),
                             _json_text(delivered, "[]"),
+                            str(no_reply_reason or "")[:500],
                             snapshot_json,
                             int(snapshot_complete),
                             str(model or ""),

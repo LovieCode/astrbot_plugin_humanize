@@ -256,7 +256,7 @@ def test_reply_example_crud_recall_and_never_direct_output(tmp_path: Path) -> No
         assert int(wrong_agent["id"]) not in {int(item["id"]) for item in search}
         assert recalled.included is True
         assert recalled.source_refs == (f"example:{approved['id']}",)
-        assert recalled.content.startswith("<ReplyExamples>")
+        assert recalled.content.startswith("<Examples>")
         assert "不要照抄" in recalled.content
         assert "<Example" in recalled.content
         assert "<IdealReply>" in recalled.content

@@ -80,6 +80,8 @@ class ProtocolDecision:
     messages: tuple[str, ...]
     unknown_terms: tuple[UnknownTerm, ...]
     image_cache: tuple[ImageCache, ...] = ()
+    no_reply_reason: str = ""
+    messages_over_limit: bool = False
 
 
 @dataclass(frozen=True, slots=True)
@@ -155,5 +157,7 @@ class FinalOutcome:
     messages: tuple[str, ...] = ()
     unknown_terms: tuple[UnknownTerm, ...] = ()
     image_cache: tuple[ImageCache, ...] = ()
+    no_reply_reason: str = ""
+    messages_over_limit: bool = False
     error_code: str = ""
     error_detail: str = ""

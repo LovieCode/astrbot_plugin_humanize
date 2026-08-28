@@ -94,7 +94,18 @@
         "condition": {
           "protocol_enabled": true
         },
-        "hint": "允许 LLM 在不适合插话时主动选择不回复。"
+        "hint": "允许 LLM 在不适合插话时选择 No Reply；不回复原因会记录在上下文追踪页。"
+      },
+      "max_messages_per_reply": {
+        "description": "单次回复消息条数上限",
+        "type": "int",
+        "default": 5,
+        "minimum": 1,
+        "maximum": 20,
+        "condition": {
+          "protocol_enabled": true
+        },
+        "hint": "一次回复最多拆成多少条 Message 发送；超出时只保留前 N 条并记录日志。"
       },
       "jargon_enabled": {
         "description": "启用黑话学习",
@@ -492,16 +503,27 @@
         "_special": "select_provider",
         "condition": {},
         "collapsed": true,
-        "hint": "可选。选择多模态 LLM 后用于图片转述；未设置时使用 [图片] 占位。"
+        "hint": "可选。多模态主模型直读原图；非多模态模型用它转述图片，聊天模型可随时按路径调用读图工具。"
       },
-      "image_transcription_mode": {
-        "description": "图片转述模式",
-        "type": "string",
-        "default": "auto",
-        "options": ["auto", "tool", "off"],
+      "image_cache_enabled": {
+        "description": "启用图片缓存",
+        "type": "bool",
+        "default": true,
         "condition": {},
         "collapsed": true,
-        "hint": "auto：每条带图消息到达即自动转述（历史也有描述，消耗较多）；tool：不主动转述，仅向 LLM 注入转述工具按需调用（省消耗，历史图片为占位）；off：关闭转述。"
+        "hint": "拦截收到的图片保存到插件数据目录，供后续轮次按路径重读与追踪展示。"
+      },
+      "image_cache_max_entries": {
+        "description": "图片缓存上限",
+        "type": "int",
+        "default": 100,
+        "minimum": 1,
+        "maximum": 10000,
+        "condition": {
+          "image_cache_enabled": true
+        },
+        "collapsed": true,
+        "hint": "缓存最多保存多少张图片，超出后按最久未使用清理。"
       }
     }
   }

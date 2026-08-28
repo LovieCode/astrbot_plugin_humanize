@@ -144,10 +144,11 @@ def test_image_cache_before_messages() -> None:
 def test_messages_required_for_outbound_text() -> None:
     raw = "<Action>Reply</Action>\n<UnknownTerms>[]</UnknownTerms>\n裸文本不在Message里"
 
-    decision = ProtocolParser(PluginConfig()).parse(raw)
+    with pytest.raises(ProtocolValidationError) as error:
+        ProtocolParser(PluginConfig()).parse(raw)
 
-    # 新语义：不在 Message 中的内容不发送
-    assert decision.messages == ()
+    # 新协议：Messages 必填；缺失走修复流（修复时把裸文本包进一条 Message）
+    assert error.value.code == "missing_messages"
 
 
 def test_messages_multiple_children() -> None:
@@ -223,17 +224,33 @@ def test_empty_messages_are_skipped() -> None:
     assert decision.messages == ("有内容",)
 
 
-def test_no_reply_with_body_is_rejected() -> None:
+def test_no_reply_messages_become_reason() -> None:
     raw = (
         "<Action>No Reply</Action>\n"
         "<UnknownTerms>[]</UnknownTerms>\n"
-        "<Messages><Message>不应发送</Message></Messages>"
+        "<Messages><Message>当前话题不适合插话</Message></Messages>"
     )
 
-    with pytest.raises(ProtocolValidationError) as error:
-        ProtocolParser(PluginConfig()).parse(raw)
+    decision = ProtocolParser(PluginConfig()).parse(raw)
 
-    assert error.value.code == "no_reply_has_text"
+    # 新协议：No Reply 时 <Messages> 写不回复原因，仅入日志与追踪展示
+    assert decision.messages == ()
+    assert decision.no_reply_reason == "当前话题不适合插话"
+
+
+def test_reply_messages_over_limit_are_truncated() -> None:
+    raw = (
+        "<Action>Reply</Action>\n"
+        "<UnknownTerms>[]</UnknownTerms>\n"
+        "<Messages>"
+        + "".join(f"<Message>m{i}</Message>" for i in range(1, 8))
+        + "</Messages>"
+    )
+
+    decision = ProtocolParser(PluginConfig(max_messages_per_reply=5)).parse(raw)
+
+    assert len(decision.messages) == 5
+    assert decision.messages_over_limit is True
 
 
 def test_repair_compose_keeps_original_body() -> None:

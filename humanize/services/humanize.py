@@ -221,6 +221,7 @@ class HumanizeService:
                 action=decision.action.value,
                 raw_output=raw_output,
                 messages=messages,
+                no_reply_reason=decision.no_reply_reason,
                 response_snapshot=response_snapshot,
                 response_snapshot_complete=response_snapshot_complete,
                 model=model,
@@ -234,6 +235,8 @@ class HumanizeService:
             messages=messages,
             unknown_terms=unknown_terms,
             image_cache=decision.image_cache,
+            no_reply_reason=decision.no_reply_reason,
+            messages_over_limit=decision.messages_over_limit,
         )
 
     async def record_protocol_success(
@@ -243,6 +246,7 @@ class HumanizeService:
         action: str,
         raw_output: str,
         messages: Sequence[str] = (),
+        no_reply_reason: str = "",
         response_snapshot: dict[str, Any] | None = None,
         response_snapshot_complete: bool = False,
         model: str,
@@ -278,6 +282,7 @@ class HumanizeService:
             failure_detail="",
             raw_output=raw_output,
             messages=tuple(str(message) for message in messages),
+            no_reply_reason=str(no_reply_reason or ""),
             response_snapshot=response_snapshot,
             response_snapshot_complete=response_snapshot_complete,
             model=model,

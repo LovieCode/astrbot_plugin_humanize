@@ -72,12 +72,11 @@ class EnvelopeBuilder:
         protocol = self._templates.render(
             "protocol",
             {
-                "version": self._config.protocol_version,
                 "max_chars": self._config.max_message_chars,
             },
         )
         parts.append(protocol)
-        # 模板已包含 ImageCache 说明（纯文本转述）；无需附加旧格式说明
+        # 图片转述由系统在 <Msg> 内联注入（含缓存路径）；模型不再输出 ImageCache 标签
         return "\n\n".join(parts)
 
     def build_protocol_repair_request(
@@ -108,7 +107,6 @@ class EnvelopeBuilder:
             self._templates.render(
                 "repair",
                 {
-                    "version": self._config.protocol_version,
                     "required_action": required_action,
                 },
             ),

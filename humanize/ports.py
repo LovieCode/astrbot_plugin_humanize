@@ -57,6 +57,7 @@ class RepositoryPort(Protocol):
         failure_detail: str,
         raw_output: str,
         messages: Sequence[str] = (),
+        no_reply_reason: str = "",
         response_snapshot: dict[str, Any] | None = None,
         response_snapshot_complete: bool = False,
         model: str,

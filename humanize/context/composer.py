@@ -199,7 +199,9 @@ class ContextComposer:
                 applied_tokens=memory_tokens if memory_recall.included else 0,
                 item_count=memory_recall.item_count,
                 reason=memory_recall.reason,
-                content=memory_recall.content,
+                content=self._wrap_memory(memory_recall.content)
+                if memory_recall.included
+                else memory_recall.content,
             )
         )
         sections.append(
@@ -227,7 +229,7 @@ class ContextComposer:
                 priority=90,
                 source_type="protocol",
                 source_refs=(
-                    f"protocol:v{self._config.protocol_version}",
+                    "response_protocol",
                     f"default_rule:{int(self._config.default_rule_enabled)}",
                 ),
                 targets=protocol_targets,
@@ -248,6 +250,24 @@ class ContextComposer:
             matched_terms=selected,
             sections=tuple(sections),
         )
+
+    def _wrap_memory(self, content: str) -> str:
+        """Wrap recalled memory content in the protocol's <Memory> tag.
+
+        Numbered plain lines are kept as-is; only the tag wrapper is added so
+        the injected block matches the protocol's input spec.
+
+        Args:
+            content: Raw recalled memory text (possibly empty).
+
+        Returns:
+            Tag-wrapped memory block, or the original content when empty or
+            already wrapped.
+        """
+        text = (content or "").strip()
+        if not text or text.startswith("<Memory>"):
+            return content
+        return f"<Memory>\n{text}\n</Memory>"
 
     def _count_tokens(self, content: str) -> int:
         """Estimate text tokens through AstrBot's public counter interface.

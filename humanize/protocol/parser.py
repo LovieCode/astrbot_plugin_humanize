@@ -73,17 +73,27 @@ class ProtocolParser:
         messages = self._extract_messages(raw)
 
         if action is Action.REPLY and not messages:
-            # 协议提示词要求 Reply 必须带 Messages；解析器宽容：没有消息就不发送。
-            pass
+            # 新协议要求 Reply 必填 <Messages>；缺失视为格式错误走修复流。
+            raise ProtocolValidationError(
+                "missing_messages",
+                "Reply requires at least one <Message> in a <Messages> block",
+            )
+        over_limit = False
+        if (
+            action is Action.REPLY
+            and len(messages) > self._config.max_messages_per_reply
+        ):
+            # 超限不硬失败：保留前 N 条发送，协议日志可解释。
+            messages = messages[: self._config.max_messages_per_reply]
+            over_limit = True
+        no_reply_reason = ""
         if action is Action.NO_REPLY:
             if not self._config.no_reply_enabled:
                 raise ProtocolValidationError(
                     "no_reply_disabled", "No Reply is disabled by plugin configuration"
                 )
-            if messages:
-                raise ProtocolValidationError(
-                    "no_reply_has_text", "No Reply requires an empty response body"
-                )
+            # 新协议：No Reply 时 <Messages> 写不回复原因，仅供日志与追踪展示。
+            no_reply_reason = "\n".join(messages)[:500].strip()
             messages = ()
 
         return ProtocolDecision(
@@ -91,6 +101,8 @@ class ProtocolParser:
             messages=messages if action is Action.REPLY else (),
             unknown_terms=unknown_terms,
             image_cache=image_cache,
+            no_reply_reason=no_reply_reason,
+            messages_over_limit=over_limit,
         )
 
     # ---------- 标签提取（位置不限、可缺省） ----------
@@ -343,6 +355,37 @@ class ProtocolParser:
             action_match.group(0),
             unknown_line,
         ]
-        if original_body.strip():
-            lines.append(original_body.strip())
+        body = original_body.strip()
+        if body:
+            lines.append(ProtocolParser._normalize_repair_body(body))
         return "\n".join(lines)
+
+    @staticmethod
+    def _normalize_repair_body(body: str) -> str:
+        """Shape a preserved body into the required output contract.
+
+        ImageCache tags are internal: re-emit them outside the visible messages.
+        A body without any Messages/Reply container is plain text (the common
+        missing-wrapper failure) and gets wrapped into a single Message.
+
+        Args:
+            body: Untouched original body extracted before the repair call.
+
+        Returns:
+            Body text satisfying the parser's message extraction.
+        """
+        cache_lines: list[str] = []
+
+        def _collect(match: re.Match[str]) -> str:
+            cache_lines.append(match.group(0))
+            return ""
+
+        body = _IMAGECACHE_TAG_RE.sub(_collect, body).strip()
+        if not body:
+            return "\n".join(cache_lines)
+        has_container = _MESSAGES_TAG_RE.search(body) or _REPLY_BLOCK_TAG_RE.search(
+            body
+        )
+        if has_container is None:
+            body = f"<Messages>\n<Message>{body}</Message>\n</Messages>"
+        return "\n".join([body, *cache_lines] if cache_lines else [body])

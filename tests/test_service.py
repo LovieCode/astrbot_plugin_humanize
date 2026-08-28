@@ -64,7 +64,7 @@ def test_first_learning_is_injected_only_on_next_matching_scope(tmp_path: Path) 
             "<Action>Reply</Action>\n"
             '<UnknownTerms>[{"word":"yyds","guess":"永远的神，用于强烈称赞",'
             '"confidence":0.92,"reason":"用户用它评价一次很强的操作"}]</UnknownTerms>\n'
-            "确实很强"
+            "<Messages><Message>确实很强</Message></Messages>"
         )
         outcome = await service.process_final_response(
             first_context, raw, model="test-model", duration_ms=20
@@ -258,7 +258,10 @@ def test_service_can_defer_valid_success_until_dispatch(tmp_path: Path) -> None:
             message_id="msg-deferred-success",
             user_text="测试",
         )
-        raw = "<Action>Reply</Action>\n<UnknownTerms>[]</UnknownTerms>\n收到"
+        raw = (
+            "<Action>Reply</Action>\n<UnknownTerms>[]</UnknownTerms>\n"
+            "<Messages><Message>收到</Message></Messages>"
+        )
 
         outcome = await service.process_final_response(
             context,
@@ -314,7 +317,7 @@ def test_failed_attempt_does_not_learn_before_one_valid_repair(tmp_path: Path) -
             (
                 "<Action>Reply</Action>\n"
                 f"<UnknownTerms>{unknown_terms}</UnknownTerms>\n"
-                "原正文"
+                "<Messages><Message>原正文</Message></Messages>"
             ),
             model="test-model",
             duration_ms=8,
