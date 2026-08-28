@@ -399,6 +399,7 @@ class ContextRepository:
                        fp.failure_code AS protocol_failure_code,
                        fp.duration_ms AS protocol_duration_ms,
                        fp.model AS protocol_model,
+                       fp.no_reply_reason AS protocol_no_reply_reason,
                        mp.content_preview AS message_preview
                 FROM humanize_context_runs r
                 LEFT JOIN (
@@ -428,6 +429,7 @@ class ContextRepository:
                         "failure_code": item["protocol_failure_code"],
                         "duration_ms": int(item["protocol_duration_ms"] or 0),
                         "model": item["protocol_model"],
+                        "no_reply_reason": item["protocol_no_reply_reason"] or "",
                     }
                 for column in (
                     "protocol_success",
@@ -435,6 +437,7 @@ class ContextRepository:
                     "protocol_failure_code",
                     "protocol_duration_ms",
                     "protocol_model",
+                    "protocol_no_reply_reason",
                 ):
                     item.pop(column, None)
                 items.append(item)

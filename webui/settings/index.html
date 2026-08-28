@@ -112,9 +112,10 @@
           </div>
           <div class="st-row">
             <div class="st-row-main">
-              <span class="st-row-label">协议版本 <span class="st-row-key">协议版本</span></span>
+              <span class="st-row-label">回复条数上限 <span class="st-row-key">单次回复消息条数上限</span></span>
+              <span class="st-row-desc">一次回复最多拆成多少条 Message 发送，超出保留前 N 条。</span>
             </div>
-            <div class="st-row-control"><input class="st-input" data-key="protocol_version" value="1" /></div>
+            <div class="st-row-control"><input class="st-input" data-key="max_messages_per_reply" value="5" /></div>
           </div>
           <div class="st-row">
             <div class="st-row-main">
@@ -220,16 +221,17 @@
           </div>
           <div class="st-row">
             <div class="st-row-main">
-              <span class="st-row-label">图片转述模式 <span class="st-row-key">转述模式</span></span>
-              <span class="st-row-desc">auto：每条带图消息自动转述（历史有描述，消耗多）；tool：注入转述工具由 LLM 按需调用（省消耗）；off：关闭。</span>
+              <span class="st-row-label">图片缓存 <span class="st-row-key">启用图片缓存</span></span>
+              <span class="st-row-desc">收到的图片保存到插件数据目录，供后续轮次按路径重读与追踪展示。</span>
             </div>
-            <div class="st-row-control">
-              <select class="st-select" data-key="image_transcription_mode">
-                <option value="auto">auto · 自动转述</option>
-                <option value="tool">tool · LLM 按需调用</option>
-                <option value="off">off · 关闭</option>
-              </select>
+            <div class="st-row-control"><button class="switch on" data-key="image_cache_enabled"></button></div>
+          </div>
+          <div class="st-row">
+            <div class="st-row-main">
+              <span class="st-row-label">缓存上限 <span class="st-row-key">图片缓存上限</span></span>
+              <span class="st-row-desc">最多保存多少张图片，超出后按最久未使用清理。</span>
             </div>
+            <div class="st-row-control"><input class="st-input" data-key="image_cache_max_entries" value="100" /><span class="st-unit">张</span></div>
           </div>
           <div class="st-row">
             <div class="st-row-main">

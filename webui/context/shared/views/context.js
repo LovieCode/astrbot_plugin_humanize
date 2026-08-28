@@ -374,7 +374,7 @@ HZ.renderTopbar(HZ.topbars["context"]);
     const main = el("div", "cx-head-main");
     const headId = el("div", "cx-head-id");
     headId.appendChild(el("span", null, "#" + shortId(run.request_id)));
-    const tag = el("span", "tag tag-required", "protocol v1");
+    const tag = el("span", "tag tag-required", "protocol");
     headId.appendChild(tag);
     const copyBtn = el("button", "raw-copy", "复制 ID");
     copyBtn.dataset.icon = "copy";
@@ -400,6 +400,12 @@ HZ.renderTopbar(HZ.topbars["context"]);
     if (run.protocol_mode) {
       const m = el("span", "m", "注入模式 " + (MODE_LABEL[run.protocol_mode] || run.protocol_mode));
       m.setAttribute("data-icon", "layers");
+      sub.appendChild(m);
+    }
+    const ps = run.protocol_summary;
+    if (ps && ps.success && ps.action === "No Reply" && ps.no_reply_reason) {
+      const m = el("span", "m", "不回复原因 " + ps.no_reply_reason);
+      m.setAttribute("data-icon", "info");
       sub.appendChild(m);
     }
     if (run.created_at) {
