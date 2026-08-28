@@ -507,38 +507,44 @@
     head.appendChild(titleWrap);
     card.appendChild(head);
 
-    // 从 request_snapshot 提取真实条目（system / contexts / prompt / extraParts）
+    /* 数据源取舍（重要）：
+       provider_request.fields.prompt 在部分部署上只剩时间前缀——用户消息经由
+       contexts 传递，且快照常为 snapshot_complete=false，因此 <Msg> 包装并不在
+       prompt 字段里。当前用户消息与各注入区块一律以插件自身记录的 sections 为
+       准，那是唯一完整保留 <Msg>/<KnownTerms>/<Memory> 等包装文本的来源。
+       system_prompt 与 contexts 仍取 provider_request（环境信息，别处没有）。 */
     const pr = (reqSnap && reqSnap.provider_request) || {};
     const f = (pr && pr.fields) || {};
     const systemPrompt = f.system_prompt ? String(f.system_prompt) : "";
     const contexts = Array.isArray(f.contexts) ? f.contexts : [];
-    const prompt = f.prompt ? String(f.prompt) : "";
     const extraParts = Array.isArray(f.extra_user_content_parts) ? f.extra_user_content_parts : [];
-    // 建立 extraParts 文本 → section 的映射（按 content 字符串匹配）
-    const sectionByText = new Map();
-    sections.forEach((sec) => {
-      if (sec && sec.content) sectionByText.set(String(sec.content), sec);
-    });
+
+    const byKey = new Map();
+    sections.forEach((s) => byKey.set(s.section_key, s));
+    const curMsg = byKey.get("current_message");
+    // current_message 缺失时降级回 prompt 字段，保证老数据也有东西可看
+    const curContent = (curMsg && curMsg.content) || (f.prompt ? String(f.prompt) : "");
+    const injected = sections.filter(
+      (s) => s.section_key !== "current_message" && s.included
+    );
 
     // 顶部摘要
     const summary = el("div", "cx-input-summary");
-    const tokensUsed = [
-      systemPrompt ? approxTokens(systemPrompt) : 0,
-      ...contexts.map((m) => approxTokens(contentToText(m && m.content))),
-      prompt ? approxTokens(prompt) : 0,
-      ...extraParts.map((p) => approxTokens(contentToText(p))),
-    ];
-    const totalTokens = tokensUsed.reduce((a, b) => a + b, 0);
+    const allText = [
+      systemPrompt,
+      contexts.map((m) => contentToText(m && m.content)).join(""),
+      sections.map((s) => String(s.content || "")).join(""),
+    ].join("");
     summary.appendChild(statPill(String(contexts.length), "轮历史"));
-    summary.appendChild(statPill(String(extraParts.length), "段临时上下文"));
-    summary.appendChild(statPill(fmtNum(totalTokens), "估算词元"));
+    summary.appendChild(statPill(String(injected.length), "段注入"));
+    summary.appendChild(statPill(fmtNum(approxTokens(allText)), "估算词元"));
     const omittedCount = sections.filter((s) => !s.included).length;
     if (omittedCount > 0) {
       summary.appendChild(statPill(String(omittedCount), "段已省略", "muted"));
     }
     card.appendChild(summary);
 
-    // 列表
+    // 列表：环境（system / 历史）→ 当前用户消息 → 注入区块 → 附带内容
     const list = el("div", "raw-list");
     list.style.marginTop = "14px";
     let n = 0;
@@ -549,20 +555,31 @@
       list.appendChild(historyItemEl(contexts, n + 1));
       n += contexts.length;
     }
-    if (prompt) {
-      list.appendChild(msgItemEl({ role: "user", content: prompt }, ++n, "current_message"));
-    }
-    extraParts.forEach((part, i) => {
-      const text = contentToText(part);
-      if (!text) return;
-      const matched = sectionByText.get(text);
-      const label = matched ? sectionLabel(matched.section_key) : "系统自动注入";
-      const tag = matched ? "tag-src" : "tag-auto";
+    if (curContent) {
       list.appendChild(
-        msgItemEl({ role: "temp_user", content: text }, ++n, matched ? matched.section_key : "auto", {
-          originLabel: label,
-          originClass: tag,
-          ordinal: matched ? matched.ordinal : null,
+        msgItemEl({ role: "user", content: curContent }, ++n, "current_message", {
+          originLabel: "替换原始用户消息",
+          originClass: "tag-auto",
+        })
+      );
+    }
+    injected.forEach((sec) => {
+      list.appendChild(
+        msgItemEl({ role: "temp_user", content: sec.content || "" }, ++n, sec.section_key, {
+          originLabel: sectionLabel(sec.section_key),
+          originClass: "tag-src",
+        })
+      );
+    });
+    // 随请求附带但不属于任何区块的内容（如 system_reminder、图片附件）
+    const sectionTexts = new Set(sections.map((s) => String(s.content || "")));
+    extraParts.forEach((part) => {
+      const text = contentToText(part);
+      if (!text || sectionTexts.has(text)) return;
+      list.appendChild(
+        msgItemEl({ role: "temp_user", content: text }, ++n, "auto", {
+          originLabel: "系统自动注入",
+          originClass: "tag-auto",
         })
       );
     });
