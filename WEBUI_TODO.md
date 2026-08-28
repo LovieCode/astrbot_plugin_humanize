@@ -378,4 +378,40 @@
 - [ ] 插件侧边栏出现横向滚动条（窄容器内容溢出），压缩内边距或截断长项。
 - [ ] 记忆页作用域筛选 chips 只显示 scope_type，多条"全局/群聊"无法区分，应附加短 scope_id 标识。
 - [ ] 提示词模板列表项 label 与 key 文案重复（"基础规则 基础规则"），相同时隐藏 key 小标签。
-- [ ] 上下文追踪页筛选区提示文案在窄屏被裁切（"注入模式…仅展示"截断）。
+- [x] 上下文追踪页筛选区提示文案在窄屏被裁切（"注入模式…仅展示"截断）— 2026-08-29 已随改版移除该死控件。
+
+## 12. 上下文追踪页改版（2026-08-29）
+
+> 用户反馈：页面反直觉、组装区块顺序混乱。已重做并在本地 WebUI 验证。
+
+### 已修（前端 `webui/context/`）
+
+- [x] **输入顺序错误（主因）**：原渲染顺序为 `system → contexts → 图片缓存 → 注入区块 → 当前用户消息`，
+      与真实 provider_request（`system → contexts → 当前用户消息 → 注入区块`）不符。
+      新卡「AI 实际看到的输入」按真实发送顺序单列展示。
+- [x] `temp_user` 显示为 `{"type":"text","text":"..."}` 原始信封 —— `contentToText` 未处理单个 part 对象。
+- [x] `injectIcons` 对无白名单 class 的元素执行 `innerHTML = svg`，吞掉 `.cx-alert` 的失败提示文字；
+      改为按「是否有自有内容」判断。
+- [x] 删掉「组装区块（按 ordinal）」卡片里的 `ordinal` 开发术语。
+- [x] 删掉筛选区无效的「注入模式」seg（后端无该筛选参数，点了没反应）。
+- [x] 合并「Token 预算分布 / 组装区块 / 最终完整快照」三张重叠卡 → 4 张卡。
+- [x] 概览卡统计行独占一行（原 `.cx-head-main` 被挤到 154px，复制按钮换行）。
+- [x] `private` 筛选值改为 `private_user`（对齐后端 `scope_type` 取值）。
+
+### 已修（后端 `humanize/repositories/context.py`）
+
+- [x] `get_context_run` 主响应取错 stage：原 `if row_index == 0` 在 `ORDER BY id ASC` 下
+      取到最早插入的 **tool 轮**而非 final 轮，导致成功回复被 API 报为失败。
+      改为按 `row_item["stage"] == "final"` 判定，无 final 时兜底取最后一行。
+- [x] 删除第 534 行那段死代码查询 —— 它用 `CASE stage WHEN 'final' THEN 0` 正确挑了 final，
+      但结果存入 `response_row` 后被第 564 行**同名循环变量覆盖**，从未被读取。
+- [x] `response_snapshot` 原依赖「最后一行恰好是 final」的巧合，现显式绑定到 final 轮。
+- [x] 补 2 个回归测试（多轮 tool+final 取 final / 仅 tool 轮时兜底），
+      `tests/test_context.py` 16 passed。
+
+### 待办
+
+- [ ] 前端 `renderDetail` 仍保留 `responseSeq.find(s => s.stage === "final")` 的防御性取值，
+      后端修好后属冗余但无害，可择机简化为直接用 `data.response`。
+- [ ] `pytest.ini` 写死 `--basetemp=.pytest-tmp-current`，跑测试会清空该目录。
+      需要跑测试时用 `-o addopts="" --basetemp=<其他路径>` 绕开。
