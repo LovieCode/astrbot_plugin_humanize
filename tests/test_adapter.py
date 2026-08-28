@@ -545,6 +545,51 @@ def test_agent_done_waits_for_normal_result_decorators_before_dispatch() -> None
     asyncio.run(scenario())
 
 
+def test_control_tag_pattern_covers_the_messages_container() -> None:
+    """The `<Messages>` container must be recognised as a control tag.
+
+    Regression guard: `_CONTROL_TAG_PATTERN` only listed the singular
+    `Message`, and its trailing lookahead rejects the `s` in `<Messages>`.
+    A response shaped `<Messages>...</Messages>` therefore slipped past every
+    fail-closed check built on that pattern, so during a hot reload it would
+    be treated as ordinary prose and sent without protocol validation.
+    """
+
+    class Service:
+        def __init__(self) -> None:
+            self.failures: list[dict] = []
+
+        async def record_protocol_failure(self, context, **kwargs):
+            del context
+            self.failures.append(kwargs)
+            return True
+
+    async def scenario() -> None:
+        service = Service()
+        plugin = HumanizePlugin(SimpleNamespace(), {})
+        plugin._container = SimpleNamespace(service=service)
+        event = _FakeEvent(
+            MessageEventResult(
+                chain=[Plain("改写正文<Messages>泄漏的容器标签</Messages>")]
+            )
+        )
+        event.set_extra("_humanize_state", EventState.FINAL_VALID.value)
+        event.set_extra("_humanize_context", _context())
+        event.set_extra("_humanize_messages", ("模型正文",))
+        event.set_extra("_humanize_dispatched_messages", [])
+        event.set_extra("_humanize_tool_sent_messages", [])
+        event.set_extra("_humanize_validated_output", "模型原始协议输出")
+        event.set_extra("_humanize_final_protocol_log_pending", True)
+        event.set_extra("_humanize_final_response_dispatched", False)
+
+        await plugin.dispatch_response(event)
+
+        assert event.sent == []
+        assert event.get_extra("_humanize_state") == EventState.FINAL_BLOCKED.value
+
+    asyncio.run(scenario())
+
+
 def test_decorator_rewrite_cannot_expose_protocol_control_tags() -> None:
     class Service:
         def __init__(self) -> None:

@@ -107,7 +107,8 @@ _DECORATION_FINALIZER_PRIORITY = -1_000_001
 _FINALIZER_PRIORITY = -100_000
 _NO_REPLY_SENTINEL = " "
 _CONTROL_TAG_PATTERN = re.compile(
-    r"(?:<|&lt;)\s*/?\s*(?:Action|UnknownTerms|ImageCache|Reply|Message)"
+    r"(?:<|&lt;)\s*/?\s*"
+    r"(?:Action|UnknownTerms|ImageCache|Messages|Reply|Message)"
     r"(?=\s|/?>|&gt;)",
     re.IGNORECASE,
 )
