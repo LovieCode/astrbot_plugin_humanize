@@ -716,18 +716,14 @@
 
     
 
-    <!-- 筛选：scope 为后端筛选参数；注入模式仅前端高亮（后端无 protocol_mode 筛选参数） -->
+    <!-- 筛选：仅保留有效后端筛选维度 -->
     <div class="cx-filter reveal">
       <div class="scope-seg">
         <span class="seg-item active" data-scope="">全部</span>
         <span class="seg-item" data-scope="group">群聊</span>
-        <span class="seg-item" data-scope="private">私聊</span>
+        <span class="seg-item" data-scope="private_user">私聊</span>
       </div>
-      <div class="scope-seg cx-mode-seg" title="注入模式：后端无 protocol_mode 筛选参数，仅展示高亮">
-        <span class="seg-item active" data-mode="both">注入模式 两者</span>
-        <span class="seg-item" data-mode="temp_user">临时用户</span>
-      </div>
-      <span class="cx-filter-hint">注入模式无筛选参数，仅展示</span>
+      <span class="cx-filter-hint">按作用域过滤 · 更多维度见后端 API</span>
     </div>
 
     <div class="cx-layout">
