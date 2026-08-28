@@ -6,8 +6,8 @@
 
 ## 功能
 
-- 每轮把完整回复规则临时注入用户侧上下文，也可配置为同时保留 system 副本。
-- 使用 `<Action>`、`<UnknownTerms>`、`<Reply>` 和 `<Message>` 校验最终文本，标签不会发送给用户。
+- 每轮把完整回复协议（`<Protocol>` 输入输出规范）临时注入用户侧上下文，也可配置为同时保留 system 副本。
+- 使用 `<Action>`、`<UnknownTerms>`、`<Messages>` 和 `<Message>` 校验最终文本，标签不会发送给用户。
 - 仅在实际发送成功后记录最终回合，避免重复回复、失败回复误记忆和协议标签泄漏。
 - 保存发送给 Provider 瞬间的完整结构快照，以及工具阶段、修复阶段和最终阶段的响应链；凭据字段只保留位置并脱敏。
 - 黑话词库支持作用域、别名、多义项、证据、冲突、审核和导出。
@@ -19,27 +19,23 @@
 
 ## 回复协议
 
-单条回复：
+单条或多条发言统一使用 `<Messages>` 包裹：
 
 ```text
 <Action>Reply</Action>
 <UnknownTerms>[]</UnknownTerms>
-这里是正文。
+<Messages>
+    <Message>第一条</Message>
+    <Message>第二条</Message>
+</Messages>
 ```
 
-多条普通发言：
-
-```text
-<Action>Reply</Action>
-<UnknownTerms>[]</UnknownTerms>
-<Reply><Message>第一条</Message><Message>第二条</Message></Reply>
-```
-
-不回复：
+不回复（原因写入 `<Messages>`，仅记录在上下文追踪页，不会发送）：
 
 ```text
 <Action>No Reply</Action>
 <UnknownTerms>[]</UnknownTerms>
+<Messages><Message>当前话题不适合插话</Message></Messages>
 ```
 
 `UnknownTerms` 必须是单行紧凑 JSON 数组。每个对象只能包含：
@@ -48,17 +44,23 @@
 {"word":"黑话","guess":"当前上下文中的含义","confidence":0.86,"reason":"简短依据"}
 ```
 
-普通发言默认每条不超过 10 个可见字符，超过时使用多个 `Message`。连续的短纯文本行漏写标签时，插件会按同样规则兼容拆分；代码、Markdown、日志、命令、教程和结构化数据不受该日常分条规则限制。
+普通发言默认每条不超过 10 个可见字符，长度允许少量浮动、不可暴力截断；单次回复最多 5 条 Message（可配置）。控制头缺失时插件会隔离修复；裸文本正文会在修复阶段自动包进一条 Message。代码、Markdown、日志、命令、教程和结构化数据不受日常分条规则限制。
+
+## 图片链路
+
+收到的图片统一进入插件图片缓存（插件数据目录 `image_cache/`，默认最多 100 张，按最久未使用清理），并把消息组件路径改写为缓存路径，AstrBot 的临时文件不再被依赖。
+
+每轮上下文中，图片以 `[图片：转述内容（图片路径 …）]` 内联进 `<Msg>`；多模态主模型同时收到原图（按 Provider 配置的 `modalities` 能力判定），非多模态模型只收到路径与转述。常驻工具 `humanize_read_image(path)` 允许模型在转述不够用时按路径重读图片（历史图片同样可读，已清理的图片会明确提示）。
 
 ## Context Composer
 
 每轮固定按以下顺序构造 Provider 请求：
 
-1. `current_message`：只用 `<Msg>` 包裹当前用户原文。
+1. `current_message`：只用 `<Msg>` 包裹当前用户原文，图片以 `[图片：转述（图片路径 …）]` 内联。
 2. `known_terms`：当前消息命中的可信黑话。
-3. `memory_context`：通过作用域过滤的长期记忆。
-4. `reply_examples`：经过审核的典型短对话。
-5. `response_protocol`：最终回复协议，始终位于临时注入内容最后。
+3. `memory_context`：通过作用域过滤的长期记忆，包在 `<Memory>` 中注入。
+4. `reply_examples`：经过审核的典型短对话，包在 `<Examples>` 中注入。
+5. `response_protocol`：`<Protocol>` 输入输出规范，始终位于临时注入内容最后。
 
 记忆、样例和词条都是数据，不是指令。它们与当前消息或显式规则冲突时必须忽略。任何召回故障都会降级为空，不阻断基础聊天。
 
@@ -117,6 +119,10 @@ OpenViking workspace 只保存 HMAC 派生的作用域，不保存原始 QQ、�
 | --- | --- | --- |
 | `protocol_injection_mode` | `user` | `user` 仅临时用户注入；`both` 同时保留 system 副本 |
 | `max_message_chars` | `10` | 普通发言单条字符限制 |
+| `max_messages_per_reply` | `5` | 单次回复 Message 条数上限，超出保留前 N 条并记录日志 |
+| `image_transcription_provider_id` | 空 | 可选多模态 Provider，用于图片转述与读图工具 |
+| `image_cache_enabled` | `true` | 收到的图片进入插件缓存并按路径可重读 |
+| `image_cache_max_entries` | `100` | 图片缓存上限，超出按最久未使用清理 |
 | `message_interval_seconds` | `0.8` | 同次多条消息的相邻发送间隔；`0` 表示不等待 |
 | `memory_enabled` | `true` | 启用内置长期记忆 |
 | `memory_auto_extract_enabled` | `true` | 发送成功后创建后台提取任务 |
@@ -157,6 +163,7 @@ node --check pages/humanize/app.js
 | 路径 | 职责 |
 | --- | --- |
 | `main.py` | AstrBot 生命周期、请求注入、响应防火墙和实际发送追踪 |
+| `humanize/image_cache.py` | 图片缓存：LRU 落盘、索引与按路径读取 |
 | `humanize/context/` | Context Composer 与注入轨迹 |
 | `humanize/memory.py` | HMAC 作用域、召回、提取、Provider Bridge 和后台 worker |
 | `humanize/openviking/` | 内置 OpenViking workspace、写入、召回、Provider 和管理适配 |

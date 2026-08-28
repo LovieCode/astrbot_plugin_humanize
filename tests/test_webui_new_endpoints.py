@@ -455,6 +455,7 @@ def test_context_runs_link_latest_final_protocol_summary(
             "failure_code": "",
             "duration_ms": 456,
             "model": "gpt-test",
+            "no_reply_reason": "",
         }
         summary_b = by_request["req-b"]["protocol_summary"]
         assert summary_b["success"] is False
