@@ -94,7 +94,13 @@ class ImageCacheStore:
             )
             await self._evict()
         except Exception:
+            # The file is on disk but has no index row. `_evict()` only cleans
+            # files it can see through the index, so reporting cached=True here
+            # would hand callers a path that nothing tracks or ever reclaims.
+            # Fall back to the original path and report the cache as unused,
+            # matching this method's documented fail-open contract.
             logger.exception("[Humanize] failed to index cached image")
+            return CachedImage(file_path=source_path, file_hash="", cached=False)
         return CachedImage(file_path=str(result[0]), file_hash=result[1], cached=True)
 
     def _store_sync(self, source_path: str) -> tuple[Path, str, int]:
