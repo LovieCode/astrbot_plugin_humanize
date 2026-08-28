@@ -381,6 +381,22 @@ class SQLiteRepository(
                     "WHERE rule_content = ?",
                     (PromptTemplates().rule, now, LEGACY_RULE_TEMPLATE),
                 )
+                # v2 移除了 {{version}} 变量：任何仍引用它的协议/修复模板
+                # （含用户改过的旧版本）必然校验失效并被读取回退为默认。
+                # 这里直接以新默认替换，使自愈落库、告警止息；
+                # 不含 {{version}} 的自定义内容不受影响。
+                conn.execute(
+                    "UPDATE humanize_prompt_templates "
+                    "SET protocol_content = ?, updated_at = ? "
+                    "WHERE protocol_content LIKE '%{{version}}%'",
+                    (PromptTemplates().protocol, now),
+                )
+                conn.execute(
+                    "UPDATE humanize_prompt_templates "
+                    "SET repair_content = ?, updated_at = ? "
+                    "WHERE repair_content LIKE '%{{version}}%'",
+                    (PromptTemplates().repair, now),
+                )
 
         if self._fts_available and version < 18:
             conn.execute("DELETE FROM humanize_reply_example_fts")

@@ -220,6 +220,58 @@ def test_migration_updates_only_unmodified_legacy_protocol_templates(
     asyncio.run(scenario())
 
 
+def test_migration_replaces_customized_templates_still_using_version_variable(
+    tmp_path: Path,
+) -> None:
+    async def scenario() -> None:
+        db_path = tmp_path / "humanize.db"
+        repository = SQLiteRepository(db_path)
+        await repository.initialize()
+
+        custom_protocol = "自定义协议 {{version}} 上限 {{max_chars}}"
+        custom_repair = "自定义修复 {{version}} 目标 {{required_action}}"
+        custom_rule = "自定义规则 {{scene}}"
+        with sqlite3.connect(db_path) as connection:
+            connection.execute(
+                "UPDATE humanize_prompt_templates "
+                "SET protocol_content = ?, repair_content = ?, rule_content = ?",
+                (custom_protocol, custom_repair, custom_rule),
+            )
+            connection.execute("PRAGMA user_version = 24")
+            connection.commit()
+
+        upgraded = SQLiteRepository(db_path)
+        await upgraded.initialize()
+        templates = (await upgraded.get_prompt_templates())["templates"]
+        assert templates["protocol"] == DEFAULT_PROTOCOL_TEMPLATE
+        assert templates["repair"] == DEFAULT_REPAIR_TEMPLATE
+        assert templates["rule"] == custom_rule
+
+    asyncio.run(scenario())
+
+
+def test_stored_templates_degrade_per_key(tmp_path: Path) -> None:
+    async def scenario() -> None:
+        db_path = tmp_path / "humanize.db"
+        repository = SQLiteRepository(db_path)
+        await repository.initialize()
+
+        custom_rule = "自定义规则 {{scene}}"
+        with sqlite3.connect(db_path) as connection:
+            connection.execute(
+                "UPDATE humanize_prompt_templates "
+                "SET protocol_content = ?, rule_content = ?",
+                ("残留的 {{version}} 模板", custom_rule),
+            )
+            connection.commit()
+
+        templates = (await repository.get_prompt_templates())["templates"]
+        assert templates["protocol"] == DEFAULT_PROTOCOL_TEMPLATE
+        assert templates["rule"] == custom_rule
+
+    asyncio.run(scenario())
+
+
 def test_prompt_template_validation_rejects_unsafe_placeholders() -> None:
     with pytest.raises(ValueError, match="unsupported variable"):
         PromptTemplates.from_mapping({"protocol": "{{unknown}}"})

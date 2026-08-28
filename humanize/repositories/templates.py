@@ -7,38 +7,43 @@ import logging
 import sqlite3
 from typing import Any
 
-from ..domain.prompts import PromptTemplates
+from ..domain.prompts import PROMPT_TEMPLATE_SPECS, PromptTemplates
 from .base import _json_value, _now
 
 __all__ = ["PromptTemplateRepository"]
 
 logger = logging.getLogger("astrbot")
 
+_template_warning_logged = False
+
 
 def _stored_templates(row: sqlite3.Row) -> PromptTemplates:
-    """Parse stored templates, falling back to defaults when incompatible.
+    """Parse stored templates per key, degrading invalid keys to defaults.
 
-    Old databases may hold templates referencing variables that no longer
-    exist (e.g. ``{{version}}``). Validation stays strict for writes; loads
-    degrade to the built-in defaults instead of failing plugin startup.
+    旧库可能存有引用已删除变量的模板（如 v2 之前的 ``{{version}}``）。
+    校验按单键进行：只有失效的键回退为内置默认，其余自定义模板保持可用；
+    写入路径仍走严格校验。告警每个进程只发一次，避免逐请求刷屏。
     """
-    try:
-        return PromptTemplates.from_mapping(
-            {
-                "rule": row["rule_content"],
-                "protocol": row["protocol_content"],
-                "repair": row["repair_content"],
-                "memory_extraction": row["memory_extraction_content"],
-                "reply_examples": row["reply_examples_content"],
-            }
-        )
-    except ValueError as exc:
-        logger.warning(
-            "[Humanize] stored prompt templates are invalid (%s); "
-            "using built-in defaults",
-            exc,
-        )
-        return PromptTemplates()
+    global _template_warning_logged
+    values: dict[str, str] = {}
+    for spec in PROMPT_TEMPLATE_SPECS:
+        try:
+            validated = PromptTemplates.from_mapping(
+                {spec.key: row[f"{spec.key}_content"]}
+            )
+        except ValueError as exc:
+            if not _template_warning_logged:
+                logger.warning(
+                    "[Humanize] stored prompt template %s is invalid (%s); "
+                    "using built-in defaults for it",
+                    spec.key,
+                    exc,
+                )
+                _template_warning_logged = True
+            values[spec.key] = getattr(PromptTemplates(), spec.key)
+        else:
+            values[spec.key] = getattr(validated, spec.key)
+    return PromptTemplates(**values)
 
 
 class PromptTemplateRepository:
