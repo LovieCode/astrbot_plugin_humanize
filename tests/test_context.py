@@ -639,6 +639,130 @@ def test_context_detail_links_latest_final_failure(tmp_path: Path) -> None:
     asyncio.run(scenario())
 
 
+def test_context_detail_response_prefers_final_stage_over_first_row(
+    tmp_path: Path,
+) -> None:
+    """多轮调用（tool + final）时主响应必须取 final 阶段，而非插入顺序首行。
+
+    回归守卫：`get_context_run` 曾用 `row_index == 0` 取最早插入的一行，
+    对多轮请求会拿到 tool 轮，导致一次成功回复被 API 报告为失败。
+    """
+
+    async def scenario() -> None:
+        repository = SQLiteRepository(tmp_path / "humanize.db")
+        await repository.initialize()
+        section = ContextSection(
+            key="current_message",
+            ordinal=0,
+            priority=100,
+            source_type="message",
+            source_refs=("message:msg-1",),
+            targets=("prompt",),
+            required=True,
+            included=True,
+            budget_tokens=None,
+            estimated_tokens=4,
+            applied_tokens=4,
+            item_count=1,
+            reason="current_user_message",
+            content="测试",
+        )
+        context = _context("req-multistage")
+        await repository.record_context_run(context, (section,), "user")
+        # 中间轮先落库：工具调用阶段，未通过协议校验
+        await repository.record_protocol(
+            context,
+            success=False,
+            action="Reply",
+            failure_code="missing_action_tag",
+            failure_detail="中间轮未产出 Action",
+            raw_output="中间轮原始输出",
+            messages=[],
+            model="stage-model",
+            duration_ms=120,
+            stage="tool",
+        )
+        # 最终轮后落库：这才是真正的结果
+        await repository.record_protocol(
+            context,
+            success=True,
+            action="Reply",
+            failure_code="",
+            failure_detail="",
+            raw_output="<Action>Reply</Action>你好",
+            messages=["你好", "还有什么事吗"],
+            model="stage-model",
+            duration_ms=340,
+            stage="final",
+        )
+
+        detail = await repository.get_context_run("req-multistage")
+
+        assert detail is not None
+        assert detail["response"]["stage"] == "final"
+        assert detail["response"]["success"] is True
+        assert detail["response"]["failure_code"] == ""
+        assert detail["response"]["messages"] == ["你好", "还有什么事吗"]
+        assert detail["response"]["raw_output"] == "<Action>Reply</Action>你好"
+        # 两轮都保留在序列里，顺序仍按插入序
+        assert [item["stage"] for item in detail["response_sequence"]] == [
+            "tool",
+            "final",
+        ]
+        # 详情快照同样绑定到 final 轮
+        assert detail["response_snapshot"]["protocol"]["stage"] == "final"
+
+    asyncio.run(scenario())
+
+
+def test_context_detail_response_falls_back_to_latest_without_final(
+    tmp_path: Path,
+) -> None:
+    """只有 tool 轮时兜底取最后一行，避免调用方拿到 None。"""
+
+    async def scenario() -> None:
+        repository = SQLiteRepository(tmp_path / "humanize.db")
+        await repository.initialize()
+        section = ContextSection(
+            key="current_message",
+            ordinal=0,
+            priority=100,
+            source_type="message",
+            source_refs=("message:msg-1",),
+            targets=("prompt",),
+            required=True,
+            included=True,
+            budget_tokens=None,
+            estimated_tokens=4,
+            applied_tokens=4,
+            item_count=1,
+            reason="current_user_message",
+            content="测试",
+        )
+        context = _context("req-tool-only")
+        await repository.record_context_run(context, (section,), "user")
+        await repository.record_protocol(
+            context,
+            success=False,
+            action="Reply",
+            failure_code="aborted",
+            failure_detail="工具阶段中断",
+            raw_output="未产出",
+            model="stage-model",
+            duration_ms=90,
+            stage="tool",
+        )
+
+        detail = await repository.get_context_run("req-tool-only")
+
+        assert detail is not None
+        assert detail["response"] is not None
+        assert detail["response"]["stage"] == "tool"
+        assert detail["response"]["failure_code"] == "aborted"
+
+    asyncio.run(scenario())
+
+
 def test_context_trace_rejects_conflicting_duplicate_without_mutation(
     tmp_path: Path,
 ) -> None:

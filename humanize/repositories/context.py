@@ -531,21 +531,6 @@ class ContextRepository:
                 "snapshot_complete": request_snapshot_final_complete,
                 "provider_request": stored_request_snapshot_final or None,
             }
-            response_row = conn.execute(
-                """
-                SELECT success, action, failure_code, failure_detail,
-                       raw_output_snapshot, raw_snapshot_complete, messages_json,
-                       response_snapshot_json, response_snapshot_complete,
-                       model, duration_ms, stage, created_at
-                FROM protocol_logs
-                WHERE request_id = ?
-                ORDER BY
-                    CASE stage WHEN 'final' THEN 0 ELSE 1 END,
-                    id DESC
-                LIMIT 1
-                """,
-                (request_id,),
-            ).fetchone()
             all_response_rows = conn.execute(
                 """
                 SELECT success, action, failure_code, failure_detail,
@@ -561,8 +546,10 @@ class ContextRepository:
             response = None
             response_snapshot = None
             response_sequence: list[dict[str, Any]] = []
-            for row_index, response_row in enumerate(all_response_rows):
-                row_item = dict(response_row)
+            latest_row_item: dict[str, Any] | None = None
+            latest_response_snapshot: dict[str, Any] | None = None
+            for row in all_response_rows:
+                row_item = dict(row)
                 raw_response_snapshot = row_item.pop("response_snapshot_json")
                 llm_snapshot_complete = bool(row_item.pop("response_snapshot_complete"))
                 row_item["success"] = bool(row_item["success"])
@@ -582,7 +569,7 @@ class ContextRepository:
                 if not isinstance(llm_response, dict):
                     llm_response = {}
                     llm_snapshot_complete = False
-                response_snapshot = {
+                turn_snapshot = {
                     "snapshot_kind": "llm_response",
                     "snapshot_complete": bool(
                         llm_snapshot_complete and row_item["snapshot_complete"]
@@ -590,8 +577,13 @@ class ContextRepository:
                     "llm_response": llm_response or None,
                     "protocol": dict(row_item),
                 }
-                if row_index == 0:
+                # 主响应取 final 阶段，而非插入顺序的首行（首行是 tool 轮）。
+                # 同一请求理论上可能有多个 final（重试），后写覆盖 → 取 id 最大者。
+                if row_item["stage"] == "final":
                     response = row_item
+                    response_snapshot = turn_snapshot
+                latest_row_item = row_item
+                latest_response_snapshot = turn_snapshot
                 response_sequence.append(
                     {
                         "stage": row_item["stage"],
@@ -606,6 +598,11 @@ class ContextRepository:
                         ),
                     }
                 )
+            # 兜底：无 final 阶段（例如只落了 tool 轮）时退化为最后一行，
+            # 避免 response 为 None 让调用方拿到空结果。
+            if response is None and latest_row_item is not None:
+                response = latest_row_item
+                response_snapshot = latest_response_snapshot
             snapshot_sections = [
                 {
                     "section_key": item["section_key"],
