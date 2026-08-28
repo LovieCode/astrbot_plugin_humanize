@@ -369,14 +369,20 @@ class JargonRepository:
             conditions = ["1 = 1"]
             params: list[Any] = []
             if search:
-                conditions.append(
-                    "(e.term LIKE ? OR EXISTS ("
-                    "SELECT 1 FROM jargon_aliases a WHERE a.entry_id = e.id "
-                    "AND a.alias LIKE ?) OR EXISTS ("
-                    "SELECT 1 FROM jargon_senses s WHERE s.entry_id = e.id "
-                    "AND s.meaning LIKE ?))"
+                # Escape LIKE wildcards so a term containing `%` or `_` matches
+                # itself instead of acting as a wildcard. Without this, creating
+                # the term `a_b` and looking it back up would also match `axb`.
+                escaped = (
+                    search.replace("\\", "\\\\").replace("%", "\\%").replace("_", "\\_")
                 )
-                query = f"%{search}%"
+                conditions.append(
+                    "(e.term LIKE ? ESCAPE '\\' OR EXISTS ("
+                    "SELECT 1 FROM jargon_aliases a WHERE a.entry_id = e.id "
+                    "AND a.alias LIKE ? ESCAPE '\\') OR EXISTS ("
+                    "SELECT 1 FROM jargon_senses s WHERE s.entry_id = e.id "
+                    "AND s.meaning LIKE ? ESCAPE '\\'))"
+                )
+                query = f"%{escaped}%"
                 params.extend([query, query, query])
             if status:
                 if status == "conflict":

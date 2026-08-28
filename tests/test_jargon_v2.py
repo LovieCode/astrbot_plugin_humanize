@@ -159,6 +159,89 @@ def test_alias_resolves_to_existing_entry_and_match_rules_are_applied(
     asyncio.run(scenario())
 
 
+def test_jargon_search_escapes_like_wildcards(tmp_path: Path) -> None:
+    """Searching must treat `%` and `_` as literals, not LIKE wildcards.
+
+    Regression guard: `list_jargons` used to interpolate the raw search term
+    into `%{search}%`. A term containing `_` therefore matched any single
+    character, so looking the term `a_b` back up also returned `axb`. The
+    web API picks `items[0]` after creating an entry, so a stale `axb` with
+    a newer `updated_at` would be returned as the newly created entry.
+    """
+
+    async def scenario() -> None:
+        repository = await _repository(tmp_path / "humanize.db")
+        await repository.apply_jargon_action(
+            0,
+            "create_entry",
+            payload={
+                "term": "a_b",
+                "meaning": "下划线是词条本身的一部分",
+                "scope_type": "group",
+                "scope_id": "group-a",
+            },
+        )
+        await repository.apply_jargon_action(
+            0,
+            "create_entry",
+            payload={
+                "term": "axb",
+                "meaning": "干扰项，只差一个字符",
+                "scope_type": "group",
+                "scope_id": "group-a",
+            },
+        )
+        # Make the decoy the most recently updated row so that the ordering
+        # (updated_at DESC, id DESC) would surface it first if matched.
+        assert await repository.apply_jargon_action(
+            2, "update_entry", payload={"enabled": True}
+        )
+
+        rows = await repository.list_jargons(
+            search="a_b",
+            status="",
+            scope_id="group-a",
+            scope_type="group",
+            page=1,
+            page_size=20,
+        )
+
+        terms = sorted(item["term"] for item in rows["items"])
+        assert terms == ["a_b"], f"wildcard leaked into the match: {terms}"
+        assert rows["items"][0]["meaning"] == "下划线是词条本身的一部分"
+
+    asyncio.run(scenario())
+
+
+def test_jargon_search_still_matches_substrings(tmp_path: Path) -> None:
+    """Escaping must not break ordinary substring search."""
+
+    async def scenario() -> None:
+        repository = await _repository(tmp_path / "humanize.db")
+        await repository.apply_jargon_action(
+            0,
+            "create_entry",
+            payload={
+                "term": "永远滴神",
+                "meaning": "用于表示强烈称赞",
+                "scope_type": "group",
+                "scope_id": "group-a",
+            },
+        )
+        rows = await repository.list_jargons(
+            search="滴神",
+            status="",
+            scope_id="group-a",
+            scope_type="group",
+            page=1,
+            page_size=20,
+        )
+        assert rows["total"] == 1
+        assert rows["items"][0]["term"] == "永远滴神"
+
+    asyncio.run(scenario())
+
+
 def test_admin_can_manage_individual_senses(tmp_path: Path) -> None:
     async def scenario() -> None:
         repository = await _repository(tmp_path / "humanize.db")
