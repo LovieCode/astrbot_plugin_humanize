@@ -249,7 +249,10 @@ HZ.renderTopbar(HZ.topbars["prompts"]);
   }
 
   /* ---------- 加载模板集 ---------- */
-  async function loadTemplates() {
+  /* 编辑器有未保存修改时，自动刷新（窗口重新聚焦/切回标签页）不得回填 textarea，
+     否则输入会被清空；重置类操作经用户确认后以 forceEditor 显式覆盖。 */
+  async function loadTemplates(options) {
+    const forceEditor = !!(options && options.forceEditor);
     try {
       const data = await api.get("prompt-templates");
       items = data.items || [];
@@ -258,11 +261,13 @@ HZ.renderTopbar(HZ.topbars["prompts"]);
         currentKey = items[0].key;
       }
       renderList();
-      renderEditor(currentItem());
+      if (forceEditor || !isDirty()) {
+        renderEditor(currentItem());
+      }
       loadAudit();
     } catch (e) {
       toast(api.errorOf(e).message, { type: "error" });
-      renderApiUnavailable();
+      if (!isDirty()) renderApiUnavailable();
     }
   }
 
@@ -315,7 +320,7 @@ HZ.renderTopbar(HZ.topbars["prompts"]);
         try {
           await api.post("prompt-templates", { action: "reset", key: item.key, reason: "恢复默认模板" });
           toast("已恢复默认模板", { type: "success" });
-          await loadTemplates();
+          await loadTemplates({ forceEditor: true });
         } catch (e) {
           toast(api.errorOf(e).message, { type: "error" });
         }
@@ -332,7 +337,7 @@ HZ.renderTopbar(HZ.topbars["prompts"]);
         try {
           await api.post("prompt-templates", { action: "reset", key: "all", reason: "全部恢复默认模板" });
           toast("已全部恢复默认模板", { type: "success" });
-          await loadTemplates();
+          await loadTemplates({ forceEditor: true });
         } catch (e) {
           toast(api.errorOf(e).message, { type: "error" });
         }

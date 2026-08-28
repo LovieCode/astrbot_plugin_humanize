@@ -222,3 +222,28 @@ def test_webui_build_is_reproducible() -> None:
         capture_output=True,
         text=True,
     )
+
+
+def test_prompts_refresh_keeps_dirty_editor() -> None:
+    """Auto refresh (window focus) must not overwrite unsaved prompt edits."""
+    import pytest
+
+    if not (WEBUI_ROOT / "prompts" / "index.html").is_file():
+        pytest.skip("webui sources not complete (remote deployment)")
+
+    source = _read_view("prompts", "shared/views/prompts.js")
+    match = re.search(r"async function loadTemplates\(.*?\n  \}", source, re.S)
+    assert match, "loadTemplates not found in prompts view"
+    body = match.group(0)
+    guard = body.find("isDirty()")
+    render = body.find("renderEditor(")
+    assert 0 <= guard < render, (
+        "renderEditor must be guarded by isDirty() in loadTemplates"
+    )
+
+    # Reset flows overwrite by explicit user confirmation, so they force the
+    # editor re-render even when the editor is dirty.
+    assert source.count("loadTemplates({ forceEditor: true })") == 2
+
+    # Built SPA must carry the same guard (source changes require a rebuild).
+    assert "forceEditor" in _read_built("shared/views/prompts.js")
