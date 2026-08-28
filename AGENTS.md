@@ -25,6 +25,7 @@
 - 部署统一走 git：`bash scripts/deploy_git.sh`（先 `--dry-run`）。脚本自动：本地检查（pytest/ruff/SPA 构建一致性）→ push origin main → 远端 `git pull --ff-only` → **插件热重载**（`POST /api/v1/plugins/reload`）。后端与前端均通过热重载生效，**不需要重启 AstrBot**。
 - 远端必须是同一仓库的 git clone；`data/` 等运行时数据被 gitignore，不受影响。
 - 前端改动必须跑 `scripts/build_spa.py` 构建并提交 `pages/` 产物；只改 `webui/` 源码线上不生效（脚本会自动构建并校验产物已提交）。
+- `pages/` 是纯生成物，**禁止直接编辑或手工提交**；前端改动只落在 `webui/` 源码。若 `pytest tests/test_webui_static.py` 的构建一致性用例失败，说明产物与源码漂移（曾有直接改产物提交）：必须先把产物中的功能逆向回移植进源码、验证重建后与线上产物字节一致，再做任何新的前端改动；否则直接重建会静默抹掉已上线功能。
 - 远端重启若报 PermissionError，先 `sudo chown -R lovie:lovie /home/lovie/AstrBot/data /home/lovie/AstrBot/.venv /home/lovie/AstrBot/uv.lock`。
 
 ## 环境与访问信息（本地专用，勿上传）
@@ -41,6 +42,7 @@
 - 遮罩层会拦截后续点击；检查元素是否被 overlay 遮挡。
 - DOM 动态内容用 textContent，禁 innerHTML 拼接持久化数据。
 - Playwright 验证：登录 `#/auth/login` 拿 token → hash 导航 → 在插件 iframe 内操作；欢迎 overlay 会拦截点击需先关闭。
+- 产物/源码漂移回移植（2026-08 事故）：`pages/` 曾被直接编辑提交而 `webui/` 源码未同步。要点：pages 产物 blob 是 CRLF、`webui/` 源码是 LF（`git ls-files --eol` 确认）；构建对 JS 做 IIFE→`HZ.views["<view>"]` 包装、删除 `HZ.renderSidebar` 行，CSS 仅做跨视图 id 重命名——无重命名的视图产物=源码逐字节（仅行尾不同），可按此逆向重建后用"重建产物与 HEAD 字节一致"自验。
 
 ### 后端
 - 先看日志堆栈定位，不猜；改前用最小复现脚本验证根因，改后跑定向测试。
