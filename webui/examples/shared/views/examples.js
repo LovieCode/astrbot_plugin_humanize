@@ -77,6 +77,7 @@ HZ.renderTopbar(HZ.topbars["examples"]);
   let detail = null; // 当前抽屉样例
   let busy = false;
   let reloadPending = false; // busy 期间有新的列表刷新请求，结束后补跑一次
+  let detailSeq = 0; // 详情请求序号：渲染前比对，旧响应丢弃
   const scopeOptions = []; // {scope_type, scope_token, scope_label}
   const agentOptions = []; // {agent_id, name}
 
@@ -381,10 +382,15 @@ HZ.renderTopbar(HZ.topbars["examples"]);
   }
 
   async function loadDetail(id) {
+    /* last-write-wins：快速切换样例时，只有最新一次请求允许渲染，
+       旧响应（可能更慢返回）直接丢弃，避免抽屉显示错样例的详情。 */
+    const seq = ++detailSeq;
     try {
       const data = await api.get("reply-example-detail", { id });
+      if (seq !== detailSeq) return;
       renderDetail(data);
     } catch (e) {
+      if (seq !== detailSeq) return;
       const err = api.errorOf(e);
       toast(err.message, { type: "error" });
       drawerBody.innerHTML = "";

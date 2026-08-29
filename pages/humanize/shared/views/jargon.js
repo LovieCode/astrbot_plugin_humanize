@@ -96,6 +96,7 @@ HZ.renderTopbar(HZ.topbars["jargon"]);
   let detailData = null; // 当前抽屉完整详情（含 senses/aliases/evidence 等）
   let busy = false;
   let reloadPending = false; // busy 期间有新的列表刷新请求，结束后补跑一次
+  let detailSeq = 0; // 详情请求序号：渲染前比对，旧响应丢弃
 
   /* ---------- DOM 小工具 ---------- */
   function escapeHtml(s) {
@@ -324,12 +325,17 @@ HZ.renderTopbar(HZ.topbars["jargon"]);
   }
 
   async function loadDetail(id) {
+    /* last-write-wins：快速切换卡片时，只有最新一次请求允许渲染，
+       旧响应（可能更慢返回）直接丢弃，避免抽屉显示错词条的详情。 */
+    const seq = ++detailSeq;
     try {
       const data = await api.get("jargon-detail", { id });
+      if (seq !== detailSeq) return;
       detail = data.entry || {};
       detailData = data;
       renderDetail(data);
     } catch (e) {
+      if (seq !== detailSeq) return;
       const err = api.errorOf(e);
       toast(err.message, { type: "error" });
       drawerBody.innerHTML = "";

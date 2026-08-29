@@ -121,7 +121,7 @@
   let detailRequestId = null;
   let busy = false;
   let reloadPending = false; // busy 期间有新的列表刷新请求，结束后补跑一次
-  let detailBusy = false;
+  let detailSeq = 0; // 详情请求序号：渲染前比对，旧响应丢弃
 
   function el(tag, cls, text) {
     const n = document.createElement(tag);
@@ -353,9 +353,11 @@
 
   /* ---------- 详情 ---------- */
   async function openDetail(requestId) {
-    if (detailBusy) return;
-    detailBusy = true;
+    /* last-write-wins：请求进行中再次点击时不再忽略新点击，
+       且只有最新一次请求允许渲染，旧响应直接丢弃——否则快速切换
+       运行记录时详情区可能显示上一次的内容、与高亮行不一致。 */
     detailRequestId = requestId;
+    const seq = ++detailSeq;
     $$(".cx-run", listEl).forEach((c) => c.classList.toggle("active", c.dataset.requestId === requestId));
     detailEl.innerHTML = "";
     const loading = el("div", "cx-detail-loading");
@@ -363,8 +365,10 @@
     detailEl.appendChild(loading);
     try {
       const data = await api.get("context-run", { request_id: requestId });
+      if (seq !== detailSeq) return;
       renderDetail(data);
     } catch (e) {
+      if (seq !== detailSeq) return;
       const err = api.errorOf(e);
       toast(err.message, { type: "error" });
       detailEl.innerHTML = "";
@@ -372,8 +376,6 @@
       box.appendChild(el("p", null, err.status === 404 ? "上下文追踪不存在" : "详情加载失败"));
       box.appendChild(el("div", "cx-empty-sub", err.message));
       if (initErrbar) initErrbar({ message: err.message });
-    } finally {
-      detailBusy = false;
     }
   }
 
