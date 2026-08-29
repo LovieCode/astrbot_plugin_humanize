@@ -512,3 +512,26 @@ async def test_session_fallback_survives_unrelated_durable_memory(
         "viking://agent/default/sessions/private_user/"
         f"{'b' * 64}/{'d' * 64}/commits/{session_commit.commit_id}",
     )
+
+
+def test_render_truncation_fallback_never_exceeds_max_chars() -> None:
+    """The truncated fallback must re-check the budget, not assume it fits."""
+    adapter = OpenVikingRecallAdapter(SimpleNamespace())
+    row = {
+        "memory_type": "preference",
+        "memory_key": "key",
+        "content": "x" * 400,
+        "uri": "viking://mem",
+    }
+    # max_chars=120: Notice + tag overhead alone exceed the budget, so even
+    # the halved truncated content cannot fit and the render must omit.
+    content, used = adapter._render([row], 120)
+    assert content == ""
+    assert used == []
+
+    # With max_chars=400 the full row (~470) does not fit but the truncated
+    # fallback (~300) does, so exactly one truncated memory is rendered.
+    content, used = adapter._render([row], 400)
+    assert used == [row]
+    assert len(content) <= 400
+    assert 'type="truncated"' in content

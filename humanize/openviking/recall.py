@@ -641,6 +641,13 @@ class OpenVikingRecallAdapter:
                 {"type": "truncated"},
             )
             ET.SubElement(node, "Text").text = f"{truncated}…"
+            # 截断只对 content 生效；预算极小时 Notice 与标签开销仍可能超限，
+            # 复检失败则整体省略，宁可不出也不超出 max_chars。
+            if (
+                len(ET.tostring(root, encoding="unicode", short_empty_elements=False))
+                > max_chars
+            ):
+                return "", []
             used.append(row)
             break
         if not used:
