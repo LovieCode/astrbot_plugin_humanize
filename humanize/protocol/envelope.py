@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 from xml.etree import ElementTree as ET
+from xml.sax.saxutils import escape
 
 from ..config import PluginConfig
 from ..domain.models import KnownTerm, MessageContext
@@ -43,6 +44,11 @@ class EnvelopeBuilder:
         status, scope) — those are for humans in the WebUI, not for the model;
         injection already filtered by scope and confidence.
 
+        Terms and meanings are untrusted text (LLM-reported guesses land in
+        senses verbatim), so each field is XML-escaped — same entity set as
+        the ``<Msg>`` wrapper — to keep the block well-formed and stop a
+        meaning from forging ``</Term>`` or protocol tags inside the prompt.
+
         Args:
             terms: Scoped terms that passed the injection filters.
 
@@ -51,15 +57,15 @@ class EnvelopeBuilder:
         """
         lines = []
         for term in terms:
-            aliases = " / ".join(term.aliases) if term.aliases else ""
-            label = f"{term.term} / {aliases}" if aliases else term.term
+            aliases = " / ".join(escape(alias) for alias in term.aliases)
+            label = f"{escape(term.term)} / {aliases}" if aliases else escape(term.term)
             meanings = [
                 sense.meaning
                 for sense in term.senses
                 if sense and getattr(sense, "meaning", "")
             ] or ([term.meaning] if getattr(term, "meaning", "") else [])
             for meaning in meanings:
-                lines.append(f"<Term>{label}：{meaning}</Term>")
+                lines.append(f"<Term>{label}：{escape(meaning)}</Term>")
         body = "\n".join(lines)
         if not body:
             return "<KnownTerms />"
