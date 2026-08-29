@@ -120,6 +120,7 @@ HZ.views["context"] = { init: function () {
   let current = { page: 1, scope: "" };
   let detailRequestId = null;
   let busy = false;
+  let reloadPending = false; // busy 期间有新的列表刷新请求，结束后补跑一次
   let detailBusy = false;
 
   function el(tag, cls, text) {
@@ -219,7 +220,12 @@ HZ.views["context"] = { init: function () {
 
   /* ---------- 列表 ---------- */
   async function loadList() {
-    if (busy) return;
+    if (busy) {
+      /* 请求往返期间筛选/翻页可能已变化：记下来收尾后用最新状态补跑，
+         而不是直接丢弃（否则筛选控件与列表内容脱节且不自恢复）。 */
+      reloadPending = true;
+      return;
+    }
     busy = true;
     try {
       const data = await api.get("context-runs", {
@@ -235,6 +241,10 @@ HZ.views["context"] = { init: function () {
       renderApiUnavailable();
     } finally {
       busy = false;
+      if (reloadPending) {
+        reloadPending = false;
+        void loadList();
+      }
     }
   }
 

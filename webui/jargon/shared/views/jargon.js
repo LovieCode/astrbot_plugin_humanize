@@ -95,6 +95,7 @@ HZ.renderTopbar(HZ.topbars["jargon"]);
   let detail = null; // 当前抽屉词条详情（data.entry）
   let detailData = null; // 当前抽屉完整详情（含 senses/aliases/evidence 等）
   let busy = false;
+  let reloadPending = false; // busy 期间有新的列表刷新请求，结束后补跑一次
 
   /* ---------- DOM 小工具 ---------- */
   function escapeHtml(s) {
@@ -149,7 +150,12 @@ HZ.renderTopbar(HZ.topbars["jargon"]);
 
   /* ---------- 列表 ---------- */
   async function loadList() {
-    if (busy) return;
+    if (busy) {
+      /* 请求往返期间筛选/搜索/翻页可能已变化：记下来收尾后用最新状态补跑，
+         而不是直接丢弃（否则筛选控件与列表内容脱节且不自恢复）。 */
+      reloadPending = true;
+      return;
+    }
     busy = true;
     try {
       const data = await api.get("jargons", {
@@ -167,6 +173,10 @@ HZ.renderTopbar(HZ.topbars["jargon"]);
       renderApiUnavailable(); // 清空 mock 内容 + 显示错误提示，防止假数据误导
     } finally {
       busy = false;
+      if (reloadPending) {
+        reloadPending = false;
+        void loadList();
+      }
     }
   }
 

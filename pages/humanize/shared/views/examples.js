@@ -76,6 +76,7 @@ HZ.renderTopbar(HZ.topbars["examples"]);
   let current = { page: 1, status: "", search: "", topic: "", intent: "", scopeIndex: -1, agentIndex: -1 };
   let detail = null; // 当前抽屉样例
   let busy = false;
+  let reloadPending = false; // busy 期间有新的列表刷新请求，结束后补跑一次
   const scopeOptions = []; // {scope_type, scope_token, scope_label}
   const agentOptions = []; // {agent_id, name}
 
@@ -167,7 +168,12 @@ HZ.renderTopbar(HZ.topbars["examples"]);
 
   /* ---------- 列表 ---------- */
   async function loadList() {
-    if (busy) return;
+    if (busy) {
+      /* 请求往返期间筛选/搜索/翻页可能已变化：记下来收尾后用最新状态补跑，
+         而不是直接丢弃（否则筛选控件与列表内容脱节且不自恢复）。 */
+      reloadPending = true;
+      return;
+    }
     busy = true;
     try {
       const scope = current.scopeIndex >= 0 ? scopeOptions[current.scopeIndex] : null;
@@ -193,6 +199,10 @@ HZ.renderTopbar(HZ.topbars["examples"]);
       renderApiUnavailable();
     } finally {
       busy = false;
+      if (reloadPending) {
+        reloadPending = false;
+        void loadList();
+      }
     }
   }
 
