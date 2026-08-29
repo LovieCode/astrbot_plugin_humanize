@@ -63,6 +63,17 @@ def test_latin_terms_require_word_boundaries() -> None:
     assert term_matches("内鬼", "群里可能有内鬼")
 
 
+def test_latin_terms_match_when_adjacent_to_cjk() -> None:
+    # 中文聊天通常无空格：紧邻汉字不得视为更长英文词的一部分。
+    assert term_matches("abc", "今天abc真强")
+    assert term_matches("gpt-4", "求gpt-4链接")
+    assert term_matches("gpt-4", "gpt-4是什么")
+    # 但仍是更长英文/数字 token 的一部分时不得匹配。
+    assert not term_matches("abc", "今天xabcx真强")
+    assert not term_matches("gpt", "gpt4free")
+    assert not term_matches("gpt", "chatgpt好用")
+
+
 def test_matcher_prefers_verified_then_longest_term() -> None:
     terms = [
         _known(1, "开摆"),

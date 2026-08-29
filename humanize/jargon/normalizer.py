@@ -49,9 +49,11 @@ def term_matches(
     if match_mode == "contains":
         return normalized_term in normalized_text
     if _LATINISH_RE.fullmatch(normalized_term):
+        # 词边界只用于拦截更长英文词（如 xabcx）；\w 默认含汉字，
+        # 必须加 re.ASCII，否则术语紧邻中文即失配（中文聊天通常无空格）。
         pattern = re.compile(
-            rf"(?<![\w]){re.escape(normalized_term)}(?![\w])",
-            0 if case_sensitive else re.IGNORECASE,
+            rf"(?<!\w){re.escape(normalized_term)}(?!\w)",
+            re.ASCII if case_sensitive else (re.ASCII | re.IGNORECASE),
         )
         return pattern.search(normalized_text) is not None
     return normalized_term in normalized_text
