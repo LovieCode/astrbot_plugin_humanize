@@ -123,3 +123,39 @@ def test_store_is_noop_when_disabled(tmp_path: Path) -> None:
         assert repository.entries == []
 
     asyncio.run(scenario())
+
+
+def test_read_touches_lru_timestamp(tmp_path: Path) -> None:
+    """A successful read must refresh the entry so eviction stays LRU.
+
+    Regression guard: `last_hit_at` used to be written only on upsert, so
+    eviction actually ordered by insert time (FIFO) and the resident image
+    tool kept evicting the images it was actively re-reading.
+    """
+
+    async def scenario() -> None:
+        source = tmp_path / "source.png"
+        source.write_bytes(b"image-bytes")
+        repository = _RepositoryStub()
+        store = _store(tmp_path, repository)
+
+        result = await store.store(str(source))
+        assert result.cached is True
+
+        repository.touches: list[str] = []  # type: ignore[attr-defined]
+
+        async def touch(*, file_path: str) -> None:  # type: ignore[no-untyped-def]
+            repository.touches.append(file_path)  # type: ignore[attr-defined]
+
+        repository.touch_image_cache_entry = touch  # type: ignore[method-assign]
+
+        data = await store.read(result.file_path)
+        assert data == b"image-bytes"
+        assert repository.touches == [result.file_path]  # type: ignore[attr-defined]
+
+        # 读取失败/路径不存在时不产生 touch。
+        repository.touches.clear()  # type: ignore[attr-defined]
+        assert await store.read(str(tmp_path / "missing.png")) is None
+        assert repository.touches == []  # type: ignore[attr-defined]
+
+    asyncio.run(scenario())

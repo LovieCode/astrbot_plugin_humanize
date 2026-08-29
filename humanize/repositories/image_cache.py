@@ -52,6 +52,25 @@ class ImageCacheRepository:
 
         await self._run(operation)
 
+    async def touch_image_cache_entry(self, *, file_path: str) -> None:
+        """Refresh one entry's LRU timestamp after a read hit.
+
+        Without this, eviction degrades to FIFO on insert time and the
+        resident image tool would keep evicting actively used images.
+
+        Args:
+            file_path: Cached file path exactly as stored in the index.
+        """
+
+        def operation(conn: sqlite3.Connection) -> None:
+            conn.execute(
+                "UPDATE humanize_image_cache SET last_hit_at = ? WHERE file_path = ?",
+                (_now(), file_path),
+            )
+            conn.commit()
+
+        await self._run(operation)
+
     async def list_image_cache_entries(self, *, limit: int = 0) -> list[dict[str, Any]]:
         """Return cache entries ordered by least recently used first."""
 

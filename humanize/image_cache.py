@@ -155,6 +155,18 @@ class ImageCacheStore:
         if not resolved.is_file():
             return None
         try:
-            return await asyncio.to_thread(resolved.read_bytes)
+            data = await asyncio.to_thread(resolved.read_bytes)
         except OSError:
             return None
+        # 命中即刷新 LRU 时间戳；失败不影响读取（fail-open）。
+        touch = getattr(self._repository, "touch_image_cache_entry", None)
+        if callable(touch):
+            try:
+                await touch(file_path=path)
+            except Exception:
+                logger.debug(
+                    "[Humanize] failed to touch image cache entry %s",
+                    path,
+                    exc_info=True,
+                )
+        return data
