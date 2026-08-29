@@ -162,7 +162,10 @@ class ChatMemoryService:
                 and self._openviking_management is not None
             ):
                 try:
-                    self._openviking.initialize()
+                    # initialize 内部获取 workspace 文件锁并以 sleep 轮询，
+                    # 与 worker 线程的 commit_turn 争锁时可能等待数秒，
+                    # 必须移出事件循环线程。
+                    await asyncio.to_thread(self._openviking.initialize)
                     self._openviking_ready = True
                     self._openviking_last_error = ""
                 except Exception as exc:
