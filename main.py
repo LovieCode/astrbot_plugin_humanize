@@ -5,6 +5,7 @@ import hashlib
 import re
 import time
 import uuid
+from collections.abc import Coroutine
 from dataclasses import replace
 from datetime import UTC, datetime
 from pathlib import Path
@@ -112,6 +113,32 @@ _CONTROL_TAG_PATTERN = re.compile(
     r"(?=\s|/?>|&gt;)",
     re.IGNORECASE,
 )
+
+# 事件循环对任务只持弱引用：fire-and-forget 任务必须在此持强引用，
+# 否则可能在完成前被 GC 回收（持久化静默丢失、异常无人接收）。
+_BACKGROUND_TASKS: set[asyncio.Task[None]] = set()
+
+
+def _finish_background_task(task: asyncio.Task[None]) -> None:
+    """Drop the strong reference and surface any unretrieved failure."""
+    _BACKGROUND_TASKS.discard(task)
+    if task.cancelled():
+        return
+    exc = task.exception()
+    if exc is not None:
+        logger.error("[Humanize] background task %s failed: %s", task.get_name(), exc)
+
+
+def _spawn_background(
+    coro: Coroutine[Any, Any, None],
+    *,
+    name: str,
+) -> asyncio.Task[None]:
+    """Schedule a fire-and-forget task that survives garbage collection."""
+    task = asyncio.create_task(coro, name=name)
+    _BACKGROUND_TASKS.add(task)
+    task.add_done_callback(_finish_background_task)
+    return task
 
 
 def _json_safe(value: Any) -> Any:
@@ -1623,12 +1650,13 @@ class HumanizePlugin(Star):
         final_snapshot = _json_safe(final_snapshot)
         final_complete = bool(response_complete)
         try:
-            asyncio.create_task(
+            _spawn_background(
                 self._container.service.update_context_trace_final_snapshot(
                     context,
                     request_snapshot_final=final_snapshot,
                     request_snapshot_final_complete=final_complete,
-                )
+                ),
+                name="humanize-context-final-snapshot",
             )
         except Exception:
             logger.exception("[Humanize] final snapshot persistence scheduling failed")
