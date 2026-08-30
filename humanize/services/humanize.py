@@ -166,11 +166,12 @@ class HumanizeService:
         duration_ms: int,
         stage: str = "final",
         record_success: bool = True,
+        allow_wait: bool = False,
         response_snapshot: dict[str, Any] | None = None,
         response_snapshot_complete: bool = False,
     ) -> FinalOutcome:
         try:
-            decision = self._parser.parse(raw_output)
+            decision = self._parser.parse(raw_output, allow_wait=allow_wait)
         except ProtocolValidationError as exc:
             await self._record_protocol_safely(
                 context,
@@ -237,6 +238,7 @@ class HumanizeService:
             image_cache=decision.image_cache,
             no_reply_reason=decision.no_reply_reason,
             messages_over_limit=decision.messages_over_limit,
+            wait_seconds=decision.wait_seconds,
         )
 
     async def record_protocol_success(

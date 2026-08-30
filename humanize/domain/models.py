@@ -7,6 +7,7 @@ from enum import StrEnum
 class Action(StrEnum):
     REPLY = "Reply"
     NO_REPLY = "No Reply"
+    WAIT = "Wait"
 
 
 class EventState(StrEnum):
@@ -82,6 +83,7 @@ class ProtocolDecision:
     image_cache: tuple[ImageCache, ...] = ()
     no_reply_reason: str = ""
     messages_over_limit: bool = False
+    wait_seconds: int = 0
 
 
 @dataclass(frozen=True, slots=True)
@@ -159,5 +161,6 @@ class FinalOutcome:
     image_cache: tuple[ImageCache, ...] = ()
     no_reply_reason: str = ""
     messages_over_limit: bool = False
+    wait_seconds: int = 0
     error_code: str = ""
     error_detail: str = ""

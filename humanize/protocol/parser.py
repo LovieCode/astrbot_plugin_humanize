@@ -33,6 +33,10 @@ _IMAGECACHE_TAG_RE = re.compile(
 )
 _LEGACY_ACTION_PATTERN = re.compile(r"action\s*:\s*(?P<value>.*)", re.IGNORECASE)
 
+# 主动评估专用动作：<Action>Wait N</Action>，N 为 1..MAX_WAIT_SECONDS 的整数秒。
+MAX_WAIT_SECONDS = 29
+_WAIT_ACTION_RE = re.compile(r"^\s*Wait\s+(?P<seconds>\d{1,3})\s*$", re.IGNORECASE)
+
 _CONTROL_MARKERS = ("action:", "unknownterms:", "<action", "<unknownterms")
 _STRUCTURED_REPLY_LINE_PATTERN = re.compile(
     r"^\s*(?:"
@@ -47,7 +51,20 @@ class ProtocolParser:
     def __init__(self, config: PluginConfig) -> None:
         self._config = config
 
-    def parse(self, raw_output: str) -> ProtocolDecision:
+    def parse(self, raw_output: str, *, allow_wait: bool = False) -> ProtocolDecision:
+        """Validate one model output into a protocol decision.
+
+        Args:
+            raw_output: Full model output.
+            allow_wait: Whether the proactive-only ``Wait N`` action is legal.
+                Normal reply turns must never defer, so they keep it disabled.
+
+        Returns:
+            Parsed decision; ``wait_seconds`` is set only for ``Wait``.
+
+        Raises:
+            ProtocolValidationError: On any contract violation.
+        """
         raw = raw_output or ""
         if not raw.strip():
             raise ProtocolValidationError("empty_output", "LLM returned no final text")
@@ -58,13 +75,37 @@ class ProtocolParser:
                 "missing_action",
                 "Response must contain an <Action> tag",
             )
+        wait_match = _WAIT_ACTION_RE.match(action_value)
         try:
             action = Action(action_value)
-        except ValueError as exc:
+        except ValueError:
+            action = None
+        wait_seconds = 0
+        if action is Action.WAIT or wait_match is not None:
+            # ``Wait`` 只允许出现在主动评估调用里；缺秒数或超出上限都是格式错误。
+            if wait_match is None:
+                raise ProtocolValidationError(
+                    "invalid_wait_seconds",
+                    "Wait requires a second count",
+                )
+            if not allow_wait:
+                raise ProtocolValidationError(
+                    "wait_not_allowed",
+                    "Wait is only valid in proactive evaluations",
+                )
+            seconds = int(wait_match.group("seconds"))
+            if not 1 <= seconds <= MAX_WAIT_SECONDS:
+                raise ProtocolValidationError(
+                    "invalid_wait_seconds",
+                    f"Wait seconds must be within 1..{MAX_WAIT_SECONDS}",
+                )
+            action = Action.WAIT
+            wait_seconds = seconds
+        elif action is None:
             raise ProtocolValidationError(
                 "invalid_action",
                 f"Unsupported Action value: {action_value or '<empty>'}",
-            ) from exc
+            )
 
         unknown_terms = self._extract_unknown_terms(raw)
 
@@ -103,6 +144,7 @@ class ProtocolParser:
             image_cache=image_cache,
             no_reply_reason=no_reply_reason,
             messages_over_limit=over_limit,
+            wait_seconds=wait_seconds,
         )
 
     # ---------- 标签提取（位置不限、可缺省） ----------
@@ -287,8 +329,8 @@ class ProtocolParser:
                 action = Action(action_value)
             except ValueError:
                 return None
-            # No Reply 冲突（带正文）无需修复：直接返回 None 让上层 block
-            if action is Action.NO_REPLY:
+            # No Reply / Wait 无法通过补头修复成正常回复：直接返回 None 让上层 block
+            if action is Action.NO_REPLY or action is Action.WAIT:
                 return None
             # 去掉已识别的 Action / UnknownTerms 标签，其余为 body
             body = raw[: action_match.start()] + raw[action_match.end() :]
@@ -303,7 +345,7 @@ class ProtocolParser:
                 action = Action(action_value)
             except ValueError:
                 return None
-            if action is Action.NO_REPLY:
+            if action is Action.NO_REPLY or action is Action.WAIT:
                 return None
             body = raw[: legacy.start()] + raw[legacy.end() :]
             legacy_unknown = re.search(r"(?im)^\s*unknownterms\s*:\s*[^\r\n]*", body)
