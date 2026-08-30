@@ -528,11 +528,11 @@
     }
   },
   "proactive": {
-    "description": "主动发言",
+    "description": "主动参与",
     "type": "object",
     "items": {
       "proactive_mode": {
-        "description": "参与模式",
+        "description": "参与许可",
         "type": "string",
         "default": "off",
         "options": [
@@ -541,14 +541,14 @@
           "blacklist"
         ],
         "labels": [
-          "关闭",
-          "白名单（仅列出的会话）",
-          "黑名单（列出的会话除外）"
+          "不限制（不主动）",
+          "白名单（仅列出的群）",
+          "黑名单（列出的群除外）"
         ],
-        "hint": "总开关。白名单/黑名单按会话标识匹配（完整格式如 aiocqhttp:GroupMessage:123456，或只填群号）。"
+        "hint": "许可名单，同时决定主动发言是否开启：不许可的群里机器人完全沉默（@ 也不回复、不旁观）。白名单/黑名单按会话标识匹配（完整格式如 aiocqhttp:GroupMessage:123456，或只填群号）。黑名单留空 = 所有群都许可且开启主动。"
       },
       "proactive_whitelist": {
-        "description": "白名单会话",
+        "description": "许可群（白名单）",
         "type": "list",
         "default": [],
         "items": {
@@ -557,10 +557,10 @@
         "condition": {
           "proactive_mode": "whitelist"
         },
-        "hint": "每行一个会话标识，只有这些群会触发主动发言。"
+        "hint": "每行一个会话标识，只有这些群会被许可（回复、旁观、主动发言）。"
       },
       "proactive_blacklist": {
-        "description": "黑名单会话",
+        "description": "禁止群（黑名单）",
         "type": "list",
         "default": [],
         "items": {
@@ -569,7 +569,7 @@
         "condition": {
           "proactive_mode": "blacklist"
         },
-        "hint": "每行一个会话标识，这些群不触发主动发言，其余群都参与。"
+        "hint": "每行一个会话标识，这些群完全沉默；其余群全部许可并开启主动发言。"
       },
       "proactive_keywords": {
         "description": "触发关键词",
@@ -578,25 +578,25 @@
         "items": {
           "type": "string"
         },
-        "hint": "消息里出现机器人名字或这些词时，跳过等待立即评估。每行一个词。"
+        "hint": "消息里出现机器人名字或这些词时，跳过等待尽快触发回复。每行一个词。"
       },
       "proactive_window_initial_seconds": {
-        "description": "初始评估窗口（秒）",
+        "description": "初始触发窗口（秒）",
         "type": "int",
         "default": 10,
         "minimum": 5,
         "maximum": 600,
-        "hint": "群里出现新消息后等待多久再评估是否发言；机器人连续发言则窗口减半，连续沉默则翻倍，翻倍上限见最长评估窗口。"
+        "hint": "群里出现新消息后等待多久再触发一次回复；机器人回复后回到 1 秒，沉默则加 10 秒，上限见最长触发窗口。"
       },
       "proactive_window_max_seconds": {
-        "description": "最长评估窗口（秒）",
+        "description": "最长触发窗口（秒）",
         "type": "int",
         "default": 300,
         "minimum": 30,
         "maximum": 3600,
-        "hint": "窗口翻倍的上限，同时也是评估调用频率的上限。"
+        "hint": "窗口加长的上限，同时也是主动回复频率的上限。"
       }
     },
-    "hint": "在群聊中主动参与：按时间窗口评估未 @ 的聊天，有人提到机器人时立即评估。默认关闭。"
+    "hint": "在群聊中自然接话：窗口到点后走完整回复流程，说不说由模型按协议决定。未 @ 的聊天会作为旁观记录进入对话历史。"
   }
 }

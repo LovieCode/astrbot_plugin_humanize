@@ -13,6 +13,11 @@ from .base import _json_text, _now, _now_precise
 
 __all__ = ["ProtocolRepository"]
 
+# 协议日志的合法阶段：正常 final/tool 之外，主动触发走 proactive_<kind>。
+_PROTOCOL_STAGES = {"final", "tool", "proactive_window", "proactive_direct"}
+# 记忆抽取只在模型真正回复的正式回合发生。
+_MEMORY_JOB_STAGES = {"final", "proactive_window", "proactive_direct"}
+
 
 class ProtocolRepository:
     """Domain mixin: protocol storage."""
@@ -36,7 +41,7 @@ class ProtocolRepository:
     ) -> None:
         def operation(conn: sqlite3.Connection) -> None:
             now = _now()
-            normalized_stage = stage if stage in {"final", "tool"} else "final"
+            normalized_stage = stage if stage in _PROTOCOL_STAGES else "final"
             conn.execute(
                 """
                 INSERT INTO protocol_logs (
@@ -205,8 +210,6 @@ class ProtocolRepository:
                 .lower()
                 .replace(" ", "_")
             )
-        if normalized_action not in {"reply", "no_reply"}:
-            raise ValueError("unsupported memory turn action")
         outcome_messages = (
             getattr(outcome, "messages", ()) if outcome is not None else ()
         )
@@ -215,7 +218,7 @@ class ProtocolRepository:
         protocol_action = str(action or "").strip()
         if not protocol_action:
             protocol_action = "No Reply" if normalized_action == "no_reply" else "Reply"
-        normalized_stage = stage if stage in {"final", "tool"} else "final"
+        normalized_stage = stage if stage in _PROTOCOL_STAGES else "final"
         snapshot = (
             response_snapshot if response_snapshot is not None else request_snapshot
         )
@@ -225,7 +228,13 @@ class ProtocolRepository:
             else bool(snapshot)
         )
         now = _now_precise()
-        enqueue = bool(job) and bool(success) and normalized_stage == "final"
+        enqueue = bool(job) and bool(success) and normalized_stage in _MEMORY_JOB_STAGES
+        # Wait 只出现在无记忆任务的主动轮（等待不产生回合），此时动作仅进
+        # 协议日志；只有真正入队抽取任务时才要求动作是 reply/no_reply。
+        if normalized_action not in {"reply", "no_reply"} and (
+            enqueue or not bool(job)
+        ):
+            raise ValueError("unsupported memory turn action")
         if enqueue and (not clean_scope_type or not clean_scope_hash):
             raise ValueError("memory scope type and HMAC hash are required")
         job_type = str(job.get("job_type") or "extract_turn").strip().lower()

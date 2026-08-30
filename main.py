@@ -2,6 +2,7 @@ from __future__ import annotations
 
 import asyncio
 import hashlib
+import inspect
 import re
 import time
 import uuid
@@ -13,13 +14,14 @@ from typing import Any
 
 from astrbot.api import logger
 from astrbot.api.event import AstrMessageEvent, MessageChain, filter
-from astrbot.api.message_components import Plain
+from astrbot.api.message_components import At, Plain
 from astrbot.api.provider import LLMResponse, ProviderRequest
 from astrbot.api.star import Context, Star
 from astrbot.builtin_stars.builtin_commands.commands.conversation import (
     ConversationCommands,
 )
 from astrbot.core.agent.message import TextPart
+from astrbot.core.platform.astrbot_message import AstrBotMessage, MessageMember
 from astrbot.core.provider.provider import Provider as _ProviderBase
 
 from .humanize.config import PluginConfig
@@ -36,6 +38,7 @@ from .humanize.provider_observability import (
     usage_dict,
     usage_observed,
 )
+from .humanize.services.proactive import matches_scope
 from .humanize.snapshots import (
     serialize_attachment_reference,
     serialize_llm_response,
@@ -100,6 +103,10 @@ _PREFIX_FIRST_DIFFERENCE_KEY = "_humanize_prefix_first_difference"
 _PREFIX_COMMON_CHARS_KEY = "_humanize_prefix_common_chars"
 _PREFIX_EPOCH_REASON_KEY = "_humanize_prefix_epoch_reason"
 _FIRST_RESPONSE_AT_KEY = "_humanize_first_response_at"
+_PROACTIVE_KIND_KEY = "_humanize_proactive_kind"
+_PROACTIVE_WAIT_KEY = "_humanize_proactive_wait_seconds"
+_PROACTIVE_OUTCOME_CALLBACK_KEY = "_humanize_proactive_outcome_callback"
+_PROACTIVE_OUTCOME_FIRED_KEY = "_humanize_proactive_outcome_fired"
 _PROVIDER_CAPTURE_TTL_SECONDS = 600.0
 _PROVIDER_CAPTURE_MAX_ENTRIES = 256
 _FIREWALL_PRIORITY = 100_000
@@ -192,7 +199,12 @@ class HumanizePlugin(Star):
         self._repair_warned_at: float = 0.0
 
     async def initialize(self) -> None:
-        self._container = Container.build(self._plugin_config, self.context)
+        self._container = Container.build(
+            self._plugin_config,
+            self.context,
+            proactive_event_builder=self._build_proactive_event,
+            proactive_event_queue_getter=self._event_queue,
+        )
         await self._container.repository.initialize()
         self._image_store = ImageCacheStore(
             self._plugin_config, self._container.repository
@@ -335,7 +347,7 @@ class HumanizePlugin(Star):
                     )
             except Exception:
                 logger.exception("[Humanize] auto image transcription failed")
-        await self._maybe_record_ambient(event)
+        await self._maybe_record_chatter(event)
         await self._maybe_schedule_proactive(event)
 
     @filter.command("clear", alias={"reset"}, priority=_FIREWALL_PRIORITY)
@@ -394,6 +406,16 @@ class HumanizePlugin(Star):
     ) -> None:
         if not self._is_active:
             return
+        # 许可名单是全局的：不许可的会话里机器人连 @ 都不回复。命令类
+        # 处理器不会走到这个钩子，所以只拦截对话回复，不影响指令功能。
+        if not self._session_permitted(event):
+            logger.debug(
+                "[Humanize] session not permitted; reply suppressed (umo=%s)",
+                getattr(event, "unified_msg_origin", ""),
+            )
+            event.clear_result()
+            event.stop_event()
+            return
         assert self._container is not None
 
         event.set_extra("enable_streaming", False)
@@ -414,6 +436,9 @@ class HumanizePlugin(Star):
         )
         original_prompt = str(req.prompt if req.prompt is not None else raw_user)
         message_context = await self._build_message_context(event, raw_user)
+        if event.get_extra(_PROACTIVE_KIND_KEY):
+            # 主动回合在历史里的发言者是系统提示，不冒充任何真实用户。
+            message_context = replace(message_context, sender_name="系统提示")
         conversation_id = str(getattr(req.conversation, "cid", "") or "")
         if conversation_id and message_context.conversation_id != conversation_id:
             message_context = replace(
@@ -758,24 +783,6 @@ class HumanizePlugin(Star):
             event.clear_result()
             event.stop_event()
             return
-
-        # Volatile group chatter is a trailing system fragment. Append it
-        # after prefix observation so persona / protocol / history stay a
-        # stable prefix-cache key; a changing ambient suffix must not
-        # invalidate that prefix fingerprint.
-        try:
-            loader = getattr(
-                getattr(self._container, "context_window", None),
-                "load_ambient",
-                None,
-            )
-            if callable(loader):
-                ambient = await loader(message_context)
-                if ambient:
-                    req.contexts = list(req.contexts or [])
-                    req.contexts.append({"role": "system", "content": ambient})
-        except Exception:
-            logger.debug("[Humanize] ambient context injection skipped", exc_info=True)
 
         event.set_extra(_STATE_KEY, EventState.REQUESTED.value)
         event.set_extra(_CONTEXT_KEY, message_context)
@@ -1153,6 +1160,7 @@ class HumanizePlugin(Star):
             self._response_snapshot_for_record(event)
         )
 
+        proactive_kind = str(event.get_extra(_PROACTIVE_KIND_KEY, "") or "")
         try:
             outcome = await self._container.service.process_final_response(
                 context,
@@ -1160,7 +1168,9 @@ class HumanizePlugin(Star):
                 model=model,
                 provider_id=str(event.get_extra(_PROVIDER_ID_KEY, "")),
                 duration_ms=duration_ms,
+                stage=f"proactive_{proactive_kind}" if proactive_kind else "final",
                 record_success=False,
+                allow_wait=proactive_kind == "window",
                 response_snapshot=response_snapshot,
                 response_snapshot_complete=response_snapshot_complete,
             )
@@ -1204,6 +1214,17 @@ class HumanizePlugin(Star):
                     self._set_response_text(response, "")
                     return
             self._block_response(event, response, outcome.error_code)
+            return
+
+        if outcome.action is Action.WAIT:
+            # Wait 不是消息：抑制发送、跳过历史写回，由服务按等待秒数
+            # 重新触发同一批；最终成功落账时按 Wait 记录。
+            event.set_extra(_PROACTIVE_WAIT_KEY, int(outcome.wait_seconds or 0))
+            event.set_extra(_VALIDATED_OUTPUT_KEY, raw_output)
+            event.set_extra(_MESSAGES_KEY, ())
+            event.set_extra(_FINAL_LOG_PENDING_KEY, True)
+            event.set_extra(_STATE_KEY, EventState.NO_REPLY.value)
+            self._set_response_text(response, _NO_REPLY_SENTINEL)
             return
 
         if outcome.action is Action.NO_REPLY:
@@ -1298,13 +1319,18 @@ class HumanizePlugin(Star):
                     _CONTEXT_WINDOW_PENDING_MESSAGES_KEY,
                     tuple(messages) if isinstance(messages, list) else (),
                 )
+                pending_action = (
+                    Action.REPLY.value
+                    if state == EventState.FINAL_VALID.value
+                    else Action.NO_REPLY.value
+                )
+                if event.get_extra(_PROACTIVE_WAIT_KEY) is not None:
+                    # Wait leaves the batch undecided: nothing is written to
+                    # the managed window for this turn at all.
+                    pending_action = ""
                 event.set_extra(
                     _CONTEXT_WINDOW_PENDING_ACTION_KEY,
-                    (
-                        Action.REPLY.value
-                        if state == EventState.FINAL_VALID.value
-                        else Action.NO_REPLY.value
-                    ),
+                    pending_action,
                 )
             return
 
@@ -1719,16 +1745,6 @@ class HumanizePlugin(Star):
                 ),
             )
             event.set_extra(_CONTEXT_TURN_REF_KEY, result.context_ref)
-            try:
-                dropper = getattr(
-                    getattr(self._container, "context_window", None),
-                    "drop_ambient",
-                    None,
-                )
-                if callable(dropper):
-                    await dropper(context)
-            except Exception:
-                logger.debug("[Humanize] ambient drop skipped", exc_info=True)
             committer = getattr(
                 getattr(self._container, "memory", None),
                 "commit_context_turn",
@@ -2371,17 +2387,41 @@ class HumanizePlugin(Star):
             return False
         started_at = event.get_extra(_START_KEY, time.perf_counter())
         duration_ms = max(0, int((time.perf_counter() - started_at) * 1_000))
-        action = (
-            Action.NO_REPLY.value
-            if event.get_extra(_STATE_KEY) == EventState.NO_REPLY.value
-            else Action.REPLY.value
+        proactive_kind = str(event.get_extra(_PROACTIVE_KIND_KEY, "") or "")
+        wait_seconds_raw = event.get_extra(_PROACTIVE_WAIT_KEY)
+        if wait_seconds_raw is not None:
+            outcome_action = Action.WAIT
+        elif event.get_extra(_STATE_KEY) == EventState.NO_REPLY.value:
+            outcome_action = Action.NO_REPLY
+        else:
+            outcome_action = Action.REPLY
+        # 计时反馈不依赖日志能否落库：先把结果交还服务，再持久化。
+        await self._fire_proactive_outcome(
+            event,
+            context,
+            action=outcome_action,
+            wait_seconds=int(wait_seconds_raw or 0),
         )
+        if (
+            not proactive_kind
+            and outcome_action is Action.REPLY
+            and context.scope_type == "group"
+        ):
+            # 普通 @ 回复同样算"机器人回复了"：主动计时回到 1 秒。
+            proactive = getattr(self._container, "proactive", None)
+            if proactive is not None:
+                try:
+                    await proactive.on_bot_reply(context.scope_id)
+                except Exception:
+                    logger.exception(
+                        "[Humanize] failed to notify the proactive service"
+                    )
         response_snapshot, response_snapshot_complete = (
             self._response_snapshot_for_record(event)
         )
         try:
             record_kwargs: dict[str, Any] = {
-                "action": action,
+                "action": outcome_action.value,
                 "raw_output": str(event.get_extra(_VALIDATED_OUTPUT_KEY, "")),
                 "messages": tuple(
                     event.get_extra(_DISPATCHED_MESSAGES_KEY, ())
@@ -2393,7 +2433,7 @@ class HumanizePlugin(Star):
                 "model": str(event.get_extra(_MODEL_KEY, "")),
                 "provider_id": str(event.get_extra(_PROVIDER_ID_KEY, "")),
                 "duration_ms": duration_ms,
-                "stage": "final",
+                "stage": f"proactive_{proactive_kind}" if proactive_kind else "final",
             }
             if event.get_extra(_CONTEXT_WINDOW_ACTIVE_KEY, False):
                 record_kwargs["context_ref"] = str(
@@ -2661,14 +2701,17 @@ class HumanizePlugin(Star):
             logger.exception("[Humanize] failed to resolve reset persona")
         return message_context
 
-    async def _maybe_record_ambient(self, event: AstrMessageEvent) -> None:
-        """Record unaddressed group chatter into a rolling ledger.
+    async def _maybe_record_chatter(self, event: AstrMessageEvent) -> None:
+        """Record unaddressed group chatter as an ordinary history entry.
 
-        Plugin EventMessageType filters wake the event (``is_wake=True``) so
-        un-@ group messages still reach this hook, but AstrBot only runs the
-        LLM when ``is_at_or_wake_command`` is true. Those unaddressed lines
-        must not enter the managed window (that would compact and spend
-        tokens). Fail-open on test fakes that omit group/message metadata.
+        Chatter lands in the group's shared managed window with the same
+        truncation and compaction rules as real turns, so any later turn —
+        normal or proactive — sees it directly. Plugin EventMessageType
+        filters wake the event (``is_wake=True``) so un-@ group messages
+        still reach this hook, but AstrBot only runs the LLM when
+        ``is_at_or_wake_command`` is true. Unpermitted sessions are not
+        observed at all. Fail-open on test fakes that omit group/message
+        metadata.
 
         Args:
             event: Incoming message event, possibly without a full AstrBot
@@ -2676,12 +2719,12 @@ class HumanizePlugin(Star):
         """
         if self._container is None:
             return
-        appender = getattr(
+        window = getattr(
             getattr(self._container, "context_window", None),
-            "append_ambient",
+            "append_chatter",
             None,
         )
-        if not callable(appender):
+        if not callable(window):
             return
         is_private = getattr(event, "is_private_chat", None)
         if not callable(is_private):
@@ -2692,6 +2735,9 @@ class HumanizePlugin(Star):
         except Exception:
             return
         if getattr(event, "is_at_or_wake_command", False):
+            return
+        umo = str(getattr(event, "unified_msg_origin", "") or "")
+        if not umo or not self._session_permitted(umo):
             return
         message_obj = getattr(event, "message_obj", None)
         if message_obj is None:
@@ -2708,16 +2754,33 @@ class HumanizePlugin(Star):
             if self_id and sender_id and self_id == sender_id:
                 return
         try:
-            ambient_context, has_image = self._ambient_record_from_event(event)
+            chatter_context, has_image = self._chatter_record_from_event(event)
         except Exception:
-            logger.debug("[Humanize] ambient context build skipped", exc_info=True)
+            logger.debug("[Humanize] chatter context build skipped", exc_info=True)
             return
-        if ambient_context is None:
+        if chatter_context is None:
             return
         try:
-            await appender(ambient_context, has_image=has_image)
+            await window(
+                chatter_context,
+                has_image=has_image,
+                token_budget=self._context_window_token_budget(umo),
+            )
         except Exception:
-            logger.debug("[Humanize] ambient record skipped", exc_info=True)
+            logger.debug("[Humanize] chatter record skipped", exc_info=True)
+
+    def _context_window_token_budget(self, umo: str) -> int:
+        """Resolve the per-session window budget for chatter compaction."""
+        provider_settings: dict[str, Any] = {}
+        try:
+            candidate = self.context.get_config(umo=umo).get("provider_settings", {})
+            if isinstance(candidate, dict):
+                provider_settings = candidate
+        except Exception:
+            logger.debug(
+                "[Humanize] provider settings unavailable for %s", umo, exc_info=True
+            )
+        return context_window_token_budget(provider_settings)
 
     async def _maybe_schedule_proactive(self, event: AstrMessageEvent) -> None:
         """Feed one unaddressed group message into the proactive path.
@@ -2749,6 +2812,8 @@ class HumanizePlugin(Star):
         umo = str(getattr(event, "unified_msg_origin", "") or "")
         if not umo:
             return
+        self_id = ""
+        sender_id = ""
         self_id_getter = getattr(event, "get_self_id", None)
         sender_id_getter = getattr(event, "get_sender_id", None)
         if callable(self_id_getter) and callable(sender_id_getter):
@@ -2761,9 +2826,9 @@ class HumanizePlugin(Star):
             if self_id and sender_id and self_id == sender_id:
                 return
         if self._is_proactive_direct_trigger(event, self_id):
-            await proactive.on_direct_trigger(umo)
+            await proactive.on_direct_trigger(umo, event=event)
         else:
-            await proactive.on_group_chatter(umo)
+            await proactive.on_group_chatter(umo, event=event)
 
     def _is_proactive_direct_trigger(
         self, event: AstrMessageEvent, self_id: str
@@ -2800,10 +2865,163 @@ class HumanizePlugin(Star):
                 return True
         return False
 
-    def _ambient_record_from_event(
+    def _session_permitted(self, event: AstrMessageEvent) -> bool:
+        """Whether the bot may participate in this session at all.
+
+        The permission list is global: unpermitted sessions get no reply to
+        @, no chatter observation, and no proactive triggering. Mode ``off``
+        means unrestricted. Private chats are never gated.
+
+        Args:
+            event: The incoming message event.
+
+        Returns:
+            ``True`` when the session is permitted (or the gate does not
+            apply).
+        """
+        is_private = getattr(event, "is_private_chat", None)
+        if callable(is_private):
+            try:
+                if is_private():
+                    return True
+            except Exception:
+                return True
+        umo = str(getattr(event, "unified_msg_origin", "") or "")
+        if not umo:
+            return True
+        mode = self._plugin_config.proactive_mode
+        if mode == "whitelist":
+            return matches_scope(self._plugin_config.proactive_whitelist, umo)
+        if mode == "blacklist":
+            return not matches_scope(self._plugin_config.proactive_blacklist, umo)
+        return True
+
+    def _event_queue(self) -> Any:
+        """Return the host event queue for synthetic proactive events."""
+        return self.context.get_event_queue()
+
+    def _build_proactive_event(
+        self,
+        template: AstrMessageEvent | None,
+        *,
+        kind: str,
+        on_outcome: Any,
+    ) -> AstrMessageEvent | None:
+        """Construct the synthetic group event for one proactive turn.
+
+        The event must look waking (an At component targeting the bot) and
+        carry the template's session identity and real sender, so every
+        downstream scope — scheduler config, managed window, chatter hook —
+        resolves to the group the chatter came from. The message text is a
+        short situation line only; the chatter itself is already ordinary
+        history. A fresh object is mandatory: pipeline stages stamp state
+        onto the event instance, so a consumed event must never be reused.
+
+        Args:
+            template: The group's most recent real message event.
+            kind: Trigger source, ``window`` or ``direct``.
+            on_outcome: Callback receiving ``(context, action, wait_seconds)``
+                when the pipeline reaches a terminal outcome.
+
+        Returns:
+            A fresh event marked as proactive, or ``None`` when the
+            template cannot support construction.
+        """
+        if template is None:
+            return None
+        template_message = getattr(template, "message_obj", None)
+        if template_message is None:
+            return None
+        try:
+            envelope = self._container.envelope if self._container else None
+            if envelope is None:
+                return None
+            text = envelope.build_proactive_prompt(
+                situation=kind,
+                allow_wait=kind == "window",
+            )
+            self_id_getter = getattr(template, "get_self_id", None)
+            self_id = str(self_id_getter() or "") if callable(self_id_getter) else ""
+            if not self_id:
+                self_id = str(getattr(template_message, "self_id", "") or "")
+            sender = getattr(template_message, "sender", None)
+            message_obj = AstrBotMessage()
+            message_obj.type = template_message.type
+            message_obj.self_id = getattr(template_message, "self_id", self_id)
+            message_obj.session_id = str(
+                getattr(template_message, "session_id", "") or ""
+            )
+            message_obj.message_id = f"humanize-proactive-{uuid.uuid4().hex[:12]}"
+            message_obj.group = getattr(template_message, "group", None)
+            message_obj.sender = MessageMember(
+                user_id=str(getattr(sender, "user_id", "") or ""),
+                nickname=str(getattr(sender, "nickname", "") or ""),
+            )
+            message_obj.message = [At(qq=self_id), Plain(text)]
+            message_obj.message_str = text
+            message_obj.raw_message = None
+            message_obj.timestamp = int(time.time())
+            event_cls = type(template)
+            event = event_cls(
+                message_str=text,
+                message_obj=message_obj,
+                platform_meta=template.platform_meta,
+                session_id=str(template.session_id or ""),
+                **self._proactive_event_extra_kwargs(template),
+            )
+        except Exception:
+            logger.exception("[Humanize] failed to build the proactive event")
+            return None
+        event.set_extra(_PROACTIVE_KIND_KEY, kind)
+        event.set_extra(_PROACTIVE_OUTCOME_CALLBACK_KEY, on_outcome)
+        return event
+
+    @staticmethod
+    def _proactive_event_extra_kwargs(template: AstrMessageEvent) -> dict[str, Any]:
+        """Collect adapter-specific constructor arguments from the template.
+
+        Platform event subclasses take extra arguments beyond the base five
+        (aiocqhttp wants ``bot``); bind them by parameter name from the
+        template instance so the fresh event can actually deliver messages.
+
+        Args:
+            template: The template event to borrow constructor values from.
+
+        Returns:
+            Keyword arguments for the template's event class constructor.
+
+        Raises:
+            ValueError: If a required constructor argument has no matching
+                attribute on the template.
+        """
+        skip = {
+            "self",
+            "message_str",
+            "message_obj",
+            "platform_meta",
+            "session_id",
+        }
+        kwargs: dict[str, Any] = {}
+        parameters = inspect.signature(type(template).__init__).parameters
+        for name, parameter in parameters.items():
+            if name in skip:
+                continue
+            if parameter.kind in {
+                inspect.Parameter.VAR_POSITIONAL,
+                inspect.Parameter.VAR_KEYWORD,
+                inspect.Parameter.POSITIONAL_ONLY,
+            }:
+                continue
+            value = getattr(template, name, None)
+            if value is None and parameter.default is inspect.Parameter.empty:
+                raise ValueError(f"missing required event argument: {name}")
+            kwargs[name] = value
+        return kwargs
+
+    def _chatter_record_from_event(
         self, event: AstrMessageEvent
     ) -> tuple[MessageContext | None, bool]:
-        """Build a cheap group-scope context for the ambient ledger.
+        """Build a cheap group-scope context for one chatter entry.
 
         Avoids display-name network lookups so unaddressed chatter stays a
         local, zero-LLM append.
@@ -3495,6 +3713,38 @@ class HumanizePlugin(Star):
             dispatched.append(plain_text)
             event.set_extra(_DISPATCHED_MESSAGES_KEY, dispatched)
 
+    async def _fire_proactive_outcome(
+        self,
+        event: AstrMessageEvent,
+        context: MessageContext,
+        *,
+        action: Action | None,
+        wait_seconds: int = 0,
+    ) -> None:
+        """Report one terminal outcome to the proactive service, at most once.
+
+        ``action`` ``None`` means the output never resolved into a valid
+        action (blocked or repair-failed); the service treats it like No
+        Reply for timing. Non-proactive events carry no callback and are
+        silently ignored.
+
+        Args:
+            event: Active event carrying the proactive markers.
+            context: Trusted request context of the turn.
+            action: The validated protocol action, or ``None`` when invalid.
+            wait_seconds: Requested wait duration for ``Action.WAIT``.
+        """
+        callback = event.get_extra(_PROACTIVE_OUTCOME_CALLBACK_KEY)
+        if not callable(callback):
+            return
+        if event.get_extra(_PROACTIVE_OUTCOME_FIRED_KEY, False):
+            return
+        event.set_extra(_PROACTIVE_OUTCOME_FIRED_KEY, True)
+        try:
+            await callback(context, action=action, wait_seconds=wait_seconds)
+        except Exception:
+            logger.exception("[Humanize] proactive outcome callback failed")
+
     def _block_response(
         self,
         event: AstrMessageEvent,
@@ -3506,6 +3756,9 @@ class HumanizePlugin(Star):
         self._set_response_text(response, "")
         event.clear_result()
         event.stop_event()
+        context = event.get_extra(_CONTEXT_KEY)
+        if isinstance(context, MessageContext):
+            self._fire_proactive_outcome(event, context, action=None)
 
     @staticmethod
     def _set_response_text(response: LLMResponse | None, text: str) -> None:

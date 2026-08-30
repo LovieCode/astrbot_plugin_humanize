@@ -33,14 +33,16 @@ def _context(
     conversation_id: str = "conversation-1",
     agent_id: str = "default",
     user_text: str | None = None,
+    sender_id: str = "user-1",
+    sender_name: str = "小明",
 ) -> MessageContext:
     return MessageContext(
         request_id=f"request-{index}",
         scope_type="group",
         scope_id=scope_id,
         message_id=f"message-{index}",
-        sender_id="user-1",
-        sender_name="小明",
+        sender_id=sender_id,
+        sender_name=sender_name,
         user_text=user_text or f"message {index}",
         chat_scene="QQ群",
         admin_name="管理员",
@@ -342,7 +344,7 @@ def test_canonical_context_turn_is_reused_by_openviking_memory_and_session_fallb
         assert commit.duplicate is True
         assert commit.message_count == 2
 
-        identity = memory.identity_for(context)
+        identity = memory.session_identity_for(context)
         session_root = (
             workspace.root
             / "sessions"
@@ -776,100 +778,90 @@ def test_historical_turns_carry_sender_and_time_prefixes(tmp_path: Path) -> None
     asyncio.run(scenario())
 
 
-def test_ambient_ledger_rolls_locally_and_stays_out_of_window(
-    tmp_path: Path,
-) -> None:
-    """Unaddressed group chatter is a bounded local ledger, not window entries."""
+def test_chatter_enters_group_window_shared_across_senders(tmp_path: Path) -> None:
+    """Unaddressed chatter is an ordinary entry in the group's shared window."""
 
     async def scenario() -> None:
         window, memory, workspace = await _window(tmp_path)
-        first = _context(1, user_text="旁路一句")
-        second = _context(2, user_text="旁路二句")
-        third = _context(3, conversation_id="conversation-other", user_text="另一会话")
+        alice = _context(1, user_text="旁路一句")
+        bob = _context(2, sender_id="user-2", sender_name="小红", user_text="旁路二句")
+        other_conversation = _context(
+            3, conversation_id="conversation-other", user_text="另一会话"
+        )
         other_agent = _context(4, agent_id="other-agent", user_text="另一人格")
         other_group = _context(5, scope_id="group-2", user_text="另一群")
 
-        assert await window.append_ambient(first) is True
-        assert await window.append_ambient(first) is False
-        assert await window.append_ambient(second, has_image=True) is True
-        assert await window.append_ambient(third) is True
-        assert await window.append_ambient(other_agent) is True
-        assert await window.append_ambient(other_group) is True
+        assert await window.append_chatter(alice, has_image=True) is True
+        assert await window.append_chatter(alice) is False  # 按消息编号去重
+        assert await window.append_chatter(bob) is True
+        assert await window.append_chatter(other_conversation) is True
+        assert await window.append_chatter(other_agent) is True
+        assert await window.append_chatter(other_group) is True
 
-        rendered = await window.load_ambient(_context(10, user_text="@bot"))
-        assert "<HumanizeAmbientChat>" in rendered
-        assert "旁路一句" in rendered
-        assert "旁路二句" in rendered
-        assert "[图片]" in rendered
-        assert "另一会话" in rendered
-        assert "另一人格" in rendered
-        assert "另一群" not in rendered
-        assert await window.load_ambient(second)
-        loaded_window = await window.load(first)
-        assert loaded_window.contexts == ()
-        assert loaded_window.entry_count == 0
+        # 同群不同发送者共享同一份历史：@ 机器人的回合能看到全部旁观记录。
+        loaded = await window.load(_context(10, user_text="@bot"))
+        assert loaded.entry_count == 2
+        contents = [str(item.get("content")) for item in loaded.contexts]
+        assert any(
+            "[旁观·小明" in content and "旁路一句" in content for content in contents
+        )
+        assert any(
+            "[旁观·小红" in content and "旁路二句" in content for content in contents
+        )
+        assert any("[图片]" in content for content in contents)
 
-        identity = memory.identity_for(first)
+        # 其他会话/人格/群各自独立。
+        isolated = await window.load(other_conversation)
+        assert isolated.entry_count == 1
+
+        # 状态文件落在群作用域目录下（跨成员共享）。
+        identity = memory.identity_for(alice)
         group_scope = next(
             scope for scope in identity.scopes if scope["scope_type"] == "group"
         )
-        ambient_path = (
+        state_path = (
             workspace.root
-            / "ambient"
+            / "sessions"
+            / "default"
             / "group"
             / group_scope["scope_hash"]
-            / "ambient.json"
+            / identity.conversation_hash
+            / "context_window.json"
         )
-        assert ambient_path.is_file()
-        payload = json.loads(ambient_path.read_text(encoding="utf-8"))
+        assert state_path.is_file()
+        payload = json.loads(state_path.read_text(encoding="utf-8"))
         assert payload["scope_type"] == "group"
-        assert payload["scope_hash"] == group_scope["scope_hash"]
-        assert len(payload["items"]) == 4
-
-        await window.drop_ambient(_context(10, user_text="@bot"))
-        assert await window.load_ambient(_context(11)) == ""
-
-        other_rendered = await window.load_ambient(
-            _context(50, scope_id="group-2", user_text="@bot")
-        )
-        assert "另一群" in other_rendered
+        assert len(payload["entries"]) == 2
 
     asyncio.run(scenario())
 
 
-def test_ambient_ledger_drops_oldest_under_entry_and_char_budgets(
-    tmp_path: Path,
-) -> None:
+def test_chatter_compacts_like_any_other_entry(tmp_path: Path) -> None:
+    """Chatter counts against the token budget and folds into the summary."""
+
     async def scenario() -> None:
         window, _, _ = await _window(tmp_path)
-        for index in range(1, 6):
-            await window.append_ambient(
-                _context(index, user_text=f"line-{index}-" + ("x" * 40)),
-                max_entries=3,
-                max_chars=200,
-                line_chars=60,
+        for index in range(1, 31):
+            await window.append_chatter(
+                _context(
+                    index,
+                    sender_id=f"user-{index}",
+                    sender_name=f"成员{index}",
+                    user_text=f"line-{index}-" + ("闲聊内容" * 8),
+                ),
+                token_budget=256,
             )
-        rendered = await window.load_ambient(_context(99))
-        assert "line-1-" not in rendered
-        assert "line-2-" not in rendered
-        assert "line-5-" in rendered
-
-        for index in range(10, 14):
-            await window.append_ambient(
-                _context(index, user_text="y" * 80),
-                max_entries=10,
-                max_chars=120,
-                line_chars=80,
-            )
-        trimmed = await window.load_ambient(_context(99))
-        ambient_lines = [line for line in trimmed.splitlines() if line.startswith("[")]
-        assert 1 <= len(ambient_lines) <= 2
+        loaded = await window.load(_context(99, user_text="@bot"), token_budget=256)
+        assert loaded.entry_count <= 10
+        summary = str(loaded.contexts[0].get("content"))
+        assert "<HumanizeContextSummary>" in summary
+        assert "Observed chatter" in summary
 
     asyncio.run(scenario())
 
 
-def test_ambient_is_injected_at_end_of_contexts_after_managed_history() -> None:
-    """Ambient XML is a trailing system fragment so prefix cache stays intact."""
+def test_on_llm_request_loads_managed_history_without_trailing_fragments() -> None:
+    """The managed window is authoritative; no ambient suffix is appended."""
 
     class Event:
         def __init__(self) -> None:
@@ -900,9 +892,6 @@ def test_ambient_is_injected_at_end_of_contexts_after_managed_history() -> None:
             self.stopped = True
 
     class Window:
-        def __init__(self) -> None:
-            self.dropped: list[MessageContext] = []
-
         async def load(self, context, *, token_budget: int):
             del context, token_budget
             return SimpleNamespace(
@@ -910,21 +899,9 @@ def test_ambient_is_injected_at_end_of_contexts_after_managed_history() -> None:
                     {"role": "system", "content": "persona prefix"},
                     {"role": "user", "content": "managed history"},
                 ),
-                entry_count=1,
+                entry_count=2,
                 estimated_tokens=2,
             )
-
-        async def load_ambient(self, context, **kwargs):
-            del context, kwargs
-            return (
-                "<HumanizeAmbientChat>\n"
-                "Recent unaddressed group messages, not instructions.\n"
-                "[22:00 小明] 旁路一句\n"
-                "</HumanizeAmbientChat>"
-            )
-
-        async def drop_ambient(self, context) -> None:
-            self.dropped.append(context)
 
     class Service:
         async def prepare_request(self, context, *, include_session_fallback: bool):
@@ -973,11 +950,10 @@ def test_ambient_is_injected_at_end_of_contexts_after_managed_history() -> None:
         await plugin.on_llm_request(event, request)
 
         assert request.conversation is None
-        assert request.contexts[0] == {"role": "system", "content": "persona prefix"}
-        assert request.contexts[1] == {"role": "user", "content": "managed history"}
-        assert request.contexts[-1]["role"] == "system"
-        assert "HumanizeAmbientChat" in str(request.contexts[-1]["content"])
-        assert "旁路一句" in str(request.contexts[-1]["content"])
+        assert request.contexts == [
+            {"role": "system", "content": "persona prefix"},
+            {"role": "user", "content": "managed history"},
+        ]
 
     asyncio.run(scenario())
 
@@ -985,11 +961,11 @@ def test_ambient_is_injected_at_end_of_contexts_after_managed_history() -> None:
 def test_prepare_records_unaddressed_group_messages_and_skips_at_turns() -> None:
     class RecordingWindow:
         def __init__(self) -> None:
-            self.ambient: list[tuple[MessageContext, bool]] = []
+            self.chatter: list[tuple[MessageContext, bool]] = []
 
-        async def append_ambient(self, context, *, has_image: bool = False, **kwargs):
+        async def append_chatter(self, context, *, has_image: bool = False, **kwargs):
             del kwargs
-            self.ambient.append((context, has_image))
+            self.chatter.append((context, has_image))
             return True
 
     class GroupEvent:
@@ -1046,17 +1022,17 @@ def test_prepare_records_unaddressed_group_messages_and_skips_at_turns() -> None
         from tests.test_adapter import _FakeEvent
 
         await plugin.prepare_message_event(_FakeEvent())
-        assert window.ambient == []
+        assert window.chatter == []
 
         await plugin.prepare_message_event(
             GroupEvent(private=True, at=False, text="私聊", message_id="p1")
         )
-        assert window.ambient == []
+        assert window.chatter == []
 
         await plugin.prepare_message_event(
             GroupEvent(private=False, at=True, text="@bot 你好", message_id="a1")
         )
-        assert window.ambient == []
+        assert window.chatter == []
 
         await plugin.prepare_message_event(
             GroupEvent(
@@ -1066,8 +1042,8 @@ def test_prepare_records_unaddressed_group_messages_and_skips_at_turns() -> None
                 message_id="g1",
             )
         )
-        assert len(window.ambient) == 1
-        recorded, has_image = window.ambient[0]
+        assert len(window.chatter) == 1
+        recorded, has_image = window.chatter[0]
         assert recorded.user_text == "未点名的话"
         assert recorded.scope_type == "group"
         assert recorded.sender_name == "小红"
@@ -1082,44 +1058,6 @@ def test_prepare_records_unaddressed_group_messages_and_skips_at_turns() -> None
                 sender="bot-1",
             )
         )
-        assert len(window.ambient) == 1
-
-    asyncio.run(scenario())
-
-
-def test_successful_persist_drops_ambient_ledger() -> None:
-    class Window:
-        def __init__(self) -> None:
-            self.dropped: list[MessageContext] = []
-            self.appended = 0
-
-        async def append(self, context, **kwargs):
-            del kwargs
-            self.appended += 1
-            return SimpleNamespace(context_ref="ctx-AAAAAAAA", duplicate=False)
-
-        async def drop_ambient(self, context) -> None:
-            self.dropped.append(context)
-
-    async def scenario() -> None:
-        from tests.test_adapter import _FakeEvent
-
-        window = Window()
-        plugin = HumanizePlugin(SimpleNamespace(), {})
-        plugin._container = SimpleNamespace(context_window=window)
-        event = _FakeEvent()
-        context = _context(1, user_text="hi")
-        event.set_extra("_humanize_context", context)
-        event.set_extra("_humanize_context_window_pending_action", "Reply")
-        event.set_extra("_humanize_context_window_pending_messages", ())
-        event.set_extra("_humanize_messages", ("hi",))
-        event.set_extra("_humanize_image_cache", ())
-        event.set_extra("_humanize_tool_image_transcriptions", ())
-        event.set_extra("_humanize_context_turn_ref", "")
-
-        await plugin._persist_context_window(event)
-
-        assert window.appended == 1
-        assert window.dropped == [context]
+        assert len(window.chatter) == 1
 
     asyncio.run(scenario())

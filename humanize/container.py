@@ -61,7 +61,27 @@ class Container:
     web_api: WebApi
 
     @classmethod
-    def build(cls, config: PluginConfig, context: object | None = None) -> Container:
+    def build(
+        cls,
+        config: PluginConfig,
+        context: object | None = None,
+        *,
+        proactive_event_builder: Any | None = None,
+        proactive_event_queue_getter: Any | None = None,
+    ) -> Container:
+        """Assemble every service.
+
+        Args:
+            config: Plugin configuration.
+            context: AstrBot host context when running inside the framework.
+            proactive_event_builder: Callable
+                ``(template_event, *, kind, on_outcome) -> event | None``
+                that produces the synthetic group event for one proactive
+                turn. Injected by the plugin because it needs AstrBot event
+                classes; omitted by unit tests, which disable triggering.
+            proactive_event_queue_getter: Callable returning the host event
+                queue the synthetic event is pushed into.
+        """
         repository = SQLiteRepository(
             config.data_path() / "humanize.db",
             raw_log_chars=config.protocol_raw_log_chars,
@@ -123,10 +143,8 @@ class Container:
             proactive=_build_proactive(
                 config,
                 repository,
-                envelope,
-                service,
-                context_window,
-                context,
+                proactive_event_builder,
+                proactive_event_queue_getter,
             ),
             web_api=WebApi(
                 repository,
@@ -141,111 +159,19 @@ class Container:
 def _build_proactive(
     config: PluginConfig,
     repository: SQLiteRepository,
-    envelope: EnvelopeBuilder,
-    service: HumanizeService,
-    context_window: ContextWindowService,
-    context: object | None,
+    event_builder: Any | None,
+    event_queue_getter: Any | None,
 ) -> ProactiveService:
-    """Assemble the proactive service with AstrBot-facing callables.
+    """Assemble the proactive trigger service.
 
-    The service itself stays framework-free; the callables bridge to the
-    host context and degrade to inert behaviour when it is unavailable
-    (unit tests build a Container without one).
+    The service stays framework-free: the injected builder produces the
+    synthetic group event (AstrBot classes live in the plugin entry module)
+    and the queue getter hands over the host event queue. Both may be
+    ``None`` in unit tests, which disables triggering entirely.
     """
-
-    def provider_getter(umo: str) -> Any:
-        getter = getattr(context, "get_using_provider", None)
-        if not callable(getter):
-            return None
-        try:
-            return getter(umo)
-        except Exception:
-            logger.exception("[Humanize] failed to resolve the provider for %s", umo)
-            return None
-
-    async def message_sender(umo: str, text: str) -> None:
-        if context is None:
-            logger.error(
-                "[Humanize] proactive send skipped: no host context for %s", umo
-            )
-            return
-        from astrbot.api.event import MessageChain
-        from astrbot.api.message_components import Plain
-
-        await context.send_message(umo, MessageChain([Plain(text)]))  # type: ignore[union-attr]
-
-    async def persona_getter(umo: str) -> tuple[str, str]:
-        """Resolve the group's persona prompt and its managed-window agent id.
-
-        Returns:
-            (persona system prompt, agent_id); agent id must match the one
-            normal turns use, otherwise the proactive evaluation would read
-            a different (empty) managed window.
-        """
-        resolver = getattr(
-            getattr(context, "persona_manager", None),
-            "resolve_selected_persona",
-            None,
-        )
-        if not callable(resolver):
-            return "", "default"
-        provider_settings: dict[str, Any] = {}
-        config_getter = getattr(context, "get_config", None)
-        if callable(config_getter):
-            try:
-                candidate = config_getter(umo=umo).get("provider_settings", {})
-                if isinstance(candidate, dict):
-                    provider_settings = candidate
-            except Exception:
-                logger.exception(
-                    "[Humanize] failed to read provider settings for %s", umo
-                )
-        try:
-            (
-                persona_id,
-                persona_obj,
-                _forced_id,
-                use_webchat_default,
-            ) = await resolver(
-                umo=umo,
-                conversation_persona_id=None,
-                platform_name="",
-                provider_settings=provider_settings,
-            )
-        except Exception:
-            logger.exception("[Humanize] failed to resolve the persona for %s", umo)
-            return "", "default"
-        agent_id = (
-            "_chatui_default_" if use_webchat_default else str(persona_id or "default")
-        )
-        prompt = (
-            str(persona_obj.get("prompt") or "")
-            if isinstance(persona_obj, dict)
-            else ""
-        )
-        return prompt, agent_id
-
-    def window_budget_getter(umo: str) -> int:
-        config_getter = getattr(context, "get_config", None)
-        if callable(config_getter):
-            try:
-                candidate = config_getter(umo=umo).get("provider_settings", {})
-                if isinstance(candidate, dict):
-                    return context_window_token_budget(candidate)
-            except Exception:
-                logger.exception(
-                    "[Humanize] failed to read the context budget for %s", umo
-                )
-        return context_window_token_budget({})
-
     return ProactiveService(
         config,
         repository,
-        context_window,
-        service,
-        envelope,
-        provider_getter=provider_getter,
-        message_sender=message_sender,
-        persona_getter=persona_getter,
-        window_budget_getter=window_budget_getter,
+        event_builder=event_builder,
+        event_queue_getter=event_queue_getter,
     )

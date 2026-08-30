@@ -344,16 +344,12 @@ def test_envelope_escapes_message_as_xml_data() -> None:
 def test_envelope_proactive_prompt_covers_situations() -> None:
     builder = EnvelopeBuilder(PluginConfig())
 
-    window = builder.build_proactive_prompt(
-        situation="window",
-        batch_xml="<HumanizeAmbientChat>流水</HumanizeAmbientChat>",
-        allow_wait=True,
-    )
-    assert "<HumanizeAmbientChat>流水</HumanizeAmbientChat>" in window
+    window = builder.build_proactive_prompt(situation="window", allow_wait=True)
+    assert "没有 @ 你" in window
     assert "Wait" in window
 
     # 仅 window 场景告知 Wait；direct 场景不携带等待选项
-    direct = builder.build_proactive_prompt(situation="direct", batch_xml="<a>1</a>")
+    direct = builder.build_proactive_prompt(situation="direct")
     assert "Wait" not in direct
 
     with pytest.raises(ValueError):

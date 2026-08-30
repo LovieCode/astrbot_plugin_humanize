@@ -1,8 +1,8 @@
-"""Behavior tests for the proactive group-participation service.
+"""Behavior tests for the proactive group-participation trigger service.
 
-The service is exercised through fakes for the provider, sender, persona,
-repository, and ambient window so each test pins one decision rule without
-real model calls or timer waits.
+The service is exercised through injected fakes for the event builder, the
+event queue, and the repository, so each test pins one timing or access rule
+without real model calls, timers, or an AstrBot runtime.
 """
 
 from __future__ import annotations
@@ -12,15 +12,12 @@ from types import SimpleNamespace
 from typing import Any
 
 from astrbot_plugin_humanize.humanize.config import PluginConfig
-from astrbot_plugin_humanize.humanize.domain.models import (
-    Action,
-    ContextSection,
-    FinalOutcome,
-    MessageContext,
-    PreparedRequest,
-)
+from astrbot_plugin_humanize.humanize.domain.models import Action, MessageContext
 from astrbot_plugin_humanize.humanize.protocol.envelope import EnvelopeBuilder
-from astrbot_plugin_humanize.humanize.services.proactive import ProactiveService
+from astrbot_plugin_humanize.humanize.services.proactive import (
+    ProactiveService,
+    matches_scope,
+)
 
 SCOPE = "aiocqhttp:GroupMessage:100"
 
@@ -29,28 +26,25 @@ def _config(**overrides: Any) -> PluginConfig:
     values: dict[str, Any] = {
         "proactive_mode": "whitelist",
         "proactive_whitelist": ("100",),
-        "message_interval_seconds": 0,
     }
     values.update(overrides)
     return PluginConfig(**values)
 
 
-def _section(key: str, ordinal: int, targets: tuple[str, ...]) -> ContextSection:
-    return ContextSection(
-        key=key,
-        ordinal=ordinal,
-        priority=90,
-        source_type="test",
-        source_refs=(),
-        targets=targets,
-        required=True,
-        included=True,
-        budget_tokens=None,
-        estimated_tokens=1,
-        applied_tokens=1,
-        item_count=1,
-        reason="test",
-        content=f"内容-{key}",
+def _ctx() -> MessageContext:
+    return MessageContext(
+        request_id="request-1",
+        scope_type="group",
+        scope_id=SCOPE,
+        message_id="message-1",
+        sender_id="user-1",
+        sender_name="小明",
+        user_text="群里的话",
+        chat_scene="QQ群",
+        admin_name="",
+        admin_ids=(),
+        conversation_id=SCOPE,
+        occurred_at="2026-08-30T10:00:00+00:00",
     )
 
 
@@ -78,302 +72,298 @@ class _FakeRepository:
         self.states.pop(scope_id, None)
 
 
-class _FakeWindow:
-    def __init__(self) -> None:
-        self.lines: dict[str, list[str]] = {}
-        self.drops: list[str] = []
-        self.loads: list[tuple[str, str, int]] = []
-        self.history = [{"role": "system", "content": "历史轮次"}]
+class _FakeTemplateEvent:
+    """Stand-in for a real platform event with an adapter-shaped ctor."""
 
-    async def read_ambient_lines(
-        self, context: MessageContext, *, max_chars: int = 3_000
-    ) -> tuple[str, ...]:
-        return tuple(self.lines.get(context.scope_id, ()))
+    def __init__(
+        self,
+        message_str,
+        message_obj,
+        platform_meta,
+        session_id,
+        bot=None,
+    ) -> None:
+        self.message_str = message_str
+        self.message_obj = message_obj
+        self.platform_meta = platform_meta
+        self.session_id = session_id
+        self.bot = bot
+        self.extras: dict[str, Any] = {}
 
-    async def drop_ambient(self, context: MessageContext) -> None:
-        self.drops.append(context.scope_id)
-        self.lines.pop(context.scope_id, None)
+    def set_extra(self, key: str, value: Any) -> None:
+        self.extras[key] = value
 
-    async def load(self, context: MessageContext, *, token_budget: int) -> Any:
-        self.loads.append((context.scope_id, context.agent_id, token_budget))
-        return SimpleNamespace(contexts=list(self.history))
+    def get_extra(self, key: str, default: Any = None) -> Any:
+        return self.extras.get(key, default)
 
-
-class _FakeService:
-    def __init__(self, outcomes: list[FinalOutcome]) -> None:
-        self.outcomes = list(outcomes)
-        self.calls: list[dict[str, Any]] = []
-        self.prepared = PreparedRequest(
-            protocol_prompt="协议",
-            message_xml="<Msg />",
-            known_terms_xml="<KnownTerms />",
-            matched_terms=(),
-            sections=(
-                _section("current_message", 0, ("prompt",)),
-                _section("known_terms", 1, ("temp_user",)),
-                _section("response_protocol", 4, ("temp_user",)),
-            ),
-        )
-
-    async def prepare_request(
-        self, context: MessageContext, *, include_session_fallback: bool = True
-    ) -> PreparedRequest:
-        return self.prepared
-
-    async def process_final_response(
-        self, context: MessageContext, raw_output: str, **kwargs: Any
-    ) -> FinalOutcome:
-        self.calls.append({"raw": raw_output, **kwargs})
-        return self.outcomes.pop(0)
+    def get_self_id(self) -> str:
+        return str(self.message_obj.self_id)
 
 
-class _FakeProvider:
-    def __init__(self, completion: str = "") -> None:
-        self.completion = completion
-        self.calls: list[dict[str, Any]] = []
-
-    async def text_chat(self, **kwargs: Any) -> Any:
-        self.calls.append(kwargs)
-        return SimpleNamespace(completion_text=self.completion, model="test-model")
-
-
-def _outcome(
-    action: Action,
-    *,
-    wait_seconds: int = 0,
-    valid: bool = True,
-) -> FinalOutcome:
-    return FinalOutcome(
-        valid=valid,
-        action=action,
-        messages=("第一条", "第二条") if action is Action.REPLY else (),
-        wait_seconds=wait_seconds,
+def _template(bot: str = "bot-1") -> _FakeTemplateEvent:
+    message_obj = SimpleNamespace(
+        self_id=bot,
+        type="GroupMessage",
+        session_id="100",
+        sender=SimpleNamespace(user_id="user-1", nickname="小明"),
+        group=SimpleNamespace(group_id="100"),
     )
+    return _FakeTemplateEvent(
+        "",
+        message_obj,
+        SimpleNamespace(name="aiocqhttp"),
+        "100",
+        bot="CQBOT",
+    )
+
+
+class _FakeQueue:
+    def __init__(self) -> None:
+        self.events: list[Any] = []
+
+    def put_nowait(self, event: Any) -> None:
+        self.events.append(event)
+
+
+class _FakeBuilder:
+    def __init__(self, result: Any = "synthetic-event") -> None:
+        self.calls: list[dict[str, Any]] = []
+        self._result = result
+
+    def __call__(self, template: Any, *, kind: str, on_outcome: Any) -> Any:
+        self.calls.append(
+            {"template": template, "kind": kind, "on_outcome": on_outcome}
+        )
+        return self._result
 
 
 def _service(
     *,
     config: PluginConfig | None = None,
-    provider: _FakeProvider | None = None,
-    outcomes: list[FinalOutcome] | None = None,
-    lines: list[str] | None = None,
+    builder: _FakeBuilder | None = None,
+    queue: _FakeQueue | None = None,
 ) -> tuple[ProactiveService, dict[str, Any]]:
     config = config or _config()
     repository = _FakeRepository()
-    window = _FakeWindow()
-    if lines is not None:
-        window.lines[SCOPE] = list(lines)
-    provider = provider or _FakeProvider()
-    fake_service = _FakeService(
-        outcomes if outcomes is not None else [_outcome(Action.NO_REPLY)]
-    )
-    sends: list[tuple[str, str]] = []
-
-    async def message_sender(umo: str, text: str) -> None:
-        sends.append((umo, text))
-
-    async def persona_getter(umo: str) -> tuple[str, str]:
-        return "人格提示", "persona-1"
-
+    builder = builder if builder is not None else _FakeBuilder()
+    queue = queue if queue is not None else _FakeQueue()
     service = ProactiveService(
         config,
-        repository,
-        window,
-        fake_service,  # type: ignore[arg-type]
-        EnvelopeBuilder(config),
-        provider_getter=lambda umo: provider,
-        message_sender=message_sender,
-        persona_getter=persona_getter,
-        window_budget_getter=lambda umo: 6_000,
+        repository,  # type: ignore[arg-type]
+        event_builder=builder,
+        event_queue_getter=lambda: queue,
     )
     return service, {
         "repository": repository,
-        "window": window,
-        "fake_service": fake_service,
-        "provider": provider,
-        "sends": sends,
+        "builder": builder,
+        "queue": queue,
     }
 
 
-def test_window_reply_sends_drains_and_shrinks() -> None:
-    async def scenario() -> None:
-        service, parts = _service(
-            lines=["小明: 今天聊什么", "小红: 随便啊"],
-            outcomes=[_outcome(Action.REPLY)],
-        )
-        try:
-            await service._evaluate(SCOPE, "window")
-        finally:
-            await service.shutdown()
+async def _arm(service: ProactiveService, template: Any) -> None:
+    """Store a template and drop the auto-started timer for direct triggering."""
+    await service.on_group_chatter(SCOPE, event=template)
+    task = service._window_timers.pop(SCOPE, None)
+    if task is not None:
+        task.cancel()
 
-        assert parts["sends"] == [
-            (SCOPE, "第一条"),
-            (SCOPE, "第二条"),
-        ]
-        assert parts["window"].drops == [SCOPE]
-        state = parts["repository"].states[SCOPE]
-        assert state["window_seconds"] == 5  # 初始 10 减半（无最短窗口限制）
-        # 评估调用带 Wait 规则与人格、协议分节；上下文取自受管窗口
-        call = parts["provider"].calls[0]
-        assert call["contexts"] == [{"role": "system", "content": "历史轮次"}]
-        assert call["session_id"] == ""
-        assert "人格提示" in call["system_prompt"]
-        assert "Wait" in call["prompt"]
-        # 受管窗口按人格对应的 agent 标识加载，与正常轮读取同一份历史
-        assert parts["window"].loads == [(SCOPE, "persona-1", 6_000)]
-        record = parts["fake_service"].calls[0]
-        assert record["allow_wait"] is True
-        assert record["stage"] == "proactive_window"
+
+def test_window_trigger_builds_event_and_enqueues() -> None:
+    async def scenario() -> None:
+        service, parts = _service()
+        template = _template()
+        await _arm(service, template)
+
+        await service._trigger(SCOPE, "window")
+        await service.shutdown()
+
+        call = parts["builder"].calls[0]
+        assert call["template"] is template
+        assert call["kind"] == "window"
+        assert callable(call["on_outcome"])
+        assert parts["queue"].events == ["synthetic-event"]
+        assert "last_eval_at" in parts["repository"].states[SCOPE]
 
     asyncio.run(scenario())
 
 
-def test_window_no_reply_doubles_window() -> None:
+def test_direct_trigger_uses_direct_kind() -> None:
     async def scenario() -> None:
-        service, parts = _service(
-            lines=["小明: 在吗"],
-            outcomes=[_outcome(Action.NO_REPLY)],
-        )
-        try:
-            await service._evaluate(SCOPE, "window")
-        finally:
-            await service.shutdown()
+        service, parts = _service()
+        await _arm(service, _template())
 
-        assert parts["sends"] == []
-        assert parts["window"].drops == [SCOPE]
-        state = parts["repository"].states[SCOPE]
-        assert state["window_seconds"] == 20
+        await service._trigger(SCOPE, "direct")
+        await service.shutdown()
+
+        assert parts["builder"].calls[0]["kind"] == "direct"
+        assert len(parts["queue"].events) == 1
 
     asyncio.run(scenario())
 
 
-def test_window_empty_batch_skips_the_model_call() -> None:
+def test_builder_refusal_skips_the_queue() -> None:
     async def scenario() -> None:
-        service, parts = _service(lines=[])
-        try:
-            await service._evaluate(SCOPE, "window")
-        finally:
-            await service.shutdown()
+        service, parts = _service(builder=_FakeBuilder(result=None))
+        await _arm(service, _template())
 
-        assert parts["provider"].calls == []
-        assert parts["window"].drops == []
+        await service._trigger(SCOPE, "window")
+        await service.shutdown()
+
+        assert parts["queue"].events == []
 
     asyncio.run(scenario())
 
 
-def test_wait_defers_without_draining_until_exhausted() -> None:
+def test_missing_template_skips_triggering() -> None:
     async def scenario() -> None:
-        service, parts = _service(
-            lines=["小明: 还在吗"],
-            outcomes=[_outcome(Action.WAIT, wait_seconds=7)] * 3,
-        )
-        try:
-            await service._evaluate(SCOPE, "window")
-            assert parts["window"].drops == []
-            assert service._waits[SCOPE] == 1
-            assert SCOPE in service._window_timers
-            service._window_timers.pop(SCOPE)
+        service, parts = _service()
 
-            await service._evaluate(SCOPE, "window")
-            assert parts["window"].drops == []
-            assert service._waits[SCOPE] == 2
+        await service._trigger(SCOPE, "window")
+        await service.shutdown()
 
-            await service._evaluate(SCOPE, "window")
-            # 第三次等待被拒：按不回复处理，排空批次并拉长窗口
-            assert parts["window"].drops == [SCOPE]
-            assert parts["repository"].states[SCOPE]["window_seconds"] == 20
-            assert SCOPE not in service._waits
-        finally:
-            await service.shutdown()
+        assert parts["builder"].calls == []
+        assert parts["queue"].events == []
 
     asyncio.run(scenario())
 
 
-def test_invalid_output_stretches_window_without_draining() -> None:
+def test_reply_outcome_resets_window_to_one_second() -> None:
     async def scenario() -> None:
-        service, parts = _service(
-            lines=["小明: 内容"],
-            outcomes=[_outcome(Action.REPLY, valid=False)],
-        )
-        try:
-            await service._evaluate(SCOPE, "window")
-        finally:
-            await service.shutdown()
+        service, parts = _service()
+        parts["repository"].states[SCOPE] = {"window_seconds": 120}
+        outcome = service._outcome(SCOPE)
 
-        assert parts["sends"] == []
-        assert parts["window"].drops == []
+        await outcome(_ctx(), action=Action.REPLY)
+        await service.shutdown()
+
+        assert parts["repository"].states[SCOPE]["window_seconds"] == 1
+        assert SCOPE not in service._waits
+
+    asyncio.run(scenario())
+
+
+def test_no_reply_outcome_adds_ten_seconds() -> None:
+    async def scenario() -> None:
+        service, parts = _service()
+        outcome = service._outcome(SCOPE)
+
+        await outcome(_ctx(), action=Action.NO_REPLY)
+        await service.shutdown()
+
         assert parts["repository"].states[SCOPE]["window_seconds"] == 20
 
     asyncio.run(scenario())
 
 
-def test_direct_trigger_disallows_wait() -> None:
+def test_no_reply_window_grows_to_the_cap() -> None:
     async def scenario() -> None:
-        service, parts = _service(
-            lines=["小明: 机器人帮我看看"],
-            outcomes=[_outcome(Action.REPLY)],
-        )
-        try:
-            await service._evaluate(SCOPE, "direct")
-        finally:
-            await service.shutdown()
+        service, parts = _service()
+        parts["repository"].states[SCOPE] = {"window_seconds": 295}
+        outcome = service._outcome(SCOPE)
 
-        assert parts["sends"] != []
-        record = parts["fake_service"].calls[0]
-        assert record["allow_wait"] is False
-        assert record["stage"] == "proactive_direct"
-        # 直接触发的提示词不包含 Wait 规则
-        assert "Wait" not in parts["provider"].calls[0]["prompt"]
+        await outcome(_ctx(), action=Action.NO_REPLY)
+        await service.shutdown()
+
+        assert parts["repository"].states[SCOPE]["window_seconds"] == 300
+
+    asyncio.run(scenario())
+
+
+def test_invalid_outcome_also_stretches_window() -> None:
+    async def scenario() -> None:
+        service, parts = _service()
+        outcome = service._outcome(SCOPE)
+
+        await outcome(_ctx(), action=None)
+        await service.shutdown()
+
+        assert parts["repository"].states[SCOPE]["window_seconds"] == 20
+
+    asyncio.run(scenario())
+
+
+def test_wait_defers_and_exhausts_after_three() -> None:
+    async def scenario() -> None:
+        service, parts = _service()
+        outcome = service._outcome(SCOPE)
+
+        await outcome(_ctx(), action=Action.WAIT, wait_seconds=7)
+        assert service._waits[SCOPE] == 1
+        assert SCOPE in service._window_timers
+        service._window_timers.pop(SCOPE).cancel()
+
+        await outcome(_ctx(), action=Action.WAIT, wait_seconds=7)
+        assert service._waits[SCOPE] == 2
+        service._window_timers.pop(SCOPE).cancel()
+
+        # 第三次等待被拒：按沉默处理，拉长窗口且不再排新计时器。
+        await outcome(_ctx(), action=Action.WAIT, wait_seconds=7)
+        assert SCOPE not in service._waits
+        assert parts["repository"].states[SCOPE]["window_seconds"] == 20
+        assert SCOPE not in service._window_timers
+        await service.shutdown()
+
+    asyncio.run(scenario())
+
+
+def test_on_bot_reply_resets_window_and_waits() -> None:
+    async def scenario() -> None:
+        service, parts = _service()
+        parts["repository"].states[SCOPE] = {"window_seconds": 120}
+        service._waits[SCOPE] = 2
+
+        await service.on_bot_reply(SCOPE)
+        await service.shutdown()
+
+        assert parts["repository"].states[SCOPE]["window_seconds"] == 1
+        assert SCOPE not in service._waits
 
     asyncio.run(scenario())
 
 
 def test_access_control_gates_every_entry() -> None:
     async def scenario() -> None:
+        # 关闭模式：完全不触发。
         service, parts = _service(config=_config(proactive_mode="off"))
-        try:
-            await service.on_group_chatter(SCOPE)
-        finally:
-            await service.shutdown()
-        assert service._window_timers == {}
+        await service.on_group_chatter(SCOPE, event=_template())
+        await service.on_direct_trigger(SCOPE, event=_template())
+        await service.on_bot_reply(SCOPE)
+        await service.shutdown()
+        assert parts["builder"].calls == []
+        assert parts["repository"].states == {}
 
+        # 白名单未命中：不触发，模板也不保留。
         service, parts = _service(
             config=_config(proactive_whitelist=("999",)),
         )
-        try:
-            await service.on_group_chatter(SCOPE)
-            await service.on_direct_trigger(SCOPE)
-        finally:
-            await service.shutdown()
-        assert service._window_timers == {}
-        assert parts["repository"].states == {}
+        await service.on_group_chatter(SCOPE, event=_template())
+        await service.shutdown()
+        assert parts["builder"].calls == []
 
-        # 黑名单命中则不参与，未命中的群正常进入
+        # 黑名单命中不触发，未命中的群正常进入。
         service, parts = _service(
             config=_config(
                 proactive_mode="blacklist",
                 proactive_blacklist=("100",),
             ),
         )
-        try:
-            await service.on_group_chatter(SCOPE)
-            await service.on_group_chatter("aiocqhttp:GroupMessage:200")
-            assert SCOPE not in service._window_timers
-            assert "aiocqhttp:GroupMessage:200" in service._window_timers
-        finally:
-            await service.shutdown()
-            assert service._window_timers == {}
+        await service.on_group_chatter(SCOPE, event=_template())
+        assert SCOPE not in service._window_timers
+        await service.on_group_chatter("aiocqhttp:GroupMessage:200", event=_template())
+        assert "aiocqhttp:GroupMessage:200" in service._window_timers
+        await service.shutdown()
+        assert service._window_timers == {}
 
     asyncio.run(scenario())
 
 
 def test_direct_trigger_replaces_pending_window_timer() -> None:
     async def scenario() -> None:
-        service, parts = _service(lines=[])
+        service, _parts = _service()
         try:
-            await service.on_group_chatter(SCOPE)
+            await service.on_group_chatter(SCOPE, event=_template())
             assert SCOPE in service._window_timers
-            await service.on_direct_trigger(SCOPE)
+            await service.on_direct_trigger(SCOPE, event=_template())
             assert SCOPE in service._window_timers
             # 替换而非叠加
             assert len(service._window_timers) == 1
@@ -383,24 +373,40 @@ def test_direct_trigger_replaces_pending_window_timer() -> None:
     asyncio.run(scenario())
 
 
-def test_plugin_hook_routes_group_messages() -> None:
-    """The event hook splits unaddressed chatter into window and direct doors."""
-    from types import SimpleNamespace
+def test_chatter_during_pending_window_does_not_reset_timer() -> None:
+    """Sustained chatter must not postpone the pending trigger forever."""
 
-    from astrbot_plugin_humanize.main import HumanizePlugin
+    async def scenario() -> None:
+        service, _parts = _service()
+        try:
+            await service.on_group_chatter(SCOPE, event=_template())
+            first = service._window_timers[SCOPE]
+            await asyncio.sleep(0.01)
+            await service.on_group_chatter(SCOPE, event=_template())
+            await service.on_group_chatter(SCOPE, event=_template())
+            assert service._window_timers[SCOPE] is first
+        finally:
+            await service.shutdown()
+
+    asyncio.run(scenario())
+
+
+def test_matches_scope_accepts_full_and_trailing_ids() -> None:
+    assert matches_scope(("100",), SCOPE)
+    assert matches_scope((SCOPE,), SCOPE)
+    assert not matches_scope(("1100",), SCOPE)
+    assert not matches_scope(("", "  "), SCOPE)
+
+
+def test_plugin_hook_routes_group_messages_with_template() -> None:
+    """The event hook splits unaddressed chatter into window and direct doors."""
 
     class _HookEvent:
-        def __init__(
-            self,
-            *,
-            text: str = "",
-            components: tuple[object, ...] = (),
-            is_at: bool = False,
-        ) -> None:
-            self.unified_msg_origin = SCOPE
-            self.message_obj = SimpleNamespace(message=list(components))
+        def __init__(self, *, text: str, is_at: bool = False, components=()) -> None:
             self._text = text
             self._is_at = is_at
+            self.message_obj = SimpleNamespace(message=list(components))
+            self.unified_msg_origin = SCOPE
 
         def is_private_chat(self) -> bool:
             return False
@@ -420,13 +426,13 @@ def test_plugin_hook_routes_group_messages() -> None:
 
     class _RecordingProactive:
         def __init__(self) -> None:
-            self.calls: list[tuple[str, str]] = []
+            self.calls: list[tuple[str, str, Any]] = []
 
-        async def on_group_chatter(self, scope_id: str) -> None:
-            self.calls.append(("window", scope_id))
+        async def on_group_chatter(self, scope_id: str, *, event: Any = None) -> None:
+            self.calls.append(("window", scope_id, event))
 
-        async def on_direct_trigger(self, scope_id: str) -> None:
-            self.calls.append(("direct", scope_id))
+        async def on_direct_trigger(self, scope_id: str, *, event: Any = None) -> None:
+            self.calls.append(("direct", scope_id, event))
 
     class Reply:
         """Name matters: the hook matches ``type(x).__name__ == "Reply"``."""
@@ -441,6 +447,8 @@ def test_plugin_hook_routes_group_messages() -> None:
             return True
 
     async def scenario() -> None:
+        from astrbot_plugin_humanize.main import HumanizePlugin
+
         plugin = HumanizePlugin(
             SimpleNamespace(),
             {
@@ -453,15 +461,16 @@ def test_plugin_hook_routes_group_messages() -> None:
         plugin._container = SimpleNamespace(proactive=proactive)
 
         await plugin._maybe_schedule_proactive(_HookEvent(text="今天天气不错"))
-        assert proactive.calls == [("window", SCOPE)]
+        assert proactive.calls[0][0] == "window"
+        assert proactive.calls[0][2] is not None  # 模板事件被保留
 
         await plugin._maybe_schedule_proactive(_HookEvent(text="小助 你在吗"))
-        assert proactive.calls[-1] == ("direct", SCOPE)
+        assert proactive.calls[-1][0] == "direct"
 
         await plugin._maybe_schedule_proactive(
             _HookEvent(text="说得好", components=(Reply(sender_id="bot-1"),))
         )
-        assert proactive.calls[-1] == ("direct", SCOPE)
+        assert proactive.calls[-1][0] == "direct"
 
         # 正常唤醒与私聊不进入主动路径
         await plugin._maybe_schedule_proactive(_HookEvent(text="在吗", is_at=True))
@@ -477,19 +486,129 @@ def test_plugin_hook_routes_group_messages() -> None:
     asyncio.run(scenario())
 
 
-def test_chatter_during_pending_window_does_not_reset_timer() -> None:
-    """Sustained chatter must not postpone the pending evaluation forever."""
+def test_plugin_builds_synthetic_event_from_template() -> None:
+    """The injected factory assembles a waking event with the template's session."""
+
+    class _FakePlatformEvent:
+        def __init__(
+            self,
+            message_str,
+            message_obj,
+            platform_meta,
+            session_id,
+            bot=None,
+        ) -> None:
+            self.message_str = message_str
+            self.message_obj = message_obj
+            self.platform_meta = platform_meta
+            self.session_id = session_id
+            self.bot = bot
+            self.extras: dict[str, Any] = {}
+
+        def set_extra(self, key: str, value: Any) -> None:
+            self.extras[key] = value
 
     async def scenario() -> None:
-        service, _parts = _service(lines=[])
-        try:
-            await service.on_group_chatter(SCOPE)
-            first = service._window_timers[SCOPE]
-            await asyncio.sleep(0.01)
-            await service.on_group_chatter(SCOPE)
-            await service.on_group_chatter(SCOPE)
-            assert service._window_timers[SCOPE] is first
-        finally:
-            await service.shutdown()
+        from astrbot_plugin_humanize.main import (
+            _PROACTIVE_KIND_KEY,
+            _PROACTIVE_OUTCOME_CALLBACK_KEY,
+            HumanizePlugin,
+        )
+
+        from astrbot.core.message.components import At, Plain
+
+        plugin = HumanizePlugin(
+            SimpleNamespace(),
+            {"proactive_mode": "whitelist", "proactive_whitelist": ["100"]},
+        )
+        plugin._container = SimpleNamespace(envelope=EnvelopeBuilder(_config()))
+        message_obj = SimpleNamespace(
+            self_id="bot-1",
+            type="GroupMessage",
+            session_id="100",
+            sender=SimpleNamespace(user_id="user-1", nickname="小明"),
+            group=SimpleNamespace(group_id="100"),
+        )
+        template = _FakePlatformEvent(
+            "", message_obj, SimpleNamespace(name="aiocqhttp"), "100", bot="CQBOT"
+        )
+        outcome = lambda *args, **kwargs: None  # noqa: E731
+
+        event = plugin._build_proactive_event(
+            template, kind="window", on_outcome=outcome
+        )
+        assert isinstance(event, _FakePlatformEvent)
+        assert event.session_id == "100"
+        assert event.bot == "CQBOT"
+        chain = event.message_obj.message
+        assert isinstance(chain[0], At) and str(chain[0].qq) == "bot-1"
+        assert isinstance(chain[1], Plain)
+        assert "没有 @ 你" in chain[1].text
+        assert "Wait" in chain[1].text
+        assert event.extras[_PROACTIVE_KIND_KEY] == "window"
+        assert event.extras[_PROACTIVE_OUTCOME_CALLBACK_KEY] is outcome
+
+        # direct 场景不携带等待说明
+        direct = plugin._build_proactive_event(
+            template, kind="direct", on_outcome=outcome
+        )
+        assert direct is not None
+        assert "Wait" not in direct.message_obj.message[1].text
+
+        # 没有模板时拒绝构造
+        assert (
+            plugin._build_proactive_event(None, kind="window", on_outcome=outcome)
+            is None
+        )
+
+    asyncio.run(scenario())
+
+
+def test_session_permitted_gates_reply_by_mode() -> None:
+    class _Event:
+        def __init__(self, *, umo: str, private: bool = False) -> None:
+            self.unified_msg_origin = umo
+            self._private = private
+
+        def is_private_chat(self) -> bool:
+            return self._private
+
+    async def scenario() -> None:
+        from astrbot_plugin_humanize.main import HumanizePlugin
+
+        plugin = HumanizePlugin(SimpleNamespace(), {})
+        assert plugin._session_permitted(_Event(umo=SCOPE)) is True
+        assert plugin._session_permitted(_Event(umo=SCOPE, private=True)) is True
+
+        plugin = HumanizePlugin(
+            SimpleNamespace(),
+            {
+                "proactive_mode": "whitelist",
+                "proactive_whitelist": ["100"],
+            },
+        )
+        assert plugin._session_permitted(_Event(umo=SCOPE)) is True
+        assert (
+            plugin._session_permitted(_Event(umo="aiocqhttp:GroupMessage:200")) is False
+        )
+        # 私聊不受许可名单影响
+        assert (
+            plugin._session_permitted(
+                _Event(umo="aiocqhttp:FriendMessage:200", private=True)
+            )
+            is True
+        )
+
+        plugin = HumanizePlugin(
+            SimpleNamespace(),
+            {
+                "proactive_mode": "blacklist",
+                "proactive_blacklist": ["100"],
+            },
+        )
+        assert plugin._session_permitted(_Event(umo=SCOPE)) is False
+        assert (
+            plugin._session_permitted(_Event(umo="aiocqhttp:GroupMessage:200")) is True
+        )
 
     asyncio.run(scenario())

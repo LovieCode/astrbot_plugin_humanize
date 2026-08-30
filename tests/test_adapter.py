@@ -166,7 +166,7 @@ def test_initialize_keeps_stable_memory_identity_when_memory_is_disabled(
         )
         monkeypatch.setattr(
             "astrbot_plugin_humanize.main.Container.build",
-            lambda config, context: container,
+            lambda config, context, **kwargs: container,
         )
         context = AppContext()
         plugin = HumanizePlugin(context, {"memory_enabled": False})
@@ -223,7 +223,7 @@ def test_initialize_fails_open_when_memory_identity_setup_fails(monkeypatch) -> 
         )
         monkeypatch.setattr(
             "astrbot_plugin_humanize.main.Container.build",
-            lambda config, context: container,
+            lambda config, context, **kwargs: container,
         )
         context = AppContext()
         plugin = HumanizePlugin(context, {})

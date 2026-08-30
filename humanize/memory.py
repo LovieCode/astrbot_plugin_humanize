@@ -280,6 +280,38 @@ class ChatMemoryService:
             conversation_hash=conversation_hash,
         )
 
+    def session_identity_for(self, context: MessageContext) -> MemoryIdentity:
+        """Identity for shared, conversation-scoped storage (the session root).
+
+        Group messages from every member must land in one conversation
+        record — the managed window and the OpenViking session both live
+        here — so the primary scope is the group, never the member. The
+        member scope stays available in ``scopes`` and remains the primary
+        of :meth:`identity_for` for user-scoped memory attribution.
+
+        Args:
+            context: Current message metadata.
+
+        Returns:
+            Identity whose primary scope is the group for group messages;
+            the memory identity unchanged otherwise.
+        """
+        identity = self.identity_for(context)
+        for scope in identity.scopes:
+            if str(scope.get("scope_type") or "") != "group":
+                continue
+            scope_hash = str(scope.get("scope_hash") or "")
+            if not scope_hash:
+                continue
+            return MemoryIdentity(
+                scopes=identity.scopes,
+                primary_scope_type="group",
+                primary_scope_hash=scope_hash,
+                subject_hash="",
+                conversation_hash=identity.conversation_hash,
+            )
+        return identity
+
     async def recall_memories(
         self,
         context: MessageContext,
@@ -538,6 +570,7 @@ class ChatMemoryService:
         ):
             return None
         identity = self.identity_for(context)
+        session_identity = self.session_identity_for(context)
         turn_ref = self.turn_ref_for(context)
         agent_id = str(context.agent_id or "default").strip() or "default"
         payload = {
@@ -545,8 +578,13 @@ class ChatMemoryService:
             "idempotency_key": turn_ref,
             "request_id": context.request_id,
             "agent_id": agent_id,
-            "scope_type": identity.primary_scope_type,
-            "scope_hash": identity.primary_scope_hash,
+            # scope_type/scope_hash 定位共享会话根目录（群消息按群共享）；
+            # memory_scope_* 是长期记忆归属作用域（群消息仍按成员隔离）。
+            "scope_type": session_identity.primary_scope_type,
+            "scope_hash": session_identity.primary_scope_hash,
+            "session_subject_hash": session_identity.subject_hash,
+            "memory_scope_type": identity.primary_scope_type,
+            "memory_scope_hash": identity.primary_scope_hash,
             "subject_hash": identity.subject_hash,
             "conversation_hash": identity.conversation_hash,
             "user_text": context.user_text[:8_000],
@@ -1390,8 +1428,18 @@ class ChatMemoryService:
             candidate.update(
                 {
                     "agent_id": str(payload.get("agent_id") or "default"),
-                    "scope_type": str(payload.get("scope_type") or ""),
-                    "scope_hash": str(payload.get("scope_hash") or ""),
+                    # 长期记忆归属作用域：群消息按成员隔离，与共享会话根
+                    # （scope_type/scope_hash）不同。
+                    "scope_type": str(
+                        payload.get("memory_scope_type")
+                        or payload.get("scope_type")
+                        or ""
+                    ),
+                    "scope_hash": str(
+                        payload.get("memory_scope_hash")
+                        or payload.get("scope_hash")
+                        or ""
+                    ),
                     "subject_hash": str(payload.get("subject_hash") or ""),
                     "conversation_hash": str(payload.get("conversation_hash") or ""),
                     "occurred_at": str(payload.get("occurred_at") or self._now()),

@@ -109,6 +109,18 @@ class OpenVikingMemoryAdapter:
             if raw_subject_hash
             else ""
         )
+        # 会话主体的签名属于会话身份（群会话为空），消息归属主体仍按成员。
+        # 旧载荷缺字段时回退到成员主体，保持私有会话行为不变。
+        raw_session_subject = payload.get("session_subject_hash")
+        if raw_session_subject is None:
+            session_subject_hash = subject_hash
+        else:
+            raw_session_subject = str(raw_session_subject).strip()
+            session_subject_hash = (
+                self._require_digest(raw_session_subject, "session subject hash")
+                if raw_session_subject
+                else ""
+            )
         scope_type = str(payload.get("scope_type") or "").strip()
         if scope_type not in _SCOPE_TYPES:
             raise ValueError("unsupported OpenViking scope type")
@@ -326,7 +338,7 @@ class OpenVikingMemoryAdapter:
                 "scope_hash": scope_hash,
                 "scope_type": scope_type,
                 "session_uri": session_uri,
-                "subject_hash": subject_hash,
+                "subject_hash": session_subject_hash,
                 "updated_at": occurred_at,
             }
             transaction.atomic_write(

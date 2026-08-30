@@ -372,7 +372,8 @@ class HumanizeService:
         if (
             self._memory is not None
             and bool(kwargs.get("success", False))
-            and kwargs.get("stage", "final") == "final"
+            and kwargs.get("stage", "final")
+            in ("final", "proactive_window", "proactive_direct")
         ):
             try:
                 turn_job_kwargs: dict[str, Any] = {
