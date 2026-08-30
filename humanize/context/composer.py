@@ -63,17 +63,20 @@ class ContextComposer:
                 ``Wait N`` action supplement.
             proactive_situation: Proactive situation (``window``/``direct``).
                 When set, the situation brief rides with the response protocol
-                and ``<Msg>`` carries the no-user-message placeholder instead
-                of the synthetic event's text.
+                and the ``current_message`` section becomes a standalone
+                ``<SystemNotice>`` block instead of ``<Msg>``-wrapped user
+                text.
 
         Returns:
             A backward-compatible prepared request with an ordered section trace.
         """
         message_text = context.user_text
         if proactive_situation:
-            # 主动回合没有真实用户消息：<Msg> 用明确占位，情况说明进协议段。
-            message_text = self._envelope.build_proactive_message_text()
-        message_xml = self._envelope.build_message_xml(message_text)
+            # 主动回合没有真实用户消息：<Msg> 保留给最新用户消息，
+            # current_message 段改为独立的 <SystemNotice> 通告。
+            message_xml = self._envelope.build_proactive_notice_xml()
+        else:
+            message_xml = self._envelope.build_message_xml(message_text)
         protocol_prompt = self._envelope.build_protocol_prompt(
             context,
             allow_wait=allow_wait,

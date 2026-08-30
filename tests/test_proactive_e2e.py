@@ -282,8 +282,9 @@ def test_window_no_reply_cycle_stretches_and_keeps_history(
             # 情况说明与 Wait 补充规则都在回复协议里，不在事件消息文本
             assert "没有 @ 你" in injected
             assert "补充规则（仅本场景）" in injected
-            # <Msg> 是占位文本：协议契约存在，但不冒充用户消息
-            assert "<Msg>（本条由系统触发的主动发言检查" in req.prompt
+            # 通告走独立的 <SystemNotice> 标签：<Msg> 保留给真实用户消息
+            assert "<SystemNotice>（本条由系统触发的主动发言检查" in req.prompt
+            assert "<Msg>" not in req.prompt
             assert "有群成员提到了你" not in req.prompt
 
             await _dispatch(plugin, synthetic, response)

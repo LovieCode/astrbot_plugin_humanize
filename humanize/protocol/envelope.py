@@ -32,10 +32,10 @@ _PROACTIVE_WAIT_RULE = (
     "之后系统会再触发一次回复，由你重新决定。同一批消息最多等待 3 次。"
 )
 
-# 主动回合的 <Msg> 占位文本：协议契约要求 <Msg> 必须存在且是"需要回复的
-# 消息原文"，但主动回合没有真实用户消息——群聊内容在历史里，情况说明在
-# 协议段。占位行明确告诉模型这不是用户发言，防止被当成消息内容理解。
-_PROACTIVE_MSG_PLACEHOLDER = (
+# 主动回合的系统通告文本：协议契约规定 <Msg> 只装"最新用户消息"，主动回合
+# 没有真实用户消息，通告以独立的 <SystemNotice> 标签进入 current_message 段；
+# 合成平台事件的消息文本也用它（替换机制会把它换成 <SystemNotice> XML）。
+_PROACTIVE_NOTICE_TEXT = (
     "（本条由系统触发的主动发言检查，没有新的用户消息；群里的最近发言见上方历史）"
 )
 
@@ -206,17 +206,32 @@ class EnvelopeBuilder:
         return brief
 
     def build_proactive_message_text(self) -> str:
-        """Build the <Msg> placeholder text for one synthetic proactive event.
+        """Build the synthetic message text for one proactive event.
 
         The proactive turn has no real user message: the group's chatter is
         ordinary history and the situation brief rides with the response
-        protocol. ``<Msg>`` must still exist (protocol contract), so it
-        carries this explicit non-message placeholder.
+        protocol. The composer replaces the ``<Msg>`` payload with a standalone
+        ``<SystemNotice>`` block (see :meth:`build_proactive_notice_xml`), so
+        the event text only needs to carry the notice.
 
         Returns:
-            Placeholder text stating there is no new user message.
+            Notice text stating there is no new user message.
         """
-        return _PROACTIVE_MSG_PLACEHOLDER
+        return _PROACTIVE_NOTICE_TEXT
+
+    def build_proactive_notice_xml(self) -> str:
+        """Build the standalone ``<SystemNotice>`` block for one proactive turn.
+
+        ``<Msg>`` is reserved for the newest real user message; a proactive
+        turn has none, so the notice travels in its own tag instead of
+        masquerading as the user message inside ``<Msg>``.
+
+        Returns:
+            ``<SystemNotice>`` XML with the no-user-message notice, XML-escaped.
+        """
+        root = ET.Element("SystemNotice")
+        root.text = _PROACTIVE_NOTICE_TEXT
+        return ET.tostring(root, encoding="unicode", short_empty_elements=True)
 
     def _build_rule(self, context: MessageContext) -> str:
         admin_ids = "、".join(context.admin_ids) if context.admin_ids else "未配置"
