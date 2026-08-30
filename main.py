@@ -1844,7 +1844,8 @@ class HumanizePlugin(Star):
                 # 主动检查沉默收场：没有真实用户消息也没有 Bot 发言，
                 # 落账只会把系统占位伪装成历史用户条目，直接不写。
                 return
-            # 主动回合回复了：只记 Bot 的最终发言（见 append 的 assistant_only）。
+            # 主动回合回复了：不插占位用户条目，但保留工具序列（见 append
+            # 的 assistant_only——可能包含其他插件的工具调用）。
             assistant_only = True
         else:
             assistant_only = False

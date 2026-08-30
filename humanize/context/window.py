@@ -126,8 +126,10 @@ class ContextWindowService:
                 instead of "last user message", so synthetic user messages that
                 AstrBot appends mid-turn (cached tool images, max-step notices,
                 interruption notices) no longer discard the tool history.
-            assistant_only: Record only the bot's final reply, with no user
-                side and no tool sequence. For turns that have no real user
+            assistant_only: Record only the bot's side of the turn: no user
+                entry is inserted and no image markers are attached, while the
+                tool sequence from the run (possibly other plugins' tools) and
+                the final reply are kept. For turns that have no real user
                 message (proactive checks): the injected notice must never
                 masquerade as a user entry in history.
 
@@ -770,8 +772,36 @@ class ContextWindowService:
         assistant_only: bool = False,
     ) -> dict[str, Any]:
         if assistant_only:
-            # 主动回合没有真实用户消息：只记 Bot 的最终发言，不把系统通告
-            # 伪装成用户条目，也不保留工具序列（旁观条目已覆盖群聊历史）。
+            # 主动回合没有真实用户消息：不插入占位用户条目，但保留 run 里的
+            # 工具序列（可能包含其他插件的工具调用）和 Bot 的最终发言。
+            image_descriptions = self._image_descriptions(image_cache)
+            normalized = self._current_turn_messages(
+                context,
+                run_messages,
+                image_descriptions,
+                image_count,
+                current_user_prompt=current_user_prompt,
+                include_user_entry=False,
+            )
+            if action == "No Reply":
+                normalized = [
+                    message
+                    for message in normalized
+                    if not (
+                        message["role"] == "assistant" and not message.get("tool_calls")
+                    )
+                ]
+            elif final_messages:
+                visible = "\n".join(
+                    self._clip(item, _L2_MESSAGE_MAX_CHARS) for item in final_messages
+                )
+                for message in reversed(normalized):
+                    if message["role"] == "assistant" and not message.get("tool_calls"):
+                        message["content"] = visible
+                        break
+                else:
+                    normalized.append({"role": "assistant", "content": visible})
+            normalized = self._valid_tool_history(normalized)
             visible = "\n".join(
                 self._clip(item, _L2_MESSAGE_MAX_CHARS) for item in final_messages
             )
@@ -782,7 +812,7 @@ class ContextWindowService:
                 "sender_name": "",
                 "bot_name": str(context.bot_name or "").strip(),
                 "l0": self._clip(" ".join(visible.split()), 160),
-                "messages": [{"role": "assistant", "content": visible}],
+                "messages": normalized,
                 "source_complete": bool(context.source_complete),
                 "turn_ref": turn_ref,
                 "version": 1,
@@ -835,17 +865,19 @@ class ContextWindowService:
         image_descriptions: dict[int, str],
         image_count: int,
         current_user_prompt: str = "",
+        include_user_entry: bool = True,
     ) -> list[dict[str, Any]]:
         raw_items = [self._runtime_message(item) for item in run_messages]
         raw_items = [item for item in raw_items if item is not None]
         user_index = self._current_user_index(raw_items, current_user_prompt)
         current = raw_items[user_index + 1 :] if user_index >= 0 else []
-        markers = self._image_markers(image_descriptions, image_count)
-        user_content = context.user_text
-        if markers:
-            user_content = f"{user_content}\n" if user_content else ""
-            user_content += "\n".join(markers)
-        current.insert(0, {"role": "user", "content": user_content})
+        if include_user_entry:
+            markers = self._image_markers(image_descriptions, image_count)
+            user_content = context.user_text
+            if markers:
+                user_content = f"{user_content}\n" if user_content else ""
+                user_content += "\n".join(markers)
+            current.insert(0, {"role": "user", "content": user_content})
         return current
 
     @staticmethod

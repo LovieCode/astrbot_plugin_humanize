@@ -342,7 +342,8 @@ def test_window_reply_cycle_sends_resets_and_writes_history(
             assert window.entry_count == 2
             rendered = _rendered(list(window.contexts))
             assert "好呀，我也要去" in rendered
-            # 主动回合只落 Bot 发言（assistant_only），不带用户侧占位。
+            # 主动回合不插用户侧占位（无系统提示伪装），但保留 run 里的
+            # 工具序列与 Bot 发言（assistant_only 语义）。
             assert "洛薇 · " in rendered
             assert "系统提示" not in rendered
         finally:

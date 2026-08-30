@@ -758,6 +758,65 @@ def test_image_cache_objects_and_text_are_marked_into_turn(
     asyncio.run(scenario())
 
 
+def test_assistant_only_turn_keeps_tools_and_drops_user_entry(tmp_path: Path) -> None:
+    """主动回合（assistant_only）不插用户占位，但保留工具序列与 Bot 发言。
+
+    run 里的工具调用可能来自其他插件，必须原样进历史；唯一的差异是
+    没有真实用户消息，不把系统通告伪装成用户条目。
+    """
+
+    async def scenario() -> None:
+        window, _, _ = await _window(tmp_path)
+        context = _context(1, user_text="（本条由系统触发的主动发言检查）")
+        await window.append(
+            context,
+            action="Reply",
+            run_messages=[
+                {"role": "user", "content": "（本条由系统触发的主动发言检查）"},
+                {
+                    "role": "assistant",
+                    "content": "",
+                    "tool_calls": [
+                        {
+                            "id": "tool-1",
+                            "type": "function",
+                            "function": {
+                                "name": "humanize_read_context",
+                                "arguments": "{}",
+                            },
+                        }
+                    ],
+                },
+                {"role": "tool", "tool_call_id": "tool-1", "content": "小明: 周末爬山"},
+                {"role": "assistant", "content": "好呀，我也要去"},
+            ],
+            final_messages=("好呀，我也要去",),
+            token_budget=30_000,
+            assistant_only=True,
+        )
+        loaded = await window.load(_context(2), token_budget=30_000)
+        rendered = loaded.contexts
+        # 占位文本不得伪装成用户条目
+        assert not any(item["role"] == "user" for item in rendered)
+        assert "主动发言检查" not in _rendered_text(rendered)
+        # 工具序列原样保留（assistant.tool_calls + tool 结果一一对应）
+        tool_index = next(
+            index
+            for index, item in enumerate(rendered)
+            if item["role"] == "assistant" and item.get("tool_calls")
+        )
+        assert rendered[tool_index + 1]["role"] == "tool"
+        assert "小明: 周末爬山" in str(rendered[tool_index + 1]["content"])
+        # Bot 最终发言落账并带 Bot 前缀
+        assert any("好呀，我也要去" in str(item["content"]) for item in rendered)
+
+    asyncio.run(scenario())
+
+
+def _rendered_text(items: list[dict[str, object]]) -> str:
+    return "\n".join(str(item.get("content") or "") for item in items)
+
+
 def test_historical_turns_carry_sender_and_time_prefixes(tmp_path: Path) -> None:
     """Rendered history includes the sender and a compact time label per message."""
 
