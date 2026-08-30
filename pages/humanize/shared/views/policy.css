@@ -1,4 +1,5 @@
-/* 群聊策略页样式：全局模式选择 + 覆盖列表 + 会话参考 */
+/* 群聊策略页样式：全局模式选择 + 覆盖列表 + 会话参考
+   变量一律用 shared/tokens.css 里的既有 token（--pink 系、--text 系）。 */
 
 .pl-layout {
   display: flex;
@@ -62,13 +63,13 @@
 }
 
 .pl-mode:hover {
-  border-color: var(--primary);
+  border-color: var(--pink);
   color: var(--text);
 }
 
 .pl-mode.active {
-  border-color: var(--primary);
-  background: color-mix(in srgb, var(--primary) 12%, var(--card));
+  border-color: var(--pink);
+  background: var(--pink-soft);
   color: var(--text);
   font-weight: 700;
 }
@@ -80,7 +81,7 @@
 .pl-mode-desc {
   font-size: 12.5px;
   color: var(--text-2);
-  background: var(--bg-1, rgba(127, 127, 127, 0.08));
+  background: var(--bg);
   border-radius: 8px;
   padding: 8px 12px;
   line-height: 1.7;
@@ -103,9 +104,46 @@
   min-width: 0;
 }
 
+/* ---------- 输入框 / 下拉框（对齐 jg-input / ex-select 风格） ---------- */
+.pl-input {
+  width: 100%;
+  background: var(--card);
+  border: 1px solid var(--line);
+  border-radius: 12px;
+  padding: 10px 13px;
+  font-size: 13px;
+  font-family: inherit;
+  color: var(--text);
+  outline: none;
+  transition: border-color var(--dur-mid), box-shadow var(--dur-mid);
+}
+.pl-input:focus {
+  border-color: var(--pink);
+  box-shadow: 0 0 0 3px var(--pink-soft);
+}
+.pl-input::placeholder {
+  color: var(--muted);
+}
+
 .pl-mode-select {
   flex: 0 0 172px;
   width: 172px;
+  background: var(--card) url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 24 24' fill='none' stroke='%23a08e96' stroke-width='2.4' stroke-linecap='round' stroke-linejoin='round'%3E%3Cpolyline points='6 9 12 15 18 9'/%3E%3C/svg%3E") no-repeat right 10px center / 13px;
+  appearance: none;
+  border: 1px solid var(--line);
+  border-radius: 12px;
+  padding: 10px 32px 10px 13px;
+  font-size: 12.5px;
+  font-weight: 700;
+  font-family: inherit;
+  color: var(--text-2);
+  outline: none;
+  cursor: pointer;
+  transition: border-color var(--dur-mid), box-shadow var(--dur-mid);
+}
+.pl-mode-select:focus {
+  border-color: var(--pink);
+  box-shadow: 0 0 0 3px var(--pink-soft);
 }
 
 .pl-groups {
@@ -140,7 +178,7 @@
 .pl-group-id {
   font-size: 11.5px;
   color: var(--text-2);
-  font-family: var(--mono, monospace);
+  font-family: var(--font-mono);
   overflow: hidden;
   text-overflow: ellipsis;
   white-space: nowrap;
@@ -152,7 +190,12 @@
 }
 
 .pl-danger {
-  color: var(--red, #d05656);
+  color: #c05c5c;
+}
+.pl-danger:hover {
+  color: #a84444;
+  border-color: #e0a8a8;
+  background: #fbeaea;
 }
 
 .pl-sessions {
@@ -181,7 +224,7 @@
 .pl-session-id {
   font-size: 11px;
   color: var(--text-2);
-  font-family: var(--mono, monospace);
+  font-family: var(--font-mono);
   overflow: hidden;
   text-overflow: ellipsis;
   white-space: nowrap;

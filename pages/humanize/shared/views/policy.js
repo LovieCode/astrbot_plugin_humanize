@@ -96,7 +96,7 @@ HZ.views["policy"] = { init: function () {
 
   function buildModeSelect(current) {
     const select = document.createElement("select");
-    select.className = "st-input pl-mode-select";
+    select.className = "pl-mode-select";
     MODES.forEach((mode) => {
       const option = document.createElement("option");
       option.value = mode;
