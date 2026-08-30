@@ -42,6 +42,8 @@ NO_REPLY_RAW = (
     "<Messages>\n<Message>在忙，先不插话</Message>\n</Messages>"
 )
 WAIT_RAW = "<Action>Wait 1</Action>"
+# 回归测试里主动回合直接复用已校验的 No Reply 输出，绕开协议重放。
+_LLM_NO_REPLY_RESPONSE = LLMResponse(role="assistant", completion_text=NO_REPLY_RAW)
 
 _PLATFORM_META = PlatformMetadata(name="aiocqhttp", description="", id="aiocqhttp")
 
@@ -85,17 +87,49 @@ def _group_event(
     return event
 
 
+class _StubConversationManager:
+    """等价 conversation_manager：一个固定 UUID 的当前会话，人格随会话走。"""
+
+    CONVERSATION_ID = "5f0c2a64-7b1e-4d3e-9a2f-6c8d0e4b1a77"
+    PERSONA_ID = "luowei"
+
+    async def get_curr_conversation_id(self, unified_msg_origin: str) -> str:
+        del unified_msg_origin
+        return self.CONVERSATION_ID
+
+    async def get_conversation(
+        self, unified_msg_origin: str, conversation_id: str
+    ) -> Any:
+        del unified_msg_origin
+        assert conversation_id == self.CONVERSATION_ID
+        return SimpleNamespace(persona_id=self.PERSONA_ID)
+
+
 class _StubContext:
-    """宿主 Context 的最小替身：只实现流水线必需的接口，其余走异常兜底。"""
+    """宿主 Context 的最小替身：只实现流水线必需的接口，其余走异常兜底。
+
+    与线上一致的关键点：人格解析返回一个非 default 人格（真实部署里
+    每个会话都绑定了人格），会话管理器给出 UUID 会话 ID。身份解析若
+    在旁观/回合两条路径上出现漂移，两条路径会落进不同的窗口目录，
+    所有窗口断言立刻失败——这正是 2026-08-30 主动回合丢历史的 bug。
+    """
 
     def __init__(self, queue: asyncio.Queue) -> None:
         self._queue = queue
         self.persona_manager = SimpleNamespace(
             resolve_selected_persona=self._resolve_persona
         )
+        self.conversation_manager = _StubConversationManager()
 
     async def _resolve_persona(self, **kwargs: Any) -> tuple[Any, ...]:
-        return "default", {"name": "小助"}, None, False
+        # (persona_id, persona_obj, begin_dialogs, use_webchat_default)
+        del kwargs
+        return (
+            _StubConversationManager.PERSONA_ID,
+            {"name": "洛薇"},
+            None,
+            False,
+        )
 
     def register_web_api(self, *args: Any, **kwargs: Any) -> None:
         return None
@@ -148,7 +182,18 @@ async def _run_request(
     """入口钩子 → 请求装配 → 协议校验 → agent 收尾；分发留给调用方。"""
     if prepare:
         await plugin.prepare_message_event(event)
-    req = ProviderRequest(prompt=event.message_str, contexts=[], system_prompt="")
+    # 真实核心在 agent 阶段总会挂上当前会话（astr_main_agent._get_session_conv，
+    # cid 为 UUID、persona_id 随会话）；缺了它 on_llm_request 会退回 umo，
+    # 与旁观路径的 UUID 会话漂移——线上不存在这种形状。
+    req = ProviderRequest(
+        prompt=event.message_str,
+        contexts=[],
+        system_prompt="",
+        conversation=SimpleNamespace(
+            cid=_StubConversationManager.CONVERSATION_ID,
+            persona_id=_StubConversationManager.PERSONA_ID,
+        ),
+    )
     await plugin.on_llm_request(event, req)
     response = LLMResponse(role="assistant", completion_text=raw_output)
     await plugin.enforce_response_protocol(event, response)
@@ -173,6 +218,7 @@ def _injected_prompt(req: ProviderRequest) -> str:
 
 
 def _probe() -> MessageContext:
+    """窗口探针：身份与真实回合解析结果一致（人格 agent + UUID 会话）。"""
     return MessageContext(
         request_id="probe",
         scope_type="group",
@@ -184,8 +230,8 @@ def _probe() -> MessageContext:
         chat_scene="QQ群",
         admin_name="",
         admin_ids=(),
-        conversation_id=SCOPE,
-        agent_id="default",
+        conversation_id=_StubConversationManager.CONVERSATION_ID,
+        agent_id=_StubConversationManager.PERSONA_ID,
     )
 
 
@@ -381,6 +427,83 @@ def test_normal_at_reply_resets_pending_window(
             )
             assert state["window_seconds"] == 1
             assert queue.empty()
+        finally:
+            await plugin.terminate()
+
+    asyncio.run(scenario())
+
+
+def test_chatter_and_turns_share_one_window_directory_under_persona(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """跨路径不变量：非默认人格 + UUID 会话下，旁观与各回合落同一窗口目录。
+
+    2026-08-30 线上事故的回归钉：旁观记录曾用默认身份（agent_id=default、
+    conversation_id=umo），回复/主动回合解析人格后用（agent-人格、UUID
+    会话），两套身份哈希进不同目录，主动回合的窗口里永远没有群聊历史。
+    本测试在贴近线上的 stub（人格 luowei + 固定 UUID 会话）下验证：
+    闲聊旁观 → @ 回合 → 主动窗口回合三者读写的都是同一个 context_window。
+    """
+
+    async def scenario() -> None:
+        queue: asyncio.Queue = asyncio.Queue()
+        plugin = _plugin(tmp_path, monkeypatch, queue)
+        try:
+            await plugin.initialize()
+            await plugin._container.repository.set_group_policy_mode(
+                scope_id="global", mode="full"
+            )
+
+            # 1) 未 @ 闲聊：旁观落账；此时窗口里只有这一条。
+            await plugin.prepare_message_event(
+                _group_event(text="晚上有人吃火锅吗", message_id="m-1")
+            )
+            window = await _load_window(plugin)
+            assert window.entry_count == 1
+            assert "晚上有人吃火锅吗" in _rendered(list(window.contexts))
+
+            # 2) 普通 @ 回合：同一窗口追加回合账目。
+            at_event = _group_event(text="我也想吃火锅", at_bot=True, message_id="m-2")
+            _req, response = await _run_request(plugin, at_event, REPLY_RAW)
+            # @ 回合的请求上下文必须能看到刚才的旁观条目
+            rendered_request = _rendered(list(_req.contexts))
+            assert "晚上有人吃火锅吗" in rendered_request
+            await _dispatch(plugin, at_event, response)
+            assert (await _load_window(plugin)).entry_count == 2
+
+            # 3) 群里继续闲聊开窗 → 主动窗口回合：窗口仍能看到全部历史。
+            await plugin.prepare_message_event(
+                _group_event(text="火锅店选好了吗", message_id="m-3")
+            )
+            synthetic = await asyncio.wait_for(queue.get(), timeout=5)
+            synthetic.is_at_or_wake_command = True
+            req2, _response2 = await _run_request(plugin, synthetic, NO_REPLY_RAW)
+            rendered_proactive = _rendered(list(req2.contexts))
+            # 失败模式（回归 6906d97 之前）：这里只剩主动回合自己，看不到
+            # 闲聊旁观与 @ 回合。
+            assert "晚上有人吃火锅吗" in rendered_proactive
+            assert "我也想吃火锅" in rendered_proactive
+            assert "火锅店选好了吗" in rendered_proactive
+            await _dispatch(plugin, synthetic, _LLM_NO_REPLY_RESPONSE)
+            assert (await _load_window(plugin)).entry_count == 4
+
+            # 磁盘事实：会话目录落在人格 agent 目录下，default 目录不存在。
+            sessions_root = (
+                tmp_path
+                / "astrbot_plugin_humanize"
+                / "openviking"
+                / "sessions"
+                / _StubConversationManager.PERSONA_ID
+            )
+            assert (sessions_root / "group").is_dir()
+            default_root = (
+                tmp_path
+                / "astrbot_plugin_humanize"
+                / "openviking"
+                / "sessions"
+                / "default"
+            )
+            assert not default_root.exists()
         finally:
             await plugin.terminate()
 
