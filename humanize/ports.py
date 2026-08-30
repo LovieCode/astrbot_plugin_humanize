@@ -257,3 +257,17 @@ class RepositoryPort(Protocol):
     async def get_latest_prompt_prefix_sample(
         self, *, scope_type: str, scope_id: str, conversation_id: str
     ) -> dict[str, Any] | None: ...
+
+    async def get_proactive_state(self, *, scope_id: str) -> dict[str, Any]: ...
+
+    async def update_proactive_state(
+        self,
+        *,
+        scope_id: str,
+        window_seconds: int | None = None,
+        last_reply_at: str | None = None,
+        last_reply_text: str | None = None,
+        last_eval_at: str | None = None,
+    ) -> None: ...
+
+    async def reset_proactive_state(self, *, scope_id: str) -> None: ...

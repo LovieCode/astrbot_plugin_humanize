@@ -115,11 +115,20 @@ class PluginConfig:
     reply_examples_max_chars: int = 2_000
     reply_examples_min_quality: float = 0.7
     reply_examples_recall_score_threshold: float = 0.2
+    proactive_mode: str = "off"
+    proactive_whitelist: tuple[str, ...] = ()
+    proactive_blacklist: tuple[str, ...] = ()
+    proactive_window_initial_seconds: int = 10
+    proactive_window_min_seconds: int = 10
+    proactive_window_max_seconds: int = 300
+    proactive_min_reply_interval_seconds: int = 60
+    proactive_followup_delay_seconds: int = 300
+    proactive_keywords: tuple[str, ...] = ()
 
     @classmethod
     def from_mapping(cls, raw: Mapping[str, Any] | None) -> PluginConfig:
         data = dict(raw or {})
-        for section_name in ("general", "reply_control", "memory"):
+        for section_name in ("general", "reply_control", "memory", "proactive"):
             section = data.get(section_name)
             if isinstance(section, Mapping):
                 data.update(section)
@@ -232,6 +241,27 @@ class PluginConfig:
             reply_examples_recall_score_threshold=_as_float(
                 data.get("reply_examples_recall_score_threshold"), 0.2, 0.0, 1.0
             ),
+            proactive_mode=_as_choice(
+                data.get("proactive_mode"), ("off", "whitelist", "blacklist"), "off"
+            ),
+            proactive_whitelist=_as_string_list(data.get("proactive_whitelist")),
+            proactive_blacklist=_as_string_list(data.get("proactive_blacklist")),
+            proactive_window_initial_seconds=_as_int(
+                data.get("proactive_window_initial_seconds"), 10, 5, 600
+            ),
+            proactive_window_min_seconds=_as_int(
+                data.get("proactive_window_min_seconds"), 10, 5, 600
+            ),
+            proactive_window_max_seconds=_as_int(
+                data.get("proactive_window_max_seconds"), 300, 30, 3_600
+            ),
+            proactive_min_reply_interval_seconds=_as_int(
+                data.get("proactive_min_reply_interval_seconds"), 60, 0, 3_600
+            ),
+            proactive_followup_delay_seconds=_as_int(
+                data.get("proactive_followup_delay_seconds"), 300, 30, 1_800
+            ),
+            proactive_keywords=_as_string_list(data.get("proactive_keywords")),
         )
 
     @property
@@ -286,4 +316,15 @@ class PluginConfig:
             "reply_examples_recall_score_threshold": (
                 self.reply_examples_recall_score_threshold
             ),
+            "proactive_mode": self.proactive_mode,
+            "proactive_whitelist": list(self.proactive_whitelist),
+            "proactive_blacklist": list(self.proactive_blacklist),
+            "proactive_window_initial_seconds": (self.proactive_window_initial_seconds),
+            "proactive_window_min_seconds": self.proactive_window_min_seconds,
+            "proactive_window_max_seconds": self.proactive_window_max_seconds,
+            "proactive_min_reply_interval_seconds": (
+                self.proactive_min_reply_interval_seconds
+            ),
+            "proactive_followup_delay_seconds": self.proactive_followup_delay_seconds,
+            "proactive_keywords": list(self.proactive_keywords),
         }

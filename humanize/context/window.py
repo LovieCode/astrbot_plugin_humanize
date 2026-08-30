@@ -281,6 +281,55 @@ class ContextWindowService:
             max(64, int(max_chars)),
         )
 
+    async def read_ambient_lines(
+        self,
+        context: MessageContext,
+        *,
+        max_chars: int = _AMBIENT_MAX_CHARS,
+    ) -> tuple[str, ...]:
+        """Read raw ambient ledger lines without the XML wrapper.
+
+        Proactive evaluation renders its own prompt: it needs the lines for
+        jargon matching and batch emptiness checks, not the load-time
+        fragment (which would double-wrap or exclude nothing useful).
+
+        Args:
+            context: Trusted metadata for the group being evaluated. An empty
+                ``message_id`` keeps every stored line.
+            max_chars: Maximum total characters, oldest lines dropped first.
+
+        Returns:
+            Bounded ambient lines in chronological order; empty when the
+            ledger is unused or drained.
+
+        Raises:
+            RuntimeError: If the workspace was not initialized.
+        """
+        if not self._ready:
+            raise RuntimeError("context window is not initialized")
+        if context.scope_type != "group":
+            return ()
+        return await asyncio.to_thread(
+            self._read_ambient_lines_sync,
+            context,
+            max(64, int(max_chars)),
+        )
+
+    def _read_ambient_lines_sync(
+        self,
+        context: MessageContext,
+        max_chars: int,
+    ) -> tuple[str, ...]:
+        identity = self._ambient_identity(context)
+        path = self._ambient_path(identity)
+        with self._workspace.transaction() as transaction:
+            state = self._read_ambient(transaction, path, identity)
+        lines = [str(item.get("line") or "") for item in state["items"]]
+        lines = [line for line in lines if line]
+        while lines and sum(len(line) for line in lines) > max_chars:
+            lines.pop(0)
+        return tuple(lines)
+
     async def drop_ambient(self, context: MessageContext) -> None:
         """Discard ambient chatter after it was injected into a real LLM turn.
 

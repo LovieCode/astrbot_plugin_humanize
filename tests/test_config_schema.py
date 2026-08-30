@@ -109,12 +109,17 @@ def test_grouped_schema_defaults_are_flattened_for_runtime_config(
     )
     config = PluginConfig.from_mapping(ui_config)
 
-    assert list(ui_config) == ["general", "reply_control", "memory"]
+    assert list(ui_config) == ["general", "reply_control", "memory", "proactive"]
     assert config.max_message_chars == 10
     assert config.message_interval_seconds == 0.8
     assert config.protocol_injection_mode == "user"
     assert config.memory_enabled is True
     assert config.memory_embedding_provider_id == ""
+    # 主动发言默认关闭；UI 分组值展平后仍走统一的运行时校验入口
+    assert config.proactive_mode == "off"
+    assert config.proactive_whitelist == ()
+    assert config.proactive_window_initial_seconds == 10
+    assert config.proactive_window_max_seconds == 300
 
 
 def test_provider_ids_preserve_astrbot_path_segments() -> None:
