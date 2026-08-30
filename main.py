@@ -581,6 +581,8 @@ class HumanizePlugin(Star):
             prepared = await self._container.service.prepare_request(
                 message_context,
                 include_session_fallback=False,
+                # 主动窗口回合才在回复协议里携带 Wait 补充规则。
+                allow_wait=event.get_extra(_PROACTIVE_KIND_KEY, "") == "window",
             )
         except Exception as exc:
             logger.error(
@@ -2936,10 +2938,7 @@ class HumanizePlugin(Star):
             envelope = self._container.envelope if self._container else None
             if envelope is None:
                 return None
-            text = envelope.build_proactive_prompt(
-                situation=kind,
-                allow_wait=kind == "window",
-            )
+            text = envelope.build_proactive_prompt(situation=kind)
             self_id_getter = getattr(template, "get_self_id", None)
             self_id = str(self_id_getter() or "") if callable(self_id_getter) else ""
             if not self_id:

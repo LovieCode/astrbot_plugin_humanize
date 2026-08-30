@@ -344,18 +344,32 @@ def test_envelope_escapes_message_as_xml_data() -> None:
 def test_envelope_proactive_prompt_covers_situations() -> None:
     builder = EnvelopeBuilder(PluginConfig())
 
-    window = builder.build_proactive_prompt(situation="window", allow_wait=True)
+    window = builder.build_proactive_prompt(situation="window")
     assert "没有 @ 你" in window
-    assert "Wait" in window
+    # Wait 是输出协议的一部分：消息文本只交代情况，不携带输出格式规则。
+    assert "Wait" not in window
 
-    # 仅 window 场景告知 Wait；direct 场景不携带等待选项
     direct = builder.build_proactive_prompt(situation="direct")
-    assert "Wait" not in direct
+    assert "没有 @ 你" not in direct
 
     with pytest.raises(ValueError):
         builder.build_proactive_prompt(situation="followup")
     with pytest.raises(ValueError):
         builder.build_proactive_prompt(situation="unknown")
+
+
+def test_envelope_wait_rule_lives_in_the_response_protocol() -> None:
+    builder = EnvelopeBuilder(PluginConfig())
+
+    proactive = builder.build_protocol_prompt(_context(), allow_wait=True)
+    assert "补充规则（仅本场景）" in proactive
+    assert "Wait N" in proactive
+    assert "最多等待 3 次" in proactive
+    # 规则挂在协议块之后，仍与 <Protocol> 处于同一段注入内容
+    assert proactive.index("</Protocol>") < proactive.index("补充规则（仅本场景）")
+
+    normal = builder.build_protocol_prompt(_context())
+    assert "Wait" not in normal
 
 
 def test_envelope_escapes_untrusted_term_fields() -> None:

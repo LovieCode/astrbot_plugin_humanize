@@ -544,16 +544,17 @@ def test_plugin_builds_synthetic_event_from_template() -> None:
         assert isinstance(chain[0], At) and str(chain[0].qq) == "bot-1"
         assert isinstance(chain[1], Plain)
         assert "没有 @ 你" in chain[1].text
-        assert "Wait" in chain[1].text
+        # Wait 规则跟随回复协议注入，不进入事件消息文本
+        assert "Wait" not in chain[1].text
         assert event.extras[_PROACTIVE_KIND_KEY] == "window"
         assert event.extras[_PROACTIVE_OUTCOME_CALLBACK_KEY] is outcome
 
-        # direct 场景不携带等待说明
+        # direct 场景同样是纯情况说明
         direct = plugin._build_proactive_event(
             template, kind="direct", on_outcome=outcome
         )
         assert direct is not None
-        assert "Wait" not in direct.message_obj.message[1].text
+        assert "没有 @ 你" not in direct.message_obj.message[1].text
 
         # 没有模板时拒绝构造
         assert (

@@ -164,6 +164,14 @@ async def _dispatch(plugin: HumanizePlugin, event: Any, response: LLMResponse) -
     await plugin.dispatch_response(event)
 
 
+def _injected_prompt(req: ProviderRequest) -> str:
+    """全部注入内容：system_prompt + 临时用户段。"""
+    parts = "\n".join(
+        str(getattr(part, "text", "") or "") for part in req.extra_user_content_parts
+    )
+    return f"{req.system_prompt}\n{parts}"
+
+
 def _probe() -> MessageContext:
     return MessageContext(
         request_id="probe",
@@ -218,6 +226,9 @@ def test_window_no_reply_cycle_stretches_and_keeps_history(
             assert req.conversation is None
             rendered = _rendered(list(req.contexts))
             assert "小明" in rendered and "今天天气真好" in rendered
+            # Wait 补充规则跟随回复协议注入，事件消息文本里没有
+            assert "补充规则（仅本场景）" in _injected_prompt(req)
+            assert "Wait" not in synthetic.message_obj.message[1].text
 
             await _dispatch(plugin, synthetic, response)
             assert synthetic.sent_chains == []
@@ -338,6 +349,8 @@ def test_normal_at_reply_resets_pending_window(
             await _dispatch(plugin, at_event, response)
 
             assert at_event.get_extra(_PROACTIVE_KIND_KEY, "") == ""
+            # 普通 @ 回合的回复协议不携带 Wait 补充规则
+            assert "补充规则（仅本场景）" not in _injected_prompt(_req)
             assert [c.get_plain_text() for c in at_event.sent_chains] == [
                 "好呀，我也要去"
             ]

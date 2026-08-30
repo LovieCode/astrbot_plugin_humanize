@@ -56,6 +56,7 @@ class HumanizeService:
         context: MessageContext,
         *,
         include_session_fallback: bool = True,
+        allow_wait: bool = False,
     ) -> PreparedRequest:
         """Prepare temporary context for one request.
 
@@ -63,6 +64,8 @@ class HumanizeService:
             context: Trusted current-message metadata.
             include_session_fallback: Whether memory recall may include OpenViking
                 Session continuity when no semantic memory matches.
+            allow_wait: Whether the response protocol advertises the proactive
+                ``Wait N`` action supplement.
 
         Returns:
             Fully composed provider request sections.
@@ -70,6 +73,7 @@ class HumanizeService:
         return await self._composer.compose(
             context,
             include_session_fallback=include_session_fallback,
+            allow_wait=allow_wait,
         )
 
     async def record_context_trace(

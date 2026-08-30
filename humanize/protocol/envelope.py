@@ -23,8 +23,10 @@ _PROACTIVE_SITUATION_BRIEFS = {
     ),
 }
 
+# Wait 属于输出协议的一部分，跟随协议块注入（仅允许等待的主动窗口回合），
+# 不进入 <Msg> 消息文本，也不写入基础协议模板。
 _PROACTIVE_WAIT_RULE = (
-    "本场景额外允许等待：正在进行的对话不便插话时，"
+    "补充规则（仅本场景）：正在进行的对话不便插话时，"
     "可以输出 Wait N（N 为 1 到 "
     f"{MAX_WAIT_SECONDS} 的整数秒）暂不决定；"
     "之后系统会再触发一次回复，由你重新决定。同一批消息最多等待 3 次。"
@@ -94,7 +96,24 @@ class EnvelopeBuilder:
             return "<KnownTerms />"
         return f"<KnownTerms>\n{body}\n</KnownTerms>"
 
-    def build_protocol_prompt(self, context: MessageContext) -> str:
+    def build_protocol_prompt(
+        self,
+        context: MessageContext,
+        *,
+        allow_wait: bool = False,
+    ) -> str:
+        """Build the response-protocol prompt for one turn.
+
+        Args:
+            context: Trusted current-message metadata.
+            allow_wait: Whether to append the proactive ``Wait N`` supplement
+                after the protocol block. Only the proactive window turn sets
+                it; the base protocol template never mentions ``Wait``.
+
+        Returns:
+            The rendered rule and protocol blocks (plus the optional Wait
+            supplement) joined by blank lines.
+        """
         parts: list[str] = []
         if self._config.default_rule_enabled:
             parts.append(self._build_rule(context))
@@ -105,6 +124,8 @@ class EnvelopeBuilder:
             },
         )
         parts.append(protocol)
+        if allow_wait:
+            parts.append(_PROACTIVE_WAIT_RULE)
         # 图片转述由系统在 <Msg> 内联注入（含缓存路径）；模型不再输出 ImageCache 标签
         return "\n\n".join(parts)
 
@@ -142,22 +163,16 @@ class EnvelopeBuilder:
             ET.tostring(root, encoding="unicode", short_empty_elements=False),
         )
 
-    def build_proactive_prompt(
-        self,
-        *,
-        situation: str,
-        allow_wait: bool = False,
-    ) -> str:
+    def build_proactive_prompt(self, *, situation: str) -> str:
         """Build the message text of one synthetic proactive event.
 
-        The base protocol template never mentions ``Wait``; only these
-        events learn about it, through the situation brief. The group's
-        unaddressed chatter is already ordinary history (observed entries),
-        so this text only states the situation.
+        The text is decision guidance only: the output contract (including
+        the ``Wait N`` option) travels with the response protocol, not with
+        the message. The group's unaddressed chatter is already ordinary
+        history (observed entries), so this text only states the situation.
 
         Args:
             situation: One of ``window``, ``direct``.
-            allow_wait: Whether to advertise the ``Wait N`` action.
 
         Returns:
             The message text for the synthetic event.
@@ -168,8 +183,6 @@ class EnvelopeBuilder:
         brief = _PROACTIVE_SITUATION_BRIEFS.get(situation)
         if brief is None:
             raise ValueError(f"unsupported proactive situation: {situation}")
-        if allow_wait:
-            return f"{brief}\n{_PROACTIVE_WAIT_RULE}"
         return brief
 
     def _build_rule(self, context: MessageContext) -> str:

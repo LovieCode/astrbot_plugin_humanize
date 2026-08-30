@@ -50,6 +50,7 @@ class ContextComposer:
         context: MessageContext,
         *,
         include_session_fallback: bool = True,
+        allow_wait: bool = False,
     ) -> PreparedRequest:
         """Compose the current message, response protocol, and known terms.
 
@@ -57,12 +58,17 @@ class ContextComposer:
             context: Trusted metadata and the current untrusted user message.
             include_session_fallback: Whether OpenViking may inject its bounded
                 Session continuity fallback when semantic memory is absent.
+            allow_wait: Whether the response protocol advertises the proactive
+                ``Wait N`` action supplement.
 
         Returns:
             A backward-compatible prepared request with an ordered section trace.
         """
         message_xml = self._envelope.build_message_xml(context.user_text)
-        protocol_prompt = self._envelope.build_protocol_prompt(context)
+        protocol_prompt = self._envelope.build_protocol_prompt(
+            context,
+            allow_wait=allow_wait,
+        )
 
         selected: tuple[KnownTerm, ...] = ()
         jargon_reason = "jargon_disabled"
