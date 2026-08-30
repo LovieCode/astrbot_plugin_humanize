@@ -709,7 +709,6 @@ class ContextWindowService:
         bot_name = str(record.get("bot_name") or "").strip()
         created_at = str(record.get("created_at") or "").strip()
         time_label = self._format_time_label(created_at)
-        observed = str(record.get("action") or "") == _OBSERVED_ACTION
         for raw_message in record.get("messages", []):
             if not isinstance(raw_message, dict):
                 continue
@@ -728,10 +727,6 @@ class ContextWindowService:
             if role in {"user", "assistant"} and content_text:
                 if role == "user":
                     speaker = sender_name if sender_name else "用户"
-                    if observed:
-                        # Mark unaddressed chatter so the model never mistakes
-                        # it for something said to the bot.
-                        speaker = f"旁观·{speaker}"
                 else:
                     speaker = bot_name if bot_name else "Bot"
                 prefix = (
@@ -1037,17 +1032,6 @@ class ContextWindowService:
         entry: dict[str, str],
         record: dict[str, Any] | None,
     ) -> str:
-        if str(entry.get("action") or "") == _OBSERVED_ACTION:
-            if record is None:
-                return f"- Observed chatter: {entry['l0']}"
-            user_text = ""
-            for message in record.get("messages", []):
-                if isinstance(message, dict) and message.get("role") == "user":
-                    user_text = self._content_text(message.get("content"))
-                    break
-            speaker = str(record.get("sender_name") or "").strip() or "someone"
-            details = self._clip(" ".join(user_text.split()), 180)
-            return f"- Observed chatter: {speaker}: {details or entry['l0']}"
         if record is None:
             return f"- Earlier turn: {entry['l0']}"
         user_text = ""

@@ -802,12 +802,8 @@ def test_chatter_enters_group_window_shared_across_senders(tmp_path: Path) -> No
         loaded = await window.load(_context(10, user_text="@bot"))
         assert loaded.entry_count == 2
         contents = [str(item.get("content")) for item in loaded.contexts]
-        assert any(
-            "[旁观·小明" in content and "旁路一句" in content for content in contents
-        )
-        assert any(
-            "[旁观·小红" in content and "旁路二句" in content for content in contents
-        )
+        assert any("[小明" in content and "旁路一句" in content for content in contents)
+        assert any("[小红" in content and "旁路二句" in content for content in contents)
         assert any("[图片]" in content for content in contents)
 
         # 其他会话/人格/群各自独立。
@@ -855,7 +851,7 @@ def test_chatter_compacts_like_any_other_entry(tmp_path: Path) -> None:
         assert loaded.entry_count <= 10
         summary = str(loaded.contexts[0].get("content"))
         assert "<HumanizeContextSummary>" in summary
-        assert "Observed chatter" in summary
+        assert "闲聊内容" in summary
 
     asyncio.run(scenario())
 
