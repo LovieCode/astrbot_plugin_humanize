@@ -102,9 +102,18 @@ class _FakeRequest:
         return self._body if self._body is not None else (default or {})
 
 
-def test_webapi_policy_endpoints_roundtrip(tmp_path: Path) -> None:
+def test_webapi_policy_endpoints_roundtrip(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
     async def scenario() -> None:
         import astrbot.api.web as web
+
+        # 配置写入重定向到临时目录，不碰真实 AstrBot 配置。
+        import astrbot.core.utils.astrbot_path as astrbot_path
+
+        monkeypatch.setattr(
+            astrbot_path, "get_astrbot_config_path", lambda: str(tmp_path)
+        )
 
         repository = await _repository(tmp_path / "humanize.db")
         api = WebApi(repository, PluginConfig())
@@ -125,11 +134,12 @@ def test_webapi_policy_endpoints_roundtrip(tmp_path: Path) -> None:
 
             return json.loads(result.body)
 
-        # 初始：无行 → 代码默认 mention，无覆盖、无已知会话。
+        # 初始：无行 → 代码默认 mention，无覆盖、无已知会话，关键词为空。
         response = await dispatch(_FakeRequest(method="GET"), "policy")
         assert payload(response)["data"]["global_mode"] == "mention"
         assert payload(response)["data"]["groups"] == []
         assert payload(response)["data"]["known_sessions"] == []
+        assert payload(response)["data"]["proactive_keywords"] == []
 
         # 设置全局默认 + 按群覆盖。
         await dispatch(
@@ -164,6 +174,37 @@ def test_webapi_policy_endpoints_roundtrip(tmp_path: Path) -> None:
         assert data["known_sessions"] == [
             {"scope_id": "aiocqhttp:GroupMessage:123456", "display_name": "摸鱼基地"}
         ]
+
+        # 触发关键词：保存后读回一致，且同步进内存配置；非法类型报 400。
+        response = await dispatch(
+            _FakeRequest(
+                method="POST",
+                body={"proactive_keywords": ["洛薇", "小薇"]},
+            ),
+            "policy-keywords",
+        )
+        assert payload(response)["data"]["proactive_keywords"] == ["洛薇", "小薇"]
+        assert api._config.proactive_keywords == ("洛薇", "小薇")
+
+        response = await dispatch(_FakeRequest(method="GET"), "policy")
+        assert payload(response)["data"]["proactive_keywords"] == ["洛薇", "小薇"]
+
+        bad = await dispatch(
+            _FakeRequest(
+                method="POST",
+                body={"proactive_keywords": "洛薇"},
+            ),
+            "policy-keywords",
+        )
+        assert bad.status_code == 400
+
+        # 清空关键词也允许（空列表）。
+        response = await dispatch(
+            _FakeRequest(method="POST", body={"proactive_keywords": []}),
+            "policy-keywords",
+        )
+        assert payload(response)["data"]["proactive_keywords"] == []
+        assert api._config.proactive_keywords == ()
 
         # 非法模式报 400；清除覆盖后回退全局默认。
         bad = await dispatch(

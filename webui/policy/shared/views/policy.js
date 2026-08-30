@@ -1,8 +1,8 @@
 /**
- * View: Policy — 群聊策略页交互（全局默认 + 按群覆盖）
+ * View: Policy — 群聊策略页交互（全局默认 + 按群覆盖 + 触发关键词）
  * 依赖：shared/icons.js, shared/ui.js, shared/api.js
- * 接口：GET policy / POST policy-set / POST policy-clear
- * 安全：会话标识与群名一律通过 textContent/value 写入，禁止拼进 innerHTML。
+ * 接口：GET policy / POST policy-set / POST policy-clear / POST policy-keywords
+ * 安全：会话标识、群名与关键词一律通过 textContent/value 写入，禁止拼进 innerHTML。
  */
 (function () {
   const MODE_LABELS = {
@@ -43,10 +43,14 @@
   const groupsEl = $("#plGroups");
   const emptyHost = $("#plEmptyHost");
   const sessionsEl = $("#plSessions");
+  const keywordsEl = $("#plKeywords");
+  const keywordInput = $("#plNewKeyword");
+  const keywordAddBtn = $("#plKwAddBtn");
 
   let globalMode = "mention";
   let groups = [];
   let knownSessions = [];
+  let keywords = [];
 
   function selectedMode(host) {
     const active = host.querySelector(".pl-mode.active");
@@ -153,11 +157,36 @@
     });
   }
 
+  function renderKeywords() {
+    keywordsEl.textContent = "";
+    keywords.forEach((keyword, index) => {
+      const tag = document.createElement("span");
+      tag.className = "pl-kw";
+      const text = document.createElement("span");
+      text.className = "pl-kw-text";
+      text.textContent = keyword;
+      text.title = keyword;
+      const remove = document.createElement("button");
+      remove.className = "pl-kw-remove";
+      remove.type = "button";
+      remove.textContent = "×";
+      remove.setAttribute("aria-label", "删除关键词 " + keyword);
+      remove.addEventListener("click", () => {
+        keywords.splice(index, 1);
+        saveKeywords();
+      });
+      tag.appendChild(text);
+      tag.appendChild(remove);
+      keywordsEl.appendChild(tag);
+    });
+  }
+
   function renderAll() {
     renderGlobalModes();
     renderGroups();
     renderSessions();
     renderDatalist();
+    renderKeywords();
   }
 
   async function loadPolicy() {
@@ -169,6 +198,9 @@
       groups = Array.isArray(data && data.groups) ? data.groups : [];
       knownSessions =
         Array.isArray(data && data.known_sessions) ? data.known_sessions : [];
+      keywords = Array.isArray(data && data.proactive_keywords)
+        ? data.proactive_keywords.map((k) => String(k)).filter(Boolean)
+        : [];
       renderAll();
     } catch (e) {
       const err = HZ.api.errorOf(e);
@@ -221,6 +253,38 @@
     }
   }
 
+  async function saveKeywords() {
+    renderKeywords();
+    try {
+      await HZ.api.post("policy-keywords", { proactive_keywords: keywords });
+      HZ.toast("关键词已保存", { type: "success" });
+    } catch (e) {
+      const err = HZ.api.errorOf(e);
+      HZ.toast("关键词保存失败：" + err.message, { type: "error" });
+      await loadPolicy();
+    }
+  }
+
+  function addKeyword() {
+    const raw = (keywordInput.value || "").replace(/[,，]/g, " ");
+    const parts = raw
+      .split(/\s+/)
+      .map((s) => s.trim())
+      .filter(Boolean);
+    if (!parts.length) return;
+    const next = keywords.slice();
+    parts.forEach((part) => {
+      if (!next.includes(part)) next.push(part);
+    });
+    if (next.length === keywords.length) {
+      HZ.toast("关键词已存在", { type: "info" });
+      return;
+    }
+    keywords = next;
+    keywordInput.value = "";
+    saveKeywords();
+  }
+
   function removeOverride(scope) {
     HZ.confirm({
       title: "移除群聊覆盖",
@@ -250,6 +314,12 @@
   if (scopeInput) {
     scopeInput.addEventListener("keydown", (e) => {
       if (e.key === "Enter") addOverride();
+    });
+  }
+  if (keywordAddBtn) keywordAddBtn.addEventListener("click", addKeyword);
+  if (keywordInput) {
+    keywordInput.addEventListener("keydown", (e) => {
+      if (e.key === "Enter") addKeyword();
     });
   }
   /* 顶栏「刷新」（委托到 document，topbar 重建也不丢绑定） */

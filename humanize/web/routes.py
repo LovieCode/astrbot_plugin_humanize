@@ -281,6 +281,7 @@ class WebApi:
                     "global_mode": global_mode,
                     "groups": groups,
                     "known_sessions": known_sessions,
+                    "proactive_keywords": list(self._config.proactive_keywords),
                 }
             )
         if path == "overview":
@@ -601,6 +602,23 @@ class WebApi:
             except Exception:
                 logger.exception("[Humanize] settings in-memory refresh failed")
             return self._ok({"updated": list(validated), "restart_required": True})
+        if path == "policy-keywords":
+            # 复用 settings 的校验与落盘路径（白名单校验 + 分组写回 + 内存
+            # object.__setattr__ 刷新），保证关键词与设置页改法行为一致。
+            keywords = body.get("proactive_keywords")
+            if not isinstance(keywords, list):
+                raise ValueError("proactive_keywords 必须是字符串列表")
+            validated = _validate_settings_values({"proactive_keywords": keywords})
+            _write_plugin_config(validated)
+            try:
+                for key, value in validated.items():
+                    if hasattr(self._config, key):
+                        object.__setattr__(self._config, key, tuple(value))
+            except Exception:
+                logger.exception("[Humanize] policy-keywords in-memory refresh failed")
+            return self._ok(
+                {"proactive_keywords": list(self._config.proactive_keywords)}
+            )
         if path == "policy-set":
             scope_id = str(body.get("scope_id") or "").strip()
             mode = str(body.get("mode") or "").strip()

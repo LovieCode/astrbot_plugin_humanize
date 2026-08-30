@@ -69,6 +69,17 @@
           <div id="plEmptyHost"></div>
         </div>
 
+        <!-- 触发关键词 -->
+        <div class="card reveal">
+          <div class="card-head"><span class="card-dot"></span><span class="card-title">触发关键词</span></div>
+          <div class="pl-note">消息里出现这些词（可把机器人昵称加进来）或引用了机器人的消息时，跳过等待尽快触发回复。对「允许所有@和关键词」及以上的模式生效。回车或逗号添加。</div>
+          <div class="pl-keywords" id="plKeywords"></div>
+          <div class="pl-kw-add">
+            <input class="pl-input pl-kw-input" id="plNewKeyword" placeholder="输入关键词后回车" />
+            <button class="btn btn-primary" id="plKwAddBtn" data-icon="plus">添加</button>
+          </div>
+        </div>
+
       </div>
 
       <!-- 侧栏：模式说明 -->
