@@ -208,10 +208,10 @@ CORPUS: list[ResponseCase] = [
         expected_error_code="missing_action",
     ),
     ResponseCase(
-        description="unsupported Action value",
+        description="bare Wait without a second count",
         raw="<Action>Wait</Action>\n<Messages><Message>ok</Message></Messages>",
         expected_valid=False,
-        expected_error_code="invalid_action",
+        expected_error_code="invalid_wait_seconds",
     ),
     ResponseCase(
         description="empty Action value",
