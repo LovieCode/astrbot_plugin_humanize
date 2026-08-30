@@ -2,6 +2,7 @@ from __future__ import annotations
 
 import base64
 import hashlib
+import inspect
 import json
 import math
 from collections.abc import Mapping, Sequence
@@ -398,9 +399,16 @@ def _snapshot_value(
         dump_method = getattr(value, method_name, None)
         if not callable(dump_method) or not _is_safe_dump_type(value):
             continue
+        if inspect.iscoroutinefunction(dump_method):
+            # 消息组件的 to_dict 是 async 的；同步快照只能退回 toDict 等同步转储。
+            continue
         try:
             dumped = dump_method()
         except Exception:
+            continue
+        if inspect.iscoroutine(dumped):
+            # 包装后的异步转储在同步路径不可消费，显式关闭避免未 await 告警。
+            dumped.close()
             continue
         return _snapshot_value(
             dumped,

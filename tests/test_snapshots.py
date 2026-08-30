@@ -163,3 +163,20 @@ def test_attachment_reference_hashes_binary_without_persisting_payload() -> None
     assert metadata["data"]["encoding"] == "base64"
     assert "data" not in metadata["data"]
     json.dumps(reference, ensure_ascii=False, allow_nan=False)
+
+
+def test_attachment_reference_uses_sync_dump_for_message_components() -> None:
+    """消息组件的 to_dict 是 async；快照必须退回同步 toDict，引用才稳定可复现。"""
+    from astrbot.api.message_components import At
+
+    first, complete = serialize_attachment_reference(At(qq="10001"))
+    second, _ = serialize_attachment_reference(At(qq="10001"))
+
+    assert complete is True
+    metadata = first["metadata"]
+    assert isinstance(metadata, dict)
+    assert "serialization_error" not in metadata
+    assert metadata.get("data", {}).get("qq") == "10001"
+    # 元数据不得混入协程内存地址：两次序列化的哈希必须一致。
+    assert second["content_hash"] == first["content_hash"]
+    json.dumps(first, ensure_ascii=False, allow_nan=False)
