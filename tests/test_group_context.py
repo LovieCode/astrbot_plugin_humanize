@@ -553,8 +553,14 @@ def test_request_takeover_replaces_native_history_and_disables_session_fallback(
         def __init__(self) -> None:
             self.include_session_fallback: bool | None = None
 
-        async def prepare_request(self, context, *, include_session_fallback: bool):
-            del context
+        async def prepare_request(
+            self,
+            context,
+            *,
+            include_session_fallback: bool,
+            allow_wait: bool = False,
+        ):
+            del context, allow_wait
             self.include_session_fallback = include_session_fallback
             return PreparedRequest(
                 protocol_prompt="protocol",
@@ -645,8 +651,14 @@ def test_request_takeover_omits_native_history_when_window_unavailable(
         def __init__(self) -> None:
             self.include_session_fallback: bool | None = None
 
-        async def prepare_request(self, context, *, include_session_fallback: bool):
-            del context
+        async def prepare_request(
+            self,
+            context,
+            *,
+            include_session_fallback: bool,
+            allow_wait: bool = False,
+        ):
+            del context, allow_wait
             self.include_session_fallback = include_session_fallback
             return PreparedRequest(
                 protocol_prompt="protocol",
