@@ -410,7 +410,7 @@ def test_plugin_policy_gates_proactive_doors() -> None:
 
 def test_direct_trigger_replaces_pending_window_timer() -> None:
     async def scenario() -> None:
-        service, _parts = _service()
+        service, parts = _service()
         try:
             await service.on_group_chatter(SCOPE, event=_template())
             assert SCOPE in service._window_timers
@@ -418,6 +418,9 @@ def test_direct_trigger_replaces_pending_window_timer() -> None:
             assert SCOPE in service._window_timers
             # 替换而非叠加
             assert len(service._window_timers) == 1
+            # 直接触发零延迟：让一拍事件循环后立即排队，不等可感知的计时。
+            await asyncio.sleep(0.01)
+            assert parts["queue"].events == ["synthetic-event"]
         finally:
             await service.shutdown()
 

@@ -14,8 +14,6 @@ from ..ports import RepositoryPort
 
 logger = logging.getLogger("astrbot")
 
-# 直接触发（提到名字 / 引用回复）仍稍等片刻，让紧跟着的补充消息并入同一批。
-_DIRECT_TRIGGER_DELAY_SECONDS = 2.0
 _MAX_WAITS_PER_BATCH = 3
 # 计时反馈：回复后立刻回到 1 秒窗口；沉默/无效则拉长 10 秒。
 _REPLY_RESET_SECONDS = 1
@@ -104,7 +102,10 @@ class ProactiveService:
         self._schedule_window(scope_id, float(window), kind="window")
 
     async def on_direct_trigger(self, scope_id: str, *, event: Any = None) -> None:
-        """Trigger almost immediately after a high-precision trigger.
+        """Trigger the reply pipeline immediately after a high-precision trigger.
+
+        关键词命中 / 引用回复说明有人明确在叫 Bot，不做任何延迟，
+        直接进入回复流水线。
 
         Args:
             scope_id: Group session identifier.
@@ -114,7 +115,7 @@ class ProactiveService:
             return
         if event is not None:
             self._templates[scope_id] = event
-        self._schedule_window(scope_id, _DIRECT_TRIGGER_DELAY_SECONDS, kind="direct")
+        self._schedule_window(scope_id, 0.0, kind="direct")
 
     async def on_bot_reply(self, scope_id: str) -> None:
         """Re-arm the window right after the bot replied in this group.
