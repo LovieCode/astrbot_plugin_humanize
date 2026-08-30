@@ -24,8 +24,6 @@ logger = logging.getLogger("astrbot")
 # 直接触发（提到名字 / 引用回复）仍稍等片刻，让紧跟着的补充消息并入同一批。
 _DIRECT_TRIGGER_DELAY_SECONDS = 2.0
 _MAX_WAITS_PER_BATCH = 3
-# 话题跟进固定延迟：机器人回复后群里安静这么久才检查一次是否补话。
-_FOLLOWUP_DELAY_SECONDS = 300.0
 
 
 def _append_prompt(existing: str, addition: str) -> str:
@@ -68,15 +66,15 @@ def _render_batch(lines: tuple[str, ...]) -> str:
 class ProactiveService:
     """Evaluate whether and what to say in groups without being asked.
 
-    Three entry doors feed one evaluation path: the ambient debounce window
-    (kind ``window``), direct triggers such as name mentions or quote-replies
-    (kind ``direct``, near-immediate), and the dangling-conversation check
-    after the bot itself spoke (kind ``followup``). Every door ends in the
+    Two entry doors feed one evaluation path: the ambient debounce window
+    (kind ``window``) and direct triggers such as name mentions or
+    quote-replies (kind ``direct``, near-immediate). Every door ends in the
     same single-action contract as a normal turn: one protocol-gated model
     call built on the group's full managed history (persona agent window,
     memory, jargon) whose Action decides the outcome — Reply sends through
     the send gate, No Reply lengthens the window, and Wait (window only,
-    bounded per batch) re-checks shortly with the new arrivals.
+    bounded per batch) re-checks shortly with the new arrivals. A thread
+    that gets no response is simply over; nothing re-visits it.
     """
 
     def __init__(
@@ -102,7 +100,6 @@ class ProactiveService:
         self._persona_getter = persona_getter
         self._window_budget_getter = window_budget_getter
         self._window_timers: dict[str, asyncio.Task[None]] = {}
-        self._followup_timers: dict[str, asyncio.Task[None]] = {}
         self._locks: dict[str, asyncio.Lock] = {}
         self._waits: dict[str, int] = {}
         self._closed = False
@@ -142,37 +139,12 @@ class ProactiveService:
             return
         self._schedule_window(scope_id, _DIRECT_TRIGGER_DELAY_SECONDS, kind="direct")
 
-    async def record_bot_reply(
-        self,
-        scope_id: str,
-        text: str,
-        *,
-        interactive: bool,
-    ) -> None:
-        """Track the bot's latest reply and maybe schedule a follow-up check.
-
-        Args:
-            scope_id: Group session identifier.
-            text: The reply text that was actually sent.
-            interactive: Whether the reply answered someone directly; only
-                interactive replies lead to a dangling-conversation check.
-        """
-        if self._closed or not self._access_allowed(scope_id):
-            return
-        clean = str(text or "").strip()
-        if not clean:
-            return
-        await self._remember(scope_id, last_reply_at=_iso_now(), last_reply_text=clean)
-        if interactive:
-            self._schedule_followup(scope_id)
-
     async def shutdown(self) -> None:
         """Cancel every pending timer; called on plugin unload."""
         self._closed = True
-        for slot in (self._window_timers, self._followup_timers):
-            for task in slot.values():
-                task.cancel()
-            slot.clear()
+        for task in self._window_timers.values():
+            task.cancel()
+        self._window_timers.clear()
         self._waits.clear()
 
     # ---------- 调度 ----------
@@ -184,16 +156,6 @@ class ProactiveService:
             name=f"humanize-proactive-{kind}",
         )
         self._window_timers[scope_id] = task
-
-    def _schedule_followup(self, scope_id: str) -> None:
-        self._cancel_timer(self._followup_timers, scope_id)
-        task = asyncio.create_task(
-            self._timer_entry(
-                scope_id, _FOLLOWUP_DELAY_SECONDS, "followup", self._followup_timers
-            ),
-            name="humanize-proactive-followup",
-        )
-        self._followup_timers[scope_id] = task
 
     @staticmethod
     def _cancel_timer(slot: dict[str, asyncio.Task[None]], scope_id: str) -> None:
@@ -248,12 +210,7 @@ class ProactiveService:
         except Exception:
             logger.exception("[Humanize] failed to read the ambient ledger")
             return
-        last_reply_text = str(state.get("last_reply_text") or "")
-        if kind == "followup":
-            if lines or not last_reply_text:
-                # 群里又有人说话（正常通道接管），或没有可跟进的发言内容。
-                return
-        elif not lines:
+        if not lines:
             # 自上次排空后没有新内容（例如普通回复已消费），无需调用模型。
             return
 
@@ -280,10 +237,7 @@ class ProactiveService:
                 exc_info=True,
             )
 
-        if kind == "followup":
-            context = replace(context, user_text=last_reply_text)
-        else:
-            context = replace(context, user_text="\n".join(lines))
+        context = replace(context, user_text="\n".join(lines))
         try:
             prepared = await self._service.prepare_request(
                 context,
@@ -295,8 +249,7 @@ class ProactiveService:
 
         user_prompt = self._envelope.build_proactive_prompt(
             situation=kind,
-            batch_xml=_render_batch(lines) if lines else "",
-            last_reply_text=last_reply_text,
+            batch_xml=_render_batch(lines),
             allow_wait=kind == "window",
         )
         system_prompt = persona_prompt
@@ -386,8 +339,6 @@ class ProactiveService:
                 scope_id,
                 window_seconds=shrunken,
                 last_eval_at=_iso_now(),
-                last_reply_at=_iso_now(),
-                last_reply_text="\n".join(outcome.messages),
             )
             logger.info(
                 "[Humanize] proactive reply sent (kind=%s scope=%s "

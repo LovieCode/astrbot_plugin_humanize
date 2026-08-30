@@ -3435,31 +3435,11 @@ class HumanizePlugin(Star):
             if index and self._plugin_config.message_interval_seconds:
                 await asyncio.sleep(self._plugin_config.message_interval_seconds)
             await sender(MessageChain([Plain(message)]))
-            await self._track_bot_reply(event, message)
             dispatched = event.get_extra(_DISPATCHED_MESSAGES_KEY, [])
             if not isinstance(dispatched, list):
                 dispatched = []
             dispatched.append(message)
             event.set_extra(_DISPATCHED_MESSAGES_KEY, dispatched)
-
-    async def _track_bot_reply(self, event: AstrMessageEvent, message: str) -> None:
-        """Record one dispatched reply for proactive follow-up bookkeeping.
-
-        Args:
-            event: The event whose reply was just delivered.
-            message: The message text that was actually sent.
-        """
-        container = self._container
-        proactive = getattr(container, "proactive", None) if container else None
-        if proactive is None:
-            return
-        umo = str(getattr(event, "unified_msg_origin", "") or "")
-        if not umo:
-            return
-        try:
-            await proactive.record_bot_reply(umo, message, interactive=True)
-        except Exception:
-            logger.debug("[Humanize] proactive reply tracking failed", exc_info=True)
 
     @staticmethod
     def _without_tool_duplicates(

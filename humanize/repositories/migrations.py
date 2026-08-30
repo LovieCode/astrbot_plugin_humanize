@@ -443,8 +443,6 @@ _PROACTIVE_SCHEMA = """
 CREATE TABLE IF NOT EXISTS humanize_proactive_state (
     scope_id TEXT PRIMARY KEY,
     window_seconds INTEGER,
-    last_reply_at TEXT,
-    last_reply_text TEXT,
     last_eval_at TEXT,
     updated_at TEXT NOT NULL
 );

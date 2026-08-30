@@ -66,17 +66,11 @@ class _FakeRepository:
         *,
         scope_id: str,
         window_seconds: int | None = None,
-        last_reply_at: str | None = None,
-        last_reply_text: str | None = None,
         last_eval_at: str | None = None,
     ) -> None:
         state = self.states.setdefault(scope_id, {})
         if window_seconds is not None:
             state["window_seconds"] = window_seconds
-        if last_reply_at is not None:
-            state["last_reply_at"] = last_reply_at
-        if last_reply_text is not None:
-            state["last_reply_text"] = last_reply_text
         if last_eval_at is not None:
             state["last_eval_at"] = last_eval_at
 
@@ -219,7 +213,6 @@ def test_window_reply_sends_drains_and_shrinks() -> None:
         assert parts["window"].drops == [SCOPE]
         state = parts["repository"].states[SCOPE]
         assert state["window_seconds"] == 5  # 初始 10 减半（无最短窗口限制）
-        assert "第一条\n第二条" in state["last_reply_text"]
         # 评估调用带 Wait 规则与人格、协议分节；上下文取自受管窗口
         call = parts["provider"].calls[0]
         assert call["contexts"] == [{"role": "system", "content": "历史轮次"}]
@@ -335,39 +328,6 @@ def test_direct_trigger_disallows_wait() -> None:
     asyncio.run(scenario())
 
 
-def test_followup_requires_quiet_group_and_known_reply() -> None:
-    async def scenario() -> None:
-        # 群里有人说话：不跟进
-        service, parts = _service(
-            lines=["小明: 我又来了"],
-            outcomes=[_outcome(Action.REPLY)],
-        )
-        parts["repository"].states[SCOPE] = {"last_reply_text": "先前的回复"}
-        try:
-            await service._evaluate(SCOPE, "followup")
-        finally:
-            await service.shutdown()
-        assert parts["provider"].calls == []
-
-        # 群里安静且有未回应的发言：允许评估，禁用 Wait，提示词带原文
-        service, parts = _service(
-            lines=[],
-            outcomes=[_outcome(Action.REPLY)],
-        )
-        parts["repository"].states[SCOPE] = {"last_reply_text": "先前的回复"}
-        try:
-            await service._evaluate(SCOPE, "followup")
-        finally:
-            await service.shutdown()
-        call = parts["provider"].calls[0]
-        assert "先前的回复" in call["prompt"]
-        assert "Wait" not in call["prompt"]
-        record = parts["fake_service"].calls[0]
-        assert record["allow_wait"] is False
-
-    asyncio.run(scenario())
-
-
 def test_access_control_gates_every_entry() -> None:
     async def scenario() -> None:
         service, parts = _service(config=_config(proactive_mode="off"))
@@ -383,11 +343,9 @@ def test_access_control_gates_every_entry() -> None:
         try:
             await service.on_group_chatter(SCOPE)
             await service.on_direct_trigger(SCOPE)
-            await service.record_bot_reply(SCOPE, "回复", interactive=True)
         finally:
             await service.shutdown()
         assert service._window_timers == {}
-        assert service._followup_timers == {}
         assert parts["repository"].states == {}
 
         # 黑名单命中则不参与，未命中的群正常进入
@@ -419,23 +377,6 @@ def test_direct_trigger_replaces_pending_window_timer() -> None:
             assert SCOPE in service._window_timers
             # 替换而非叠加
             assert len(service._window_timers) == 1
-        finally:
-            await service.shutdown()
-
-    asyncio.run(scenario())
-
-
-def test_record_bot_reply_stores_text_and_schedules_followup() -> None:
-    async def scenario() -> None:
-        service, parts = _service(lines=[])
-        try:
-            await service.record_bot_reply(SCOPE, "  这是一次回复  ", interactive=True)
-            state = parts["repository"].states[SCOPE]
-            assert state["last_reply_text"] == "这是一次回复"
-            assert SCOPE in service._followup_timers
-
-            await service.record_bot_reply(SCOPE, "", interactive=True)
-            assert service._followup_timers  # 空文本不影响既有状态
         finally:
             await service.shutdown()
 

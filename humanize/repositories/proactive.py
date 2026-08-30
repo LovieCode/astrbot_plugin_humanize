@@ -9,15 +9,13 @@ from .base import _now
 
 __all__ = ["ProactiveRepository"]
 
-_MAX_REPLY_TEXT_CHARS = 600
-
 
 class ProactiveRepository:
     """Domain mixin: per-group proactive evaluation window state.
 
     One row per group scope keeps the adaptive window length plus the last
-    bot reply (text and time) used by dangling-conversation checks. Columns
-    left NULL mean "never set"; the service layer applies its own defaults.
+    evaluation timestamp. Columns left NULL mean "never set"; the service
+    layer applies its own defaults.
     """
 
     async def get_proactive_state(self, *, scope_id: str) -> dict[str, Any]:
@@ -32,8 +30,7 @@ class ProactiveRepository:
 
         def operation(conn: sqlite3.Connection) -> dict[str, Any]:
             row = conn.execute(
-                "SELECT window_seconds, last_reply_at, last_reply_text, "
-                "last_eval_at, updated_at "
+                "SELECT window_seconds, last_eval_at, updated_at "
                 "FROM humanize_proactive_state WHERE scope_id = ?",
                 (scope_id,),
             ).fetchone()
@@ -48,8 +45,6 @@ class ProactiveRepository:
         *,
         scope_id: str,
         window_seconds: int | None = None,
-        last_reply_at: str | None = None,
-        last_reply_text: str | None = None,
         last_eval_at: str | None = None,
     ) -> None:
         """Merge one group's proactive state atomically.
@@ -60,15 +55,8 @@ class ProactiveRepository:
         Args:
             scope_id: Group session identifier.
             window_seconds: New adaptive window length in seconds.
-            last_reply_at: Timestamp of the bot's latest reply.
-            last_reply_text: Bounded text of the bot's latest reply.
             last_eval_at: Timestamp of the latest evaluation.
         """
-        clean_reply_text = (
-            str(last_reply_text or "").strip()[:_MAX_REPLY_TEXT_CHARS]
-            if last_reply_text is not None
-            else None
-        )
 
         def operation(conn: sqlite3.Connection) -> None:
             conn.execute("BEGIN IMMEDIATE")
@@ -76,28 +64,16 @@ class ProactiveRepository:
                 conn.execute(
                     """
                     INSERT INTO humanize_proactive_state (
-                        scope_id, window_seconds, last_reply_at,
-                        last_reply_text, last_eval_at, updated_at
-                    ) VALUES (?, ?, ?, ?, ?, ?)
+                        scope_id, window_seconds, last_eval_at, updated_at
+                    ) VALUES (?, ?, ?, ?)
                     ON CONFLICT(scope_id) DO UPDATE SET
                         window_seconds = COALESCE(
                             excluded.window_seconds, window_seconds),
-                        last_reply_at = COALESCE(
-                            excluded.last_reply_at, last_reply_at),
-                        last_reply_text = COALESCE(
-                            excluded.last_reply_text, last_reply_text),
                         last_eval_at = COALESCE(
                             excluded.last_eval_at, last_eval_at),
                         updated_at = excluded.updated_at
                     """,
-                    (
-                        scope_id,
-                        window_seconds,
-                        last_reply_at,
-                        clean_reply_text,
-                        last_eval_at,
-                        _now(),
-                    ),
+                    (scope_id, window_seconds, last_eval_at, _now()),
                 )
                 conn.commit()
             except Exception:
