@@ -577,3 +577,21 @@ def test_plugin_hook_routes_group_messages() -> None:
         assert len(proactive.calls) == 3
 
     asyncio.run(scenario())
+
+
+def test_chatter_during_pending_window_does_not_reset_timer() -> None:
+    """Sustained chatter must not postpone the pending evaluation forever."""
+
+    async def scenario() -> None:
+        service, _parts = _service(lines=[])
+        try:
+            await service.on_group_chatter(SCOPE)
+            first = service._window_timers[SCOPE]
+            await asyncio.sleep(0.01)
+            await service.on_group_chatter(SCOPE)
+            await service.on_group_chatter(SCOPE)
+            assert service._window_timers[SCOPE] is first
+        finally:
+            await service.shutdown()
+
+    asyncio.run(scenario())

@@ -106,10 +106,16 @@ class ProactiveService:
     async def on_group_chatter(self, scope_id: str) -> None:
         """Note one unaddressed group message; start the window if idle.
 
+        A message arriving while an evaluation is already pending only joins
+        the ambient batch — the running timer is never reset, or sustained
+        chatter could postpone the evaluation indefinitely.
+
         Args:
             scope_id: Group session identifier (``unified_msg_origin``).
         """
         if self._closed or not self._access_allowed(scope_id):
+            return
+        if scope_id in self._window_timers:
             return
         state = await self._safe_state(scope_id)
         window = self._clamp_window(
