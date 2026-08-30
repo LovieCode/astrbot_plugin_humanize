@@ -31,6 +31,7 @@ from .migrations import (
     _MEMORY_FTS_SCHEMA,
     _MEMORY_INDEX_SCHEMA,
     _MEMORY_SCHEMA,
+    _PROACTIVE_SCHEMA,
     _PROMPT_TEMPLATE_SCHEMA,
     _PROVIDER_CACHE_SCHEMA,
     _PROVIDER_OBSERVABILITY_SCHEMA,
@@ -38,6 +39,7 @@ from .migrations import (
     _SCHEMA_VERSION,
 )
 from .observability import ObservabilityRepository
+from .proactive import ProactiveRepository
 from .protocol import ProtocolRepository
 from .reply_examples import ReplyExamplesRepository
 from .templates import PromptTemplateRepository
@@ -53,6 +55,7 @@ class SQLiteRepository(
     JargonRepository,
     MemoryJobsRepository,
     ObservabilityRepository,
+    ProactiveRepository,
     PromptTemplateRepository,
     ProtocolRepository,
     ReplyExamplesRepository,
@@ -96,6 +99,7 @@ class SQLiteRepository(
         conn.executescript(_PROVIDER_OBSERVABILITY_SCHEMA)
         conn.executescript(_PROVIDER_CACHE_SCHEMA)
         conn.executescript(_MEMORY_SCHEMA)
+        conn.executescript(_PROACTIVE_SCHEMA)
         conn.executescript(_DROP_LEGACY_MEMORY_SCHEMA)
         conn.execute("DELETE FROM humanize_embeddings WHERE entity_type = 'memory'")
         conn.execute("DELETE FROM humanize_memory_audit WHERE entity_type = 'memory'")

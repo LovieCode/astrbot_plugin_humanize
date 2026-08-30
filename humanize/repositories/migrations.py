@@ -439,6 +439,17 @@ CREATE VIRTUAL TABLE IF NOT EXISTS humanize_reply_example_fts USING fts5(
 );
 """
 
+_PROACTIVE_SCHEMA = """
+CREATE TABLE IF NOT EXISTS humanize_proactive_state (
+    scope_id TEXT PRIMARY KEY,
+    window_seconds INTEGER,
+    last_reply_at TEXT,
+    last_reply_text TEXT,
+    last_eval_at TEXT,
+    updated_at TEXT NOT NULL
+);
+"""
+
 _DROP_LEGACY_MEMORY_SCHEMA = """
 DROP TRIGGER IF EXISTS humanize_memory_fts_ai;
 DROP TRIGGER IF EXISTS humanize_memory_fts_ad;

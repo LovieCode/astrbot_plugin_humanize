@@ -213,3 +213,50 @@ def test_protocol_logs_preserve_success_and_failure_reason(tmp_path: Path) -> No
         assert sum(item["total"] for item in overview["protocol_trend"]) == 2
 
     asyncio.run(scenario())
+
+
+def test_proactive_state_upsert_merges_and_resets(tmp_path: Path) -> None:
+    async def scenario() -> None:
+        repository = await _repository(tmp_path / "humanize.db")
+        scope = "aiocqhttp:GroupMessage:100"
+
+        assert await repository.get_proactive_state(scope_id=scope) == {}
+
+        await repository.update_proactive_state(
+            scope_id=scope,
+            window_seconds=10,
+            last_reply_at="2026-08-30T10:00:00",
+            last_reply_text="先前的回复",
+        )
+        await repository.update_proactive_state(
+            scope_id=scope,
+            window_seconds=20,
+            last_eval_at="2026-08-30T10:01:00",
+        )
+
+        state = await repository.get_proactive_state(scope_id=scope)
+        assert state["window_seconds"] == 20
+        assert state["last_reply_at"] == "2026-08-30T10:00:00"
+        assert state["last_reply_text"] == "先前的回复"
+        assert state["last_eval_at"] == "2026-08-30T10:01:00"
+
+        await repository.reset_proactive_state(scope_id=scope)
+        assert await repository.get_proactive_state(scope_id=scope) == {}
+
+    asyncio.run(scenario())
+
+
+def test_proactive_state_truncates_reply_text(tmp_path: Path) -> None:
+    async def scenario() -> None:
+        repository = await _repository(tmp_path / "humanize.db")
+        scope = "aiocqhttp:GroupMessage:200"
+
+        await repository.update_proactive_state(
+            scope_id=scope,
+            last_reply_text="长" * 2_000,
+        )
+
+        state = await repository.get_proactive_state(scope_id=scope)
+        assert len(state["last_reply_text"]) == 600
+
+    asyncio.run(scenario())
