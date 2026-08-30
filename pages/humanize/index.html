@@ -923,6 +923,7 @@
         <span class="st-nav-item" data-target="st-jargon" data-icon="jargon">黑话注入</span>
         <span class="st-nav-item" data-target="st-memory" data-icon="memory">长期记忆</span>
         <span class="st-nav-item" data-target="st-examples" data-icon="chat">回复样例</span>
+        <span class="st-nav-item" data-target="st-proactive" data-icon="clock">主动发言</span>
         <span class="st-nav-item" data-target="st-providers" data-icon="spark">服务商</span>
       </div>
 
@@ -1215,9 +1216,82 @@
           </div>
         </div>
 
+        <!-- 主动发言 -->
+        <div class="card" id="st-proactive">
+          <div class="card-head"><span class="card-dot"></span><span class="card-title">主动发言</span></div>
+          <div class="st-row">
+            <div class="st-row-main">
+              <span class="st-row-label">参与模式 <span class="st-row-key">参与模式</span></span>
+              <span class="st-row-desc">关闭后机器人只在被 @ 或唤醒时说话。</span>
+            </div>
+            <div class="st-row-control">
+              <div class="st-seg" data-key="proactive_mode">
+                <span class="st-seg-item active" data-value="off">关闭</span>
+                <span class="st-seg-item" data-value="whitelist">白名单</span>
+                <span class="st-seg-item" data-value="blacklist">黑名单</span>
+              </div>
+            </div>
+          </div>
+          <div class="st-row">
+            <div class="st-row-main">
+              <span class="st-row-label">白名单会话 <span class="st-row-key">白名单会话</span></span>
+              <span class="st-row-desc">每行一个会话标识（完整格式如 aiocqhttp:GroupMessage:123456，或只填群号）。</span>
+            </div>
+            <div class="st-row-control"><textarea class="st-input wide st-qq-area" rows="3" data-key="proactive_whitelist"></textarea></div>
+          </div>
+          <div class="st-row">
+            <div class="st-row-main">
+              <span class="st-row-label">黑名单会话 <span class="st-row-key">黑名单会话</span></span>
+              <span class="st-row-desc">每行一个会话标识，这些群不参与主动发言，其余群都参与。</span>
+            </div>
+            <div class="st-row-control"><textarea class="st-input wide st-qq-area" rows="3" data-key="proactive_blacklist"></textarea></div>
+          </div>
+          <div class="st-row">
+            <div class="st-row-main">
+              <span class="st-row-label">触发关键词 <span class="st-row-key">触发关键词</span></span>
+              <span class="st-row-desc">每行一个词。消息里出现这些词（可把机器人昵称加进来）或引用了机器人的消息时，跳过等待立即评估。</span>
+            </div>
+            <div class="st-row-control"><textarea class="st-input wide st-qq-area" rows="3" data-key="proactive_keywords"></textarea></div>
+          </div>
+          <div class="st-row">
+            <div class="st-row-main">
+              <span class="st-row-label">初始评估窗口 <span class="st-row-key">初始评估窗口（秒）</span></span>
+              <span class="st-row-desc">群里出现新消息后等待多久再评估是否发言；机器人连续发言则窗口减半，连续沉默则翻倍。</span>
+            </div>
+            <div class="st-row-control"><input class="st-input" data-key="proactive_window_initial_seconds" value="10" /><span class="st-unit">秒</span></div>
+          </div>
+          <div class="st-row">
+            <div class="st-row-main">
+              <span class="st-row-label">最短评估窗口 <span class="st-row-key">最短评估窗口（秒）</span></span>
+              <span class="st-row-desc">窗口减半的下限。</span>
+            </div>
+            <div class="st-row-control"><input class="st-input" data-key="proactive_window_min_seconds" value="10" /><span class="st-unit">秒</span></div>
+          </div>
+          <div class="st-row">
+            <div class="st-row-main">
+              <span class="st-row-label">最长评估窗口 <span class="st-row-key">最长评估窗口（秒）</span></span>
+              <span class="st-row-desc">窗口翻倍的上限，同时也是评估调用频率的上限。</span>
+            </div>
+            <div class="st-row-control"><input class="st-input" data-key="proactive_window_max_seconds" value="300" /><span class="st-unit">秒</span></div>
+          </div>
+          <div class="st-row">
+            <div class="st-row-main">
+              <span class="st-row-label">主动发言最小间隔 <span class="st-row-key">主动发言最小间隔（秒）</span></span>
+              <span class="st-row-desc">两次主动发言之间至少间隔该时长，防止刷屏；设为 0 关闭。</span>
+            </div>
+            <div class="st-row-control"><input class="st-input" data-key="proactive_min_reply_interval_seconds" value="60" /><span class="st-unit">秒</span></div>
+          </div>
+          <div class="st-row">
+            <div class="st-row-main">
+              <span class="st-row-label">话题跟进延迟 <span class="st-row-key">话题跟进延迟（秒）</span></span>
+              <span class="st-row-desc">机器人回复后如果一直没人再说话，等待该时长后评估是否补一句；每个话题只跟进一次。</span>
+            </div>
+            <div class="st-row-control"><input class="st-input" data-key="proactive_followup_delay_seconds" value="300" /><span class="st-unit">秒</span></div>
+          </div>
+        </div>
+
         <!-- 服务商能力 -->
-        <div class="card" id="st-providers">
-          <div class="card-head"><span class="card-dot"></span><span class="card-title">对话服务商（prompt 缓存能力）</span></div>
+        <div class="card" id="st-providers">          <div class="card-head"><span class="card-dot"></span><span class="card-title">对话服务商（prompt 缓存能力）</span></div>
           <div class="pv-grid" id="pvChatGrid">
           </div>
         </div>

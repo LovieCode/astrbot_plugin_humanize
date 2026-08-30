@@ -160,8 +160,10 @@ HZ.renderTopbar(HZ.topbars["settings"]);
       const v = data[inp.dataset.key];
       inp.value = v == null ? "" : String(v);
     });
-    const qq = $('textarea[data-key="admin_qq_ids"]');
-    if (qq) qq.value = Array.isArray(data.admin_qq_ids) ? data.admin_qq_ids.join("\n") : "";
+    document.querySelectorAll("textarea[data-key]").forEach((ta) => {
+      const v = data[ta.dataset.key];
+      ta.value = Array.isArray(v) ? v.join("\n") : v == null ? "" : String(v);
+    });
     document.querySelectorAll(".st-slider[data-key]").forEach((sl) => {
       const range = sl.querySelector('input[type="range"]');
       if (!range) return;
