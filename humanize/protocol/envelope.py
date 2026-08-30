@@ -32,6 +32,13 @@ _PROACTIVE_WAIT_RULE = (
     "之后系统会再触发一次回复，由你重新决定。同一批消息最多等待 3 次。"
 )
 
+# 主动回合的 <Msg> 占位文本：协议契约要求 <Msg> 必须存在且是"需要回复的
+# 消息原文"，但主动回合没有真实用户消息——群聊内容在历史里，情况说明在
+# 协议段。占位行明确告诉模型这不是用户发言，防止被当成消息内容理解。
+_PROACTIVE_MSG_PLACEHOLDER = (
+    "（本条由系统触发的主动发言检查，没有新的用户消息；群里的最近发言见上方历史）"
+)
+
 
 class EnvelopeBuilder:
     def __init__(
@@ -101,6 +108,7 @@ class EnvelopeBuilder:
         context: MessageContext,
         *,
         allow_wait: bool = False,
+        proactive_situation: str = "",
     ) -> str:
         """Build the response-protocol prompt for one turn.
 
@@ -109,12 +117,23 @@ class EnvelopeBuilder:
             allow_wait: Whether to append the proactive ``Wait N`` supplement
                 after the protocol block. Only the proactive window turn sets
                 it; the base protocol template never mentions ``Wait``.
+            proactive_situation: Proactive situation brief (``window`` or
+                ``direct``). Injected ahead of the protocol block so the
+                situation description never masquerades as a user message
+                inside ``<Msg>``; empty for normal turns.
 
         Returns:
-            The rendered rule and protocol blocks (plus the optional Wait
-            supplement) joined by blank lines.
+            The rendered rule and protocol blocks (plus the optional
+            proactive brief and Wait supplement) joined by blank lines.
         """
         parts: list[str] = []
+        if proactive_situation:
+            brief = _PROACTIVE_SITUATION_BRIEFS.get(proactive_situation)
+            if brief is None:
+                raise ValueError(
+                    f"unsupported proactive situation: {proactive_situation}"
+                )
+            parts.append(brief)
         if self._config.default_rule_enabled:
             parts.append(self._build_rule(context))
         protocol = self._templates.render(
@@ -164,18 +183,19 @@ class EnvelopeBuilder:
         )
 
     def build_proactive_prompt(self, *, situation: str) -> str:
-        """Build the message text of one synthetic proactive event.
+        """Build the situation brief of one synthetic proactive event.
 
-        The text is decision guidance only: the output contract (including
-        the ``Wait N`` option) travels with the response protocol, not with
-        the message. The group's unaddressed chatter is already ordinary
-        history (observed entries), so this text only states the situation.
+        The brief travels with the response protocol (see
+        :meth:`build_protocol_prompt`), never inside ``<Msg>`` — the
+        synthetic event's message text is the placeholder. The group's
+        unaddressed chatter is already ordinary history (observed entries),
+        so this text only states the situation.
 
         Args:
             situation: One of ``window``, ``direct``.
 
         Returns:
-            The message text for the synthetic event.
+            The situation brief for the proactive turn's protocol block.
 
         Raises:
             ValueError: If the situation is unknown.
@@ -184,6 +204,19 @@ class EnvelopeBuilder:
         if brief is None:
             raise ValueError(f"unsupported proactive situation: {situation}")
         return brief
+
+    def build_proactive_message_text(self) -> str:
+        """Build the <Msg> placeholder text for one synthetic proactive event.
+
+        The proactive turn has no real user message: the group's chatter is
+        ordinary history and the situation brief rides with the response
+        protocol. ``<Msg>`` must still exist (protocol contract), so it
+        carries this explicit non-message placeholder.
+
+        Returns:
+            Placeholder text stating there is no new user message.
+        """
+        return _PROACTIVE_MSG_PLACEHOLDER
 
     def _build_rule(self, context: MessageContext) -> str:
         admin_ids = "、".join(context.admin_ids) if context.admin_ids else "未配置"

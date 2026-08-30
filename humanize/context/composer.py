@@ -51,6 +51,7 @@ class ContextComposer:
         *,
         include_session_fallback: bool = True,
         allow_wait: bool = False,
+        proactive_situation: str = "",
     ) -> PreparedRequest:
         """Compose the current message, response protocol, and known terms.
 
@@ -60,14 +61,23 @@ class ContextComposer:
                 Session continuity fallback when semantic memory is absent.
             allow_wait: Whether the response protocol advertises the proactive
                 ``Wait N`` action supplement.
+            proactive_situation: Proactive situation (``window``/``direct``).
+                When set, the situation brief rides with the response protocol
+                and ``<Msg>`` carries the no-user-message placeholder instead
+                of the synthetic event's text.
 
         Returns:
             A backward-compatible prepared request with an ordered section trace.
         """
-        message_xml = self._envelope.build_message_xml(context.user_text)
+        message_text = context.user_text
+        if proactive_situation:
+            # 主动回合没有真实用户消息：<Msg> 用明确占位，情况说明进协议段。
+            message_text = self._envelope.build_proactive_message_text()
+        message_xml = self._envelope.build_message_xml(message_text)
         protocol_prompt = self._envelope.build_protocol_prompt(
             context,
             allow_wait=allow_wait,
+            proactive_situation=proactive_situation,
         )
 
         selected: tuple[KnownTerm, ...] = ()

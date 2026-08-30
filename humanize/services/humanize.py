@@ -57,6 +57,7 @@ class HumanizeService:
         *,
         include_session_fallback: bool = True,
         allow_wait: bool = False,
+        proactive_situation: str = "",
     ) -> PreparedRequest:
         """Prepare temporary context for one request.
 
@@ -66,6 +67,9 @@ class HumanizeService:
                 Session continuity when no semantic memory matches.
             allow_wait: Whether the response protocol advertises the proactive
                 ``Wait N`` action supplement.
+            proactive_situation: Proactive situation (``window``/``direct``).
+                Routes the situation brief into the response protocol and the
+                ``<Msg>`` placeholder; empty for normal turns.
 
         Returns:
             Fully composed provider request sections.
@@ -74,6 +78,7 @@ class HumanizeService:
             context,
             include_session_fallback=include_session_fallback,
             allow_wait=allow_wait,
+            proactive_situation=proactive_situation,
         )
 
     async def record_context_trace(

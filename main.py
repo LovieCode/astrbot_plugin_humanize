@@ -689,11 +689,13 @@ class HumanizePlugin(Star):
                 exc_info=True,
             )
         try:
+            proactive_kind = str(event.get_extra(_PROACTIVE_KIND_KEY, "") or "")
             prepared = await self._container.service.prepare_request(
                 message_context,
                 include_session_fallback=False,
-                # 主动窗口回合才在回复协议里携带 Wait 补充规则。
-                allow_wait=event.get_extra(_PROACTIVE_KIND_KEY, "") == "window",
+                # 主动回合：Wait 规则与情况说明跟随回复协议，<Msg> 是占位文本。
+                allow_wait=proactive_kind == "window",
+                proactive_situation=proactive_kind,
             )
         except Exception as exc:
             logger.error(
@@ -2897,6 +2899,7 @@ class HumanizePlugin(Star):
             return
         if chatter_context is None:
             return
+        chatter_context = await self._align_turn_identity(event, chatter_context)
         try:
             await window(
                 chatter_context,
@@ -2905,6 +2908,73 @@ class HumanizePlugin(Star):
             )
         except Exception:
             logger.debug("[Humanize] chatter record skipped", exc_info=True)
+
+    async def _align_turn_identity(
+        self, event: AstrMessageEvent, context: MessageContext
+    ) -> MessageContext:
+        """Align one context with the identity real reply turns resolve.
+
+        Reply turns resolve the effective persona and the AstrBot conversation
+        id inside ``on_llm_request``; storage identity derives from both
+        (``agent_id`` picks the OpenViking agent directory, ``conversation_id``
+        the conversation hash). Chatter must land in the same directory or
+        proactive turns load a window that has never seen the group's
+        messages. Resolution failures keep the caller's values — the turn
+        path has the same fallback.
+
+        Args:
+            event: Incoming group message event.
+            context: Group-scope context to align.
+
+        Returns:
+            The context with ``agent_id``/``conversation_id`` resolved.
+        """
+        conversation_persona_id: str | None = None
+        try:
+            conversation_id = (
+                await self.context.conversation_manager.get_curr_conversation_id(
+                    event.unified_msg_origin
+                )
+            )
+            if conversation_id:
+                conversation = await self.context.conversation_manager.get_conversation(
+                    event.unified_msg_origin,
+                    conversation_id,
+                )
+                conversation_persona_id = getattr(conversation, "persona_id", None)
+                context = replace(context, conversation_id=str(conversation_id))
+        except Exception:
+            logger.debug(
+                "[Humanize] chatter conversation resolve failed", exc_info=True
+            )
+        try:
+            provider_settings = self.context.get_config(
+                umo=event.unified_msg_origin
+            ).get("provider_settings", {})
+            if not isinstance(provider_settings, dict):
+                provider_settings = {}
+            (
+                persona_id,
+                _,
+                _,
+                use_webchat_default,
+            ) = await self.context.persona_manager.resolve_selected_persona(
+                umo=event.unified_msg_origin,
+                conversation_persona_id=conversation_persona_id,
+                platform_name=event.get_platform_name(),
+                provider_settings=provider_settings,
+            )
+            context = replace(
+                context,
+                agent_id=(
+                    "_chatui_default_"
+                    if use_webchat_default
+                    else str(persona_id or "default")
+                ),
+            )
+        except Exception:
+            logger.debug("[Humanize] chatter persona resolve failed", exc_info=True)
+        return context
 
     def _context_window_token_budget(self, umo: str) -> int:
         """Resolve the per-session window budget for chatter compaction."""
@@ -3095,9 +3165,11 @@ class HumanizePlugin(Star):
         carry the template's session identity and real sender, so every
         downstream scope — scheduler config, managed window, chatter hook —
         resolves to the group the chatter came from. The message text is a
-        short situation line only; the chatter itself is already ordinary
-        history. A fresh object is mandatory: pipeline stages stamp state
-        onto the event instance, so a consumed event must never be reused.
+        pure "no user message" placeholder; the situation brief rides with
+        the response protocol in ``on_llm_request`` and the group's chatter
+        is already ordinary history. A fresh object is mandatory: pipeline
+        stages stamp state onto the event instance, so a consumed event must
+        never be reused.
 
         Args:
             template: The group's most recent real message event.
@@ -3118,7 +3190,7 @@ class HumanizePlugin(Star):
             envelope = self._container.envelope if self._container else None
             if envelope is None:
                 return None
-            text = envelope.build_proactive_prompt(situation=kind)
+            text = envelope.build_proactive_message_text()
             self_id_getter = getattr(template, "get_self_id", None)
             self_id = str(self_id_getter() or "") if callable(self_id_getter) else ""
             if not self_id:

@@ -358,6 +358,27 @@ def test_envelope_proactive_prompt_covers_situations() -> None:
         builder.build_proactive_prompt(situation="unknown")
 
 
+def test_envelope_proactive_situation_lives_in_protocol_not_msg() -> None:
+    builder = EnvelopeBuilder(PluginConfig())
+
+    # 情况说明进协议段（在规则块之前），<Msg> 只剩占位文本
+    proactive = builder.build_protocol_prompt(_context(), proactive_situation="window")
+    assert "没有 @ 你" in proactive
+    assert proactive.index("没有 @ 你") < proactive.index("<Protocol>")
+
+    direct = builder.build_protocol_prompt(
+        _context(), allow_wait=True, proactive_situation="direct"
+    )
+    assert "有群成员提到了你" in direct
+
+    with pytest.raises(ValueError):
+        builder.build_protocol_prompt(_context(), proactive_situation="unknown")
+
+    placeholder = builder.build_proactive_message_text()
+    assert "没有新的用户消息" in placeholder
+    assert "<Msg>" not in placeholder
+
+
 def test_envelope_wait_rule_lives_in_the_response_protocol() -> None:
     builder = EnvelopeBuilder(PluginConfig())
 

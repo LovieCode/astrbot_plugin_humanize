@@ -559,8 +559,9 @@ def test_request_takeover_replaces_native_history_and_disables_session_fallback(
             *,
             include_session_fallback: bool,
             allow_wait: bool = False,
+            proactive_situation: str = "",
         ):
-            del context, allow_wait
+            del context, allow_wait, proactive_situation
             self.include_session_fallback = include_session_fallback
             return PreparedRequest(
                 protocol_prompt="protocol",
@@ -657,8 +658,9 @@ def test_request_takeover_omits_native_history_when_window_unavailable(
             *,
             include_session_fallback: bool,
             allow_wait: bool = False,
+            proactive_situation: str = "",
         ):
-            del context, allow_wait
+            del context, allow_wait, proactive_situation
             self.include_session_fallback = include_session_fallback
             return PreparedRequest(
                 protocol_prompt="protocol",
@@ -912,8 +914,15 @@ def test_on_llm_request_loads_managed_history_without_trailing_fragments() -> No
             )
 
     class Service:
-        async def prepare_request(self, context, *, include_session_fallback: bool):
-            del context, include_session_fallback
+        async def prepare_request(
+            self,
+            context,
+            *,
+            include_session_fallback: bool,
+            allow_wait: bool = False,
+            proactive_situation: str = "",
+        ):
+            del context, include_session_fallback, allow_wait, proactive_situation
             return PreparedRequest(
                 protocol_prompt="protocol",
                 message_xml="<Msg>hello</Msg>",
