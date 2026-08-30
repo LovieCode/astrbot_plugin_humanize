@@ -89,6 +89,8 @@ class _FakeWindow:
     def __init__(self) -> None:
         self.lines: dict[str, list[str]] = {}
         self.drops: list[str] = []
+        self.loads: list[tuple[str, str, int]] = []
+        self.history = [{"role": "system", "content": "历史轮次"}]
 
     async def read_ambient_lines(
         self, context: MessageContext, *, max_chars: int = 3_000
@@ -98,6 +100,10 @@ class _FakeWindow:
     async def drop_ambient(self, context: MessageContext) -> None:
         self.drops.append(context.scope_id)
         self.lines.pop(context.scope_id, None)
+
+    async def load(self, context: MessageContext, *, token_budget: int) -> Any:
+        self.loads.append((context.scope_id, context.agent_id, token_budget))
+        return SimpleNamespace(contexts=list(self.history))
 
 
 class _FakeService:
@@ -173,8 +179,8 @@ def _service(
     async def message_sender(umo: str, text: str) -> None:
         sends.append((umo, text))
 
-    async def persona_getter(umo: str) -> str:
-        return "人格提示"
+    async def persona_getter(umo: str) -> tuple[str, str]:
+        return "人格提示", "persona-1"
 
     service = ProactiveService(
         config,
@@ -185,6 +191,7 @@ def _service(
         provider_getter=lambda umo: provider,
         message_sender=message_sender,
         persona_getter=persona_getter,
+        window_budget_getter=lambda umo: 6_000,
     )
     return service, {
         "repository": repository,
@@ -215,12 +222,14 @@ def test_window_reply_sends_drains_and_shrinks() -> None:
         state = parts["repository"].states[SCOPE]
         assert state["window_seconds"] == 5  # 初始 10 减半，受最小值约束
         assert "第一条\n第二条" in state["last_reply_text"]
-        # 评估调用带 Wait 规则与人格、协议分节；上下文不进入会话历史
+        # 评估调用带 Wait 规则与人格、协议分节；上下文取自受管窗口
         call = parts["provider"].calls[0]
-        assert call["contexts"] == []
+        assert call["contexts"] == [{"role": "system", "content": "历史轮次"}]
         assert call["session_id"] == ""
         assert "人格提示" in call["system_prompt"]
         assert "Wait" in call["prompt"]
+        # 受管窗口按人格对应的 agent 标识加载，与正常轮读取同一份历史
+        assert parts["window"].loads == [(SCOPE, "persona-1", 6_000)]
         record = parts["fake_service"].calls[0]
         assert record["allow_wait"] is True
         assert record["stage"] == "proactive_window"

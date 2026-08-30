@@ -27,6 +27,27 @@ from .web.routes import WebApi
 logger = logging.getLogger("astrbot")
 
 
+def context_window_token_budget(provider_settings: dict[str, Any]) -> int:
+    """Reserve a bounded portion of the active Provider context for history.
+
+    Shared by the normal request hook and the proactive evaluation so both
+    load the managed window with the same budget.
+
+    Args:
+        provider_settings: Current AstrBot provider settings for one session.
+
+    Returns:
+        Approximate token budget used by the managed context window.
+    """
+    try:
+        configured = int(provider_settings.get("max_context_length", 0) or 0)
+    except (AttributeError, TypeError, ValueError):
+        configured = 0
+    if configured <= 0:
+        return 6_000
+    return max(512, min(8_000, configured // 4))
+
+
 @dataclass(slots=True)
 class Container:
     config: PluginConfig
@@ -153,14 +174,21 @@ def _build_proactive(
 
         await context.send_message(umo, MessageChain([Plain(text)]))  # type: ignore[union-attr]
 
-    async def persona_getter(umo: str) -> str:
+    async def persona_getter(umo: str) -> tuple[str, str]:
+        """Resolve the group's persona prompt and its managed-window agent id.
+
+        Returns:
+            (persona system prompt, agent_id); agent id must match the one
+            normal turns use, otherwise the proactive evaluation would read
+            a different (empty) managed window.
+        """
         resolver = getattr(
             getattr(context, "persona_manager", None),
             "resolve_selected_persona",
             None,
         )
         if not callable(resolver):
-            return ""
+            return "", "default"
         provider_settings: dict[str, Any] = {}
         config_getter = getattr(context, "get_config", None)
         if callable(config_getter):
@@ -174,10 +202,10 @@ def _build_proactive(
                 )
         try:
             (
-                _persona_id,
+                persona_id,
                 persona_obj,
                 _forced_id,
-                _use_default,
+                use_webchat_default,
             ) = await resolver(
                 umo=umo,
                 conversation_persona_id=None,
@@ -186,10 +214,29 @@ def _build_proactive(
             )
         except Exception:
             logger.exception("[Humanize] failed to resolve the persona for %s", umo)
-            return ""
-        if isinstance(persona_obj, dict):
-            return str(persona_obj.get("prompt") or "")
-        return ""
+            return "", "default"
+        agent_id = (
+            "_chatui_default_" if use_webchat_default else str(persona_id or "default")
+        )
+        prompt = (
+            str(persona_obj.get("prompt") or "")
+            if isinstance(persona_obj, dict)
+            else ""
+        )
+        return prompt, agent_id
+
+    def window_budget_getter(umo: str) -> int:
+        config_getter = getattr(context, "get_config", None)
+        if callable(config_getter):
+            try:
+                candidate = config_getter(umo=umo).get("provider_settings", {})
+                if isinstance(candidate, dict):
+                    return context_window_token_budget(candidate)
+            except Exception:
+                logger.exception(
+                    "[Humanize] failed to read the context budget for %s", umo
+                )
+        return context_window_token_budget({})
 
     return ProactiveService(
         config,
@@ -200,4 +247,5 @@ def _build_proactive(
         provider_getter=provider_getter,
         message_sender=message_sender,
         persona_getter=persona_getter,
+        window_budget_getter=window_budget_getter,
     )

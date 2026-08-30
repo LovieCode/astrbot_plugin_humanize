@@ -23,7 +23,7 @@ from astrbot.core.agent.message import TextPart
 from astrbot.core.provider.provider import Provider as _ProviderBase
 
 from .humanize.config import PluginConfig
-from .humanize.container import Container
+from .humanize.container import Container, context_window_token_budget
 from .humanize.domain.errors import ProtocolValidationError
 from .humanize.domain.models import Action, EventState, MessageContext
 from .humanize.image_cache import ImageCacheStore
@@ -2494,13 +2494,7 @@ class HumanizePlugin(Star):
         Returns:
             Approximate token budget used by the managed context window.
         """
-        try:
-            configured = int(provider_settings.get("max_context_length", 0) or 0)
-        except (AttributeError, TypeError, ValueError):
-            configured = 0
-        if configured <= 0:
-            return 6_000
-        return max(512, min(8_000, configured // 4))
+        return context_window_token_budget(provider_settings)
 
     async def _resolve_display_name(self, event: AstrMessageEvent) -> str:
         """Resolve the best user-visible name for the message sender.

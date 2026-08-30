@@ -69,10 +69,12 @@ class ProactiveService:
     Three entry doors feed one evaluation path: the ambient debounce window
     (kind ``window``), direct triggers such as name mentions or quote-replies
     (kind ``direct``, near-immediate), and the dangling-conversation check
-    after the bot itself spoke (kind ``followup``). Every door ends in one
-    protocol-gated model call whose action decides the outcome: Reply sends
-    through the send gate, No Reply lengthens the window, and Wait (window
-    only, bounded per batch) re-checks shortly with the new arrivals.
+    after the bot itself spoke (kind ``followup``). Every door ends in the
+    same single-action contract as a normal turn: one protocol-gated model
+    call built on the group's full managed history (persona agent window,
+    memory, jargon) whose Action decides the outcome — Reply sends through
+    the send gate, No Reply lengthens the window, and Wait (window only,
+    bounded per batch) re-checks shortly with the new arrivals.
     """
 
     def __init__(
@@ -85,7 +87,8 @@ class ProactiveService:
         *,
         provider_getter: Callable[[str], Any],
         message_sender: Callable[[str, str], Awaitable[None]],
-        persona_getter: Callable[[str], Awaitable[str]],
+        persona_getter: Callable[[str], Awaitable[tuple[str, str]]],
+        window_budget_getter: Callable[[str], int],
     ) -> None:
         self._config = config
         self._repository = repository
@@ -95,6 +98,7 @@ class ProactiveService:
         self._provider_getter = provider_getter
         self._message_sender = message_sender
         self._persona_getter = persona_getter
+        self._window_budget_getter = window_budget_getter
         self._window_timers: dict[str, asyncio.Task[None]] = {}
         self._followup_timers: dict[str, asyncio.Task[None]] = {}
         self._locks: dict[str, asyncio.Lock] = {}
@@ -265,6 +269,21 @@ class ProactiveService:
             )
             return
 
+        persona_prompt, agent_id = await self._safe_persona(scope_id)
+        context = replace(context, agent_id=agent_id)
+        contexts: list[dict[str, Any]] = []
+        try:
+            loaded = await self._context_window.load(
+                context, token_budget=self._window_budget_getter(scope_id)
+            )
+            contexts = list(loaded.contexts)
+        except Exception:
+            # 与正常轮一致：受管窗口不可用时宁可空历史，不回退到本地会话。
+            logger.warning(
+                "[Humanize] managed window unavailable for proactive evaluation",
+                exc_info=True,
+            )
+
         if kind == "followup":
             context = replace(context, user_text=last_reply_text)
         else:
@@ -284,7 +303,7 @@ class ProactiveService:
             last_reply_text=last_reply_text,
             allow_wait=kind == "window",
         )
-        system_prompt = await self._safe_persona_prompt(scope_id)
+        system_prompt = persona_prompt
         parts: list[Any] = []
         for section in sorted(prepared.sections, key=lambda item: item.ordinal):
             if not section.included or section.key == "current_message":
@@ -312,7 +331,7 @@ class ProactiveService:
                 image_urls=[],
                 audio_urls=[],
                 func_tool=None,
-                contexts=[],
+                contexts=contexts,
                 system_prompt=system_prompt,
                 tool_calls_result=None,
                 model=None,
@@ -448,12 +467,12 @@ class ProactiveService:
             logger.exception("[Humanize] failed to read proactive state")
             return {}
 
-    async def _safe_persona_prompt(self, scope_id: str) -> str:
+    async def _safe_persona(self, scope_id: str) -> tuple[str, str]:
         try:
             return await self._persona_getter(scope_id)
         except Exception:
             logger.exception("[Humanize] failed to resolve the persona prompt")
-            return ""
+            return "", "default"
 
     # ---------- 配置换算 ----------
 
