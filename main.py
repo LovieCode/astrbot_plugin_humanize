@@ -336,6 +336,7 @@ class HumanizePlugin(Star):
             except Exception:
                 logger.exception("[Humanize] auto image transcription failed")
         await self._maybe_record_ambient(event)
+        await self._maybe_schedule_proactive(event)
 
     @filter.command("clear", alias={"reset"}, priority=_FIREWALL_PRIORITY)
     async def clear_managed_context(self, event: AstrMessageEvent) -> None:
@@ -2469,6 +2470,9 @@ class HumanizePlugin(Star):
         self._container = None
         self._uninstall_provider_hooks()
         if container is not None:
+            proactive = getattr(container, "proactive", None)
+            if proactive is not None:
+                await proactive.shutdown()
             await container.memory.stop()
         logger.info("[Humanize] plugin terminated")
 
@@ -2720,6 +2724,87 @@ class HumanizePlugin(Star):
             await appender(ambient_context, has_image=has_image)
         except Exception:
             logger.debug("[Humanize] ambient record skipped", exc_info=True)
+
+    async def _maybe_schedule_proactive(self, event: AstrMessageEvent) -> None:
+        """Feed one unaddressed group message into the proactive path.
+
+        Addressed messages (``is_at_or_wake_command``) are answered by the
+        normal pipeline; everything else either hits a high-precision direct
+        trigger (keyword mention or quote-reply to the bot) or starts the
+        group's adaptive evaluation window. Fail-open on test fakes that
+        omit group/message metadata.
+
+        Args:
+            event: Incoming message event, possibly without a full AstrBot
+                surface.
+        """
+        container = self._container
+        proactive = getattr(container, "proactive", None) if container else None
+        if proactive is None:
+            return
+        is_private = getattr(event, "is_private_chat", None)
+        if not callable(is_private):
+            return
+        try:
+            if is_private():
+                return
+        except Exception:
+            return
+        if getattr(event, "is_at_or_wake_command", False):
+            return
+        umo = str(getattr(event, "unified_msg_origin", "") or "")
+        if not umo:
+            return
+        self_id_getter = getattr(event, "get_self_id", None)
+        sender_id_getter = getattr(event, "get_sender_id", None)
+        if callable(self_id_getter) and callable(sender_id_getter):
+            try:
+                self_id = str(self_id_getter() or "")
+                sender_id = str(sender_id_getter() or "")
+            except Exception:
+                self_id = ""
+                sender_id = ""
+            if self_id and sender_id and self_id == sender_id:
+                return
+        if self._is_proactive_direct_trigger(event, self_id):
+            await proactive.on_direct_trigger(umo)
+        else:
+            await proactive.on_group_chatter(umo)
+
+    def _is_proactive_direct_trigger(
+        self, event: AstrMessageEvent, self_id: str
+    ) -> bool:
+        """Detect high-precision proactive triggers in one group message.
+
+        Args:
+            event: Incoming group message event.
+            self_id: The bot's own platform id (empty when unavailable).
+
+        Returns:
+            ``True`` when the message quotes one of the bot's messages or
+            contains a configured keyword (case-insensitive).
+        """
+        message_obj = getattr(event, "message_obj", None)
+        for component in getattr(message_obj, "message", []) or []:
+            if type(component).__name__ == "Reply":
+                quoted_sender = str(getattr(component, "sender_id", "") or "")
+                if self_id and quoted_sender and quoted_sender == self_id:
+                    return True
+        getter = getattr(event, "get_message_str", None)
+        text = ""
+        if callable(getter):
+            try:
+                text = str(getter() or "")
+            except Exception:
+                return False
+        if not text:
+            return False
+        lowered = text.lower()
+        for keyword in self._plugin_config.proactive_keywords:
+            token = str(keyword or "").strip().lower()
+            if token and token in lowered:
+                return True
+        return False
 
     def _ambient_record_from_event(
         self, event: AstrMessageEvent
@@ -3356,11 +3441,31 @@ class HumanizePlugin(Star):
             if index and self._plugin_config.message_interval_seconds:
                 await asyncio.sleep(self._plugin_config.message_interval_seconds)
             await sender(MessageChain([Plain(message)]))
+            await self._track_bot_reply(event, message)
             dispatched = event.get_extra(_DISPATCHED_MESSAGES_KEY, [])
             if not isinstance(dispatched, list):
                 dispatched = []
             dispatched.append(message)
             event.set_extra(_DISPATCHED_MESSAGES_KEY, dispatched)
+
+    async def _track_bot_reply(self, event: AstrMessageEvent, message: str) -> None:
+        """Record one dispatched reply for proactive follow-up bookkeeping.
+
+        Args:
+            event: The event whose reply was just delivered.
+            message: The message text that was actually sent.
+        """
+        container = self._container
+        proactive = getattr(container, "proactive", None) if container else None
+        if proactive is None:
+            return
+        umo = str(getattr(event, "unified_msg_origin", "") or "")
+        if not umo:
+            return
+        try:
+            await proactive.record_bot_reply(umo, message, interactive=True)
+        except Exception:
+            logger.debug("[Humanize] proactive reply tracking failed", exc_info=True)
 
     @staticmethod
     def _without_tool_duplicates(

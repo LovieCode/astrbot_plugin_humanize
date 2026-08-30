@@ -483,3 +483,97 @@ def test_record_bot_reply_stores_text_and_schedules_followup() -> None:
             await service.shutdown()
 
     asyncio.run(scenario())
+
+
+def test_plugin_hook_routes_group_messages() -> None:
+    """The event hook splits unaddressed chatter into window and direct doors."""
+    from types import SimpleNamespace
+
+    from astrbot_plugin_humanize.main import HumanizePlugin
+
+    class _HookEvent:
+        def __init__(
+            self,
+            *,
+            text: str = "",
+            components: tuple[object, ...] = (),
+            is_at: bool = False,
+        ) -> None:
+            self.unified_msg_origin = SCOPE
+            self.message_obj = SimpleNamespace(message=list(components))
+            self._text = text
+            self._is_at = is_at
+
+        def is_private_chat(self) -> bool:
+            return False
+
+        @property
+        def is_at_or_wake_command(self) -> bool:
+            return self._is_at
+
+        def get_self_id(self) -> str:
+            return "bot-1"
+
+        def get_sender_id(self) -> str:
+            return "user-1"
+
+        def get_message_str(self) -> str:
+            return self._text
+
+    class _RecordingProactive:
+        def __init__(self) -> None:
+            self.calls: list[tuple[str, str]] = []
+
+        async def on_group_chatter(self, scope_id: str) -> None:
+            self.calls.append(("window", scope_id))
+
+        async def on_direct_trigger(self, scope_id: str) -> None:
+            self.calls.append(("direct", scope_id))
+
+    class Reply:
+        """Name matters: the hook matches ``type(x).__name__ == "Reply"``."""
+
+        def __init__(self, sender_id: str) -> None:
+            self.sender_id = sender_id
+
+    class _PrivateEvent:
+        unified_msg_origin = SCOPE
+
+        def is_private_chat(self) -> bool:
+            return True
+
+    async def scenario() -> None:
+        plugin = HumanizePlugin(
+            SimpleNamespace(),
+            {
+                "proactive_mode": "whitelist",
+                "proactive_whitelist": ["100"],
+                "proactive_keywords": ["小助"],
+            },
+        )
+        proactive = _RecordingProactive()
+        plugin._container = SimpleNamespace(proactive=proactive)
+
+        await plugin._maybe_schedule_proactive(_HookEvent(text="今天天气不错"))
+        assert proactive.calls == [("window", SCOPE)]
+
+        await plugin._maybe_schedule_proactive(_HookEvent(text="小助 你在吗"))
+        assert proactive.calls[-1] == ("direct", SCOPE)
+
+        await plugin._maybe_schedule_proactive(
+            _HookEvent(text="说得好", components=(Reply(sender_id="bot-1"),))
+        )
+        assert proactive.calls[-1] == ("direct", SCOPE)
+
+        # 正常唤醒与私聊不进入主动路径
+        await plugin._maybe_schedule_proactive(_HookEvent(text="在吗", is_at=True))
+        await plugin._maybe_schedule_proactive(_PrivateEvent())
+        assert len(proactive.calls) == 3
+
+        # 机器人自己的消息被忽略
+        self_event = _HookEvent(text="自言自语")
+        self_event.get_sender_id = lambda: "bot-1"  # type: ignore[assignment]
+        await plugin._maybe_schedule_proactive(self_event)
+        assert len(proactive.calls) == 3
+
+    asyncio.run(scenario())
