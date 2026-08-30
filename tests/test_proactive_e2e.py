@@ -207,6 +207,10 @@ def test_window_no_reply_cycle_stretches_and_keeps_history(
         plugin = _plugin(tmp_path, monkeypatch, queue)
         try:
             await plugin.initialize()
+            # 群聊策略默认 mention（仅直接触发）；这些场景需要完整主动路径。
+            await plugin._container.repository.set_group_policy_mode(
+                scope_id="global", mode="full"
+            )
             await plugin.prepare_message_event(
                 _group_event(text="今天天气真好，有人一起出去玩吗", message_id="m-1")
             )
@@ -253,6 +257,10 @@ def test_window_reply_cycle_sends_resets_and_writes_history(
         plugin = _plugin(tmp_path, monkeypatch, queue)
         try:
             await plugin.initialize()
+            # 群聊策略默认 mention（仅直接触发）；这些场景需要完整主动路径。
+            await plugin._container.repository.set_group_policy_mode(
+                scope_id="global", mode="full"
+            )
             await plugin.prepare_message_event(
                 _group_event(text="周末有人去爬山吗", message_id="m-1")
             )
@@ -294,6 +302,10 @@ def test_window_wait_cycle_defers_then_replies(
         plugin = _plugin(tmp_path, monkeypatch, queue)
         try:
             await plugin.initialize()
+            # 群聊策略默认 mention（仅直接触发）；这些场景需要完整主动路径。
+            await plugin._container.repository.set_group_policy_mode(
+                scope_id="global", mode="full"
+            )
             await plugin.prepare_message_event(
                 _group_event(text="这局谁来指挥", message_id="m-1")
             )
@@ -340,6 +352,10 @@ def test_normal_at_reply_resets_pending_window(
         plugin = _plugin(tmp_path, monkeypatch, queue)
         try:
             await plugin.initialize()
+            # 群聊策略默认 mention（仅直接触发）；这些场景需要完整主动路径。
+            await plugin._container.repository.set_group_policy_mode(
+                scope_id="global", mode="full"
+            )
             await plugin._container.repository.update_proactive_state(
                 scope_id=SCOPE, window_seconds=120
             )

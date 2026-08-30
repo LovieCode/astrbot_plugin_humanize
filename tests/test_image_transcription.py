@@ -104,6 +104,17 @@ class _RepoStub:
     def __init__(self) -> None:
         self.rows: dict[str, dict[str, Any]] = {}
         self.saved: list[dict[str, Any]] = []
+        self.policies: dict[str, str] = {}
+        self.sessions: list[dict[str, Any]] = []
+
+    async def list_group_policies(self) -> list[dict[str, Any]]:
+        return [
+            {"scope_id": scope_id, "mode": mode}
+            for scope_id, mode in self.policies.items()
+        ]
+
+    async def remember_session(self, *, scope_id: str, display_name: str) -> None:
+        self.sessions.append({"scope_id": scope_id, "display_name": display_name})
 
     async def upsert_image_cache_entry(
         self,
@@ -355,6 +366,29 @@ def test_transcribe_one_image_truncates_long_text(
 
         assert len(text) == 600
         assert repository.saved[0]["transcription"] == text
+
+    asyncio.run(scenario())
+
+
+def test_prepare_silent_group_skips_images_and_transcription(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """完全沉默的群：不落图、不转述、不调用任何外部接口。"""
+
+    async def scenario() -> None:
+        repository = _RepoStub()
+        repository.policies["global"] = "silent"
+        provider = _ProviderStub()
+        plugin = _plugin(tmp_path, monkeypatch, repository, provider)
+
+        sticker = tmp_path / "sticker.png"
+        sticker.write_bytes(b"sticker-bytes")
+        event = _image_event(segments=[dict(_STICKER_SEGMENT)], image_paths=[sticker])
+        await plugin.prepare_message_event(event)
+
+        assert provider.calls == []
+        assert repository.rows == {}
+        assert event.get_extra(_EVENT_IMAGE_CACHE_PATHS_KEY, ()) == ()
 
     asyncio.run(scenario())
 

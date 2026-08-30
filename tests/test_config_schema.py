@@ -115,9 +115,7 @@ def test_grouped_schema_defaults_are_flattened_for_runtime_config(
     assert config.protocol_injection_mode == "user"
     assert config.memory_enabled is True
     assert config.memory_embedding_provider_id == ""
-    # 主动发言默认关闭；UI 分组值展平后仍走统一的运行时校验入口
-    assert config.proactive_mode == "off"
-    assert config.proactive_whitelist == ()
+    # 群聊许可与主动模式已迁移到 WebUI 群聊策略页（humanize.db），配置只留节奏与关键词
     assert config.proactive_window_initial_seconds == 10
     assert config.proactive_window_max_seconds == 300
 

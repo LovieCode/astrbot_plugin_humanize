@@ -88,7 +88,7 @@ class ProactiveService:
             event: The real message event, kept as the construction template
                 for the synthetic proactive event.
         """
-        if self._closed or not self._proactive_allowed(scope_id):
+        if self._closed:
             return
         if event is not None:
             self._templates[scope_id] = event
@@ -110,7 +110,7 @@ class ProactiveService:
             scope_id: Group session identifier.
             event: The real message event, kept as the construction template.
         """
-        if self._closed or not self._proactive_allowed(scope_id):
+        if self._closed:
             return
         if event is not None:
             self._templates[scope_id] = event
@@ -126,7 +126,7 @@ class ProactiveService:
         Args:
             scope_id: Group session identifier.
         """
-        if self._closed or not self._proactive_allowed(scope_id):
+        if self._closed:
             return
         self._waits.pop(scope_id, None)
         await self._remember(scope_id, window_seconds=_REPLY_RESET_SECONDS)
@@ -300,21 +300,7 @@ class ProactiveService:
             logger.exception("[Humanize] failed to read proactive state")
             return {}
 
-    # ---------- 访问控制 ----------
-
-    def _proactive_allowed(self, scope_id: str) -> bool:
-        """Whether proactive triggering is enabled for this session.
-
-        Mode ``off`` means unrestricted normal participation but no
-        proactive triggering; whitelist and blacklist select the sessions
-        where triggering (and the whole proactive timing) runs at all.
-        """
-        mode = self._config.proactive_mode
-        if mode == "whitelist":
-            return matches_scope(self._config.proactive_whitelist, scope_id)
-        if mode == "blacklist":
-            return not matches_scope(self._config.proactive_blacklist, scope_id)
-        return False
+    # ---------- 状态辅助（续） ----------
 
     def _clamp_window(self, seconds: int) -> int:
         maximum = self._config.proactive_window_max_seconds

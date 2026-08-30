@@ -100,6 +100,7 @@
       label: "管理",
       items: [
         { id: "prompts", name: "提示词模板", icon: "edit", href: "#" },
+        { id: "policy", name: "群聊策略", icon: "users", href: "#" },
         { id: "settings", name: "设置", icon: "settings", href: "#" },
       ],
     },

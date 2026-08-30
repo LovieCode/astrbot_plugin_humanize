@@ -2,7 +2,7 @@
 
 from __future__ import annotations
 
-_SCHEMA_VERSION = 26
+_SCHEMA_VERSION = 27
 _CONTEXT_PREVIEW_CHARS = 1_000
 _SCHEMA = """
 CREATE TABLE IF NOT EXISTS jargon_entries (
@@ -447,6 +447,22 @@ CREATE TABLE IF NOT EXISTS humanize_proactive_state (
     scope_id TEXT PRIMARY KEY,
     window_seconds INTEGER,
     last_eval_at TEXT,
+    updated_at TEXT NOT NULL
+);
+"""
+
+_GROUP_POLICY_SCHEMA = """
+CREATE TABLE IF NOT EXISTS humanize_group_policy (
+    scope_id TEXT PRIMARY KEY,
+    mode TEXT NOT NULL CHECK (
+        mode IN ('silent', 'no_proactive', 'admin', 'mention', 'full')
+    ),
+    updated_at TEXT NOT NULL
+);
+
+CREATE TABLE IF NOT EXISTS humanize_session_meta (
+    scope_id TEXT PRIMARY KEY,
+    display_name TEXT NOT NULL DEFAULT '',
     updated_at TEXT NOT NULL
 );
 """

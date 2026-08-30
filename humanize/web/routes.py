@@ -13,6 +13,7 @@ from ..memory import ChatMemoryService
 from ..ports import RepositoryPort
 from ..protocol.envelope import EnvelopeBuilder
 from ..provider_catalog import ProviderCatalog
+from ..repositories.policy import DEFAULT_POLICY_MODE, GLOBAL_POLICY_SCOPE
 
 logger = logging.getLogger("astrbot")
 
@@ -233,6 +234,55 @@ class WebApi:
     async def _handle_get(self, path: str):
         from astrbot.api.web import error_response, request
 
+        if path == "policy":
+            rows = await self._repository.list_group_policies()
+            sessions = await self._repository.list_known_sessions()
+            names = {
+                str(row.get("scope_id") or ""): str(row.get("display_name") or "")
+                for row in sessions
+            }
+
+            def display_name_for(scope_id: str) -> str:
+                """按完整标识或末尾群号把已知会话名对到策略行上。"""
+                exact = names.get(scope_id)
+                if exact:
+                    return exact
+                for known_scope, known_name in names.items():
+                    if known_scope == scope_id or known_scope.endswith(f":{scope_id}"):
+                        return known_name
+                return ""
+
+            global_mode = DEFAULT_POLICY_MODE
+            groups: list[dict[str, Any]] = []
+            for row in rows:
+                scope_id = str(row.get("scope_id") or "").strip()
+                if not scope_id:
+                    continue
+                if scope_id == GLOBAL_POLICY_SCOPE:
+                    mode = str(row.get("mode") or "").strip()
+                    if mode:
+                        global_mode = mode
+                    continue
+                groups.append(
+                    {
+                        "scope_id": scope_id,
+                        "mode": str(row.get("mode") or ""),
+                        "display_name": display_name_for(scope_id),
+                        "updated_at": str(row.get("updated_at") or ""),
+                    }
+                )
+            known_sessions = [
+                {"scope_id": scope_id, "display_name": display_name}
+                for scope_id, display_name in names.items()
+                if scope_id
+            ]
+            return self._ok(
+                {
+                    "global_mode": global_mode,
+                    "groups": groups,
+                    "known_sessions": known_sessions,
+                }
+            )
         if path == "overview":
             return self._ok(await self._repository.get_overview())
         if path == "jargons":
@@ -551,6 +601,17 @@ class WebApi:
             except Exception:
                 logger.exception("[Humanize] settings in-memory refresh failed")
             return self._ok({"updated": list(validated), "restart_required": True})
+        if path == "policy-set":
+            scope_id = str(body.get("scope_id") or "").strip()
+            mode = str(body.get("mode") or "").strip()
+            await self._repository.set_group_policy_mode(scope_id=scope_id, mode=mode)
+            return self._ok({"scope_id": scope_id, "mode": mode})
+        if path == "policy-clear":
+            scope_id = str(body.get("scope_id") or "").strip()
+            if scope_id == GLOBAL_POLICY_SCOPE:
+                raise ValueError("全局默认模式请直接修改，不能清除")
+            await self._repository.clear_group_policy(scope_id=scope_id)
+            return self._ok({"cleared": scope_id})
         if path == "prompt-templates":
             action = str(body.get("action") or "update").strip().lower()
             reason = str(body.get("reason") or "").strip()

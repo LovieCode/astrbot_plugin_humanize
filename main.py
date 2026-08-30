@@ -38,6 +38,10 @@ from .humanize.provider_observability import (
     usage_dict,
     usage_observed,
 )
+from .humanize.repositories.policy import (
+    DEFAULT_POLICY_MODE,
+    GLOBAL_POLICY_SCOPE,
+)
 from .humanize.services.proactive import matches_scope
 from .humanize.snapshots import (
     serialize_attachment_reference,
@@ -334,7 +338,42 @@ class HumanizePlugin(Star):
             return
         event.set_extra("enable_streaming", False)
         self._install_send_gate(event)
-        # 图片链路：把收到的图片统一落进插件缓存（LRU），并把组件路径改写为
+        policy_mode = await self._policy_mode_for(
+            str(getattr(event, "unified_msg_origin", "") or "")
+        )
+        await self._maybe_remember_session(event)
+        # 完全沉默的会话：不落图、不转述、不旁观、不触发（连 @ 都不回复）。
+        if policy_mode != "silent":
+            await self._prepare_images(event)
+        await self._maybe_record_chatter(event, policy_mode=policy_mode)
+        await self._maybe_schedule_proactive(event, policy_mode=policy_mode)
+
+    async def _maybe_remember_session(self, event: AstrMessageEvent) -> None:
+        """Record one group session's display name for the policy page.
+
+        策略页展示与新增覆盖项都需要会话名称参考；群名随每条消息刷新。
+        私聊没有 group 元数据，自然跳过。
+        """
+        repository = (
+            getattr(self._container, "repository", None) if self._container else None
+        )
+        if repository is None:
+            return
+        umo = str(getattr(event, "unified_msg_origin", "") or "")
+        if not umo:
+            return
+        group = getattr(getattr(event, "message_obj", None), "group", None)
+        name = str(getattr(group, "group_name", "") or "").strip()
+        if not name:
+            return
+        try:
+            await repository.remember_session(scope_id=umo, display_name=name)
+        except Exception:
+            logger.debug("[Humanize] session name learn failed", exc_info=True)
+
+    async def _prepare_images(self, event: AstrMessageEvent) -> None:
+        """图片链路：缓存 + 逐张转述（仅许可会话调用，见 prepare_message_event）。"""
+        # 把收到的图片统一落进插件缓存（LRU），并把组件路径改写为
         # 缓存路径——core 后续 convert_to_file_path 直接复用，不再依赖临时目录。
         # 全程 fail-open：缓存失败时保留原路径。
         cache_paths: list[str] = []
@@ -420,8 +459,6 @@ class HumanizePlugin(Star):
                     transcriptions.append("")
             if any(item.strip() for item in transcriptions):
                 event.set_extra(_EVENT_IMAGE_TRANSCRIPTIONS_KEY, tuple(transcriptions))
-        await self._maybe_record_chatter(event)
-        await self._maybe_schedule_proactive(event)
 
     @filter.command("clear", alias={"reset"}, priority=_FIREWALL_PRIORITY)
     async def clear_managed_context(self, event: AstrMessageEvent) -> None:
@@ -479,9 +516,12 @@ class HumanizePlugin(Star):
     ) -> None:
         if not self._is_active:
             return
-        # 许可名单是全局的：不许可的会话里机器人连 @ 都不回复。命令类
+        # 群聊策略是全局的：完全沉默的会话里机器人连 @ 都不回复。命令类
         # 处理器不会走到这个钩子，所以只拦截对话回复，不影响指令功能。
-        if not self._session_permitted(event):
+        policy_mode = await self._policy_mode_for(
+            str(getattr(event, "unified_msg_origin", "") or "")
+        )
+        if policy_mode == "silent":
             logger.debug(
                 "[Humanize] session not permitted; reply suppressed (umo=%s)",
                 getattr(event, "unified_msg_origin", ""),
@@ -2792,7 +2832,9 @@ class HumanizePlugin(Star):
             logger.exception("[Humanize] failed to resolve reset persona")
         return message_context
 
-    async def _maybe_record_chatter(self, event: AstrMessageEvent) -> None:
+    async def _maybe_record_chatter(
+        self, event: AstrMessageEvent, *, policy_mode: str = ""
+    ) -> None:
         """Record unaddressed group chatter as an ordinary history entry.
 
         Chatter lands in the group's shared managed window with the same
@@ -2807,8 +2849,12 @@ class HumanizePlugin(Star):
         Args:
             event: Incoming message event, possibly without a full AstrBot
                 surface.
+            policy_mode: Resolved participation mode; ``silent`` groups are
+                not observed.
         """
         if self._container is None:
+            return
+        if policy_mode == "silent":
             return
         window = getattr(
             getattr(self._container, "context_window", None),
@@ -2828,7 +2874,7 @@ class HumanizePlugin(Star):
         if getattr(event, "is_at_or_wake_command", False):
             return
         umo = str(getattr(event, "unified_msg_origin", "") or "")
-        if not umo or not self._session_permitted(umo):
+        if not umo:
             return
         message_obj = getattr(event, "message_obj", None)
         if message_obj is None:
@@ -2873,22 +2919,30 @@ class HumanizePlugin(Star):
             )
         return context_window_token_budget(provider_settings)
 
-    async def _maybe_schedule_proactive(self, event: AstrMessageEvent) -> None:
+    async def _maybe_schedule_proactive(
+        self, event: AstrMessageEvent, *, policy_mode: str = ""
+    ) -> None:
         """Feed one unaddressed group message into the proactive path.
 
         Addressed messages (``is_at_or_wake_command``) are answered by the
         normal pipeline; everything else either hits a high-precision direct
         trigger (keyword mention or quote-reply to the bot) or starts the
-        group's adaptive evaluation window. Fail-open on test fakes that
-        omit group/message metadata.
+        group's adaptive evaluation window. The group policy decides which
+        doors exist: ``no_proactive`` closes all, ``admin`` only answers
+        admin-initiated triggers, ``mention`` answers everyone's triggers
+        without the ambient window, ``full`` keeps both doors. Fail-open on
+        test fakes that omit group/message metadata.
 
         Args:
             event: Incoming message event, possibly without a full AstrBot
                 surface.
+            policy_mode: Resolved participation mode for this session.
         """
         container = self._container
         proactive = getattr(container, "proactive", None) if container else None
         if proactive is None:
+            return
+        if policy_mode in {"silent", "no_proactive"}:
             return
         is_private = getattr(event, "is_private_chat", None)
         if not callable(is_private):
@@ -2916,10 +2970,39 @@ class HumanizePlugin(Star):
                 sender_id = ""
             if self_id and sender_id and self_id == sender_id:
                 return
-        if self._is_proactive_direct_trigger(event, self_id):
+        direct = self._is_proactive_direct_trigger(event, self_id)
+        if policy_mode == "admin":
+            if not direct or not self._is_group_admin(event):
+                return
+            await proactive.on_direct_trigger(umo, event=event)
+            return
+        if policy_mode == "mention":
+            if not direct:
+                return
+            await proactive.on_direct_trigger(umo, event=event)
+            return
+        if direct:
             await proactive.on_direct_trigger(umo, event=event)
         else:
             await proactive.on_group_chatter(umo, event=event)
+
+    def _is_group_admin(self, event: AstrMessageEvent) -> bool:
+        """Whether this group message was sent by a group admin or owner.
+
+        OneBot 平台把群角色放在原始事件的 ``sender.role`` 里；拿不到原始
+        段（非 OneBot 平台或测试替身）时一律按普通成员处理。
+
+        Args:
+            event: Incoming group message event.
+
+        Returns:
+            ``True`` when the sender role is admin/owner.
+        """
+        raw = getattr(getattr(event, "message_obj", None), "raw_message", None)
+        sender = raw.get("sender") if isinstance(raw, dict) else None
+        if not isinstance(sender, dict):
+            return False
+        return str(sender.get("role") or "").lower() in {"admin", "owner"}
 
     def _is_proactive_direct_trigger(
         self, event: AstrMessageEvent, self_id: str
@@ -2956,36 +3039,44 @@ class HumanizePlugin(Star):
                 return True
         return False
 
-    def _session_permitted(self, event: AstrMessageEvent) -> bool:
-        """Whether the bot may participate in this session at all.
+    async def _policy_mode_for(self, umo: str) -> str:
+        """Resolve the participation mode for one session.
 
-        The permission list is global: unpermitted sessions get no reply to
-        @, no chatter observation, and no proactive triggering. Mode ``off``
-        means unrestricted. Private chats are never gated.
+        会话策略存放在 humanize.db（WebUI 群聊策略页维护）：按群覆盖优先，
+        其余会话套用 ``global`` 行的默认模式；行缺失时回退到代码默认值。
+        条目支持完整 unified_msg_origin 或末尾会话段（与旧白名单一致），
+        读库失败时按默认模式放行，绝不因策略层故障吞掉回复。
 
         Args:
-            event: The incoming message event.
+            umo: Unified message origin of the session.
 
         Returns:
-            ``True`` when the session is permitted (or the gate does not
-            apply).
+            One of ``silent`` / ``no_proactive`` / ``admin`` / ``mention`` /
+            ``full``.
         """
-        is_private = getattr(event, "is_private_chat", None)
-        if callable(is_private):
-            try:
-                if is_private():
-                    return True
-            except Exception:
-                return True
-        umo = str(getattr(event, "unified_msg_origin", "") or "")
-        if not umo:
-            return True
-        mode = self._plugin_config.proactive_mode
-        if mode == "whitelist":
-            return matches_scope(self._plugin_config.proactive_whitelist, umo)
-        if mode == "blacklist":
-            return not matches_scope(self._plugin_config.proactive_blacklist, umo)
-        return True
+        repository = (
+            getattr(self._container, "repository", None) if self._container else None
+        )
+        if repository is None:
+            return DEFAULT_POLICY_MODE
+        try:
+            rows = await repository.list_group_policies()
+        except Exception:
+            logger.exception("[Humanize] group policy read failed for %s", umo)
+            return DEFAULT_POLICY_MODE
+        for row in rows:
+            scope_id = str(row.get("scope_id") or "").strip()
+            mode = str(row.get("mode") or "").strip()
+            if not scope_id or not mode or scope_id == GLOBAL_POLICY_SCOPE:
+                continue
+            if matches_scope((scope_id,), umo):
+                return mode
+        for row in rows:
+            if str(row.get("scope_id") or "").strip() == GLOBAL_POLICY_SCOPE:
+                mode = str(row.get("mode") or "").strip()
+                if mode:
+                    return mode
+        return DEFAULT_POLICY_MODE
 
     def _event_queue(self) -> Any:
         """Return the host event queue for synthetic proactive events."""

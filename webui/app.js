@@ -8,7 +8,7 @@
  *   - 导航点击用事件委托（视图 init 可能重渲染侧边栏，委托不依赖绑定时机）
  */
 (function () {
-  const VIEWS = ["dashboard", "memory", "jargon", "examples", "context", "prompts", "settings"];
+  const VIEWS = ["dashboard", "memory", "jargon", "examples", "context", "prompts", "policy", "settings"];
   const sections = {};
   VIEWS.forEach((name) => {
     const el = document.getElementById("view-" + name);

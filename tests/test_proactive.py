@@ -23,10 +23,7 @@ SCOPE = "aiocqhttp:GroupMessage:100"
 
 
 def _config(**overrides: Any) -> PluginConfig:
-    values: dict[str, Any] = {
-        "proactive_mode": "whitelist",
-        "proactive_whitelist": ("100",),
-    }
+    values: dict[str, Any] = {}
     values.update(overrides)
     return PluginConfig(**values)
 
@@ -321,38 +318,92 @@ def test_on_bot_reply_resets_window_and_waits() -> None:
     asyncio.run(scenario())
 
 
-def test_access_control_gates_every_entry() -> None:
+def test_plugin_policy_gates_proactive_doors() -> None:
+    """策略模式决定主动路径的门：全关 / 仅管理员触发 / 仅直接触发 / 全开。"""
+
+    class _HookEvent:
+        def __init__(self, *, text: str, raw: Any = None) -> None:
+            self._text = text
+            self.message_obj = SimpleNamespace(message=[], raw_message=raw)
+            self.unified_msg_origin = SCOPE
+
+        def is_private_chat(self) -> bool:
+            return False
+
+        @property
+        def is_at_or_wake_command(self) -> bool:
+            return False
+
+        def get_self_id(self) -> str:
+            return "bot-1"
+
+        def get_sender_id(self) -> str:
+            return "user-1"
+
+        def get_message_str(self) -> str:
+            return self._text
+
+    class _RecordingProactive:
+        def __init__(self) -> None:
+            self.calls: list[tuple[str, str, Any]] = []
+
+        async def on_group_chatter(self, scope_id: str, *, event: Any = None) -> None:
+            self.calls.append(("window", scope_id, event))
+
+        async def on_direct_trigger(self, scope_id: str, *, event: Any = None) -> None:
+            self.calls.append(("direct", scope_id, event))
+
     async def scenario() -> None:
-        # 关闭模式：完全不触发。
-        service, parts = _service(config=_config(proactive_mode="off"))
-        await service.on_group_chatter(SCOPE, event=_template())
-        await service.on_direct_trigger(SCOPE, event=_template())
-        await service.on_bot_reply(SCOPE)
-        await service.shutdown()
-        assert parts["builder"].calls == []
-        assert parts["repository"].states == {}
+        from astrbot_plugin_humanize.main import HumanizePlugin
 
-        # 白名单未命中：不触发，模板也不保留。
-        service, parts = _service(
-            config=_config(proactive_whitelist=("999",)),
-        )
-        await service.on_group_chatter(SCOPE, event=_template())
-        await service.shutdown()
-        assert parts["builder"].calls == []
+        plugin = HumanizePlugin(SimpleNamespace(), {"proactive_keywords": ["小助"]})
+        proactive = _RecordingProactive()
+        plugin._container = SimpleNamespace(proactive=proactive)
 
-        # 黑名单命中不触发，未命中的群正常进入。
-        service, parts = _service(
-            config=_config(
-                proactive_mode="blacklist",
-                proactive_blacklist=("100",),
-            ),
+        # silent / no_proactive：所有门都关。
+        for mode in ("silent", "no_proactive"):
+            proactive.calls.clear()
+            await plugin._maybe_schedule_proactive(
+                _HookEvent(text="小助在吗"), policy_mode=mode
+            )
+            assert proactive.calls == []
+
+        # mention：直接触发开门，闲聊不开窗。
+        proactive.calls.clear()
+        await plugin._maybe_schedule_proactive(
+            _HookEvent(text="小助在吗"), policy_mode="mention"
         )
-        await service.on_group_chatter(SCOPE, event=_template())
-        assert SCOPE not in service._window_timers
-        await service.on_group_chatter("aiocqhttp:GroupMessage:200", event=_template())
-        assert "aiocqhttp:GroupMessage:200" in service._window_timers
-        await service.shutdown()
-        assert service._window_timers == {}
+        assert [call[0] for call in proactive.calls] == ["direct"]
+        proactive.calls.clear()
+        await plugin._maybe_schedule_proactive(
+            _HookEvent(text="今天天气不错"), policy_mode="mention"
+        )
+        assert proactive.calls == []
+
+        # admin：管理员触发开门，普通成员同样的话不行。
+        proactive.calls.clear()
+        await plugin._maybe_schedule_proactive(
+            _HookEvent(text="小助在吗", raw={"sender": {"role": "admin"}}),
+            policy_mode="admin",
+        )
+        assert [call[0] for call in proactive.calls] == ["direct"]
+        proactive.calls.clear()
+        await plugin._maybe_schedule_proactive(
+            _HookEvent(text="小助在吗", raw={"sender": {"role": "member"}}),
+            policy_mode="admin",
+        )
+        assert proactive.calls == []
+
+        # full：闲聊开窗 + 直接触发（现状行为）。
+        proactive.calls.clear()
+        await plugin._maybe_schedule_proactive(
+            _HookEvent(text="今天天气不错"), policy_mode="full"
+        )
+        assert [call[0] for call in proactive.calls] == ["window"]
+        await plugin._maybe_schedule_proactive(
+            _HookEvent(text="小助在吗"), policy_mode="full"
+        )
+        assert proactive.calls[-1][0] == "direct"
 
     asyncio.run(scenario())
 
@@ -565,51 +616,50 @@ def test_plugin_builds_synthetic_event_from_template() -> None:
     asyncio.run(scenario())
 
 
-def test_session_permitted_gates_reply_by_mode() -> None:
-    class _Event:
-        def __init__(self, *, umo: str, private: bool = False) -> None:
-            self.unified_msg_origin = umo
-            self._private = private
+def test_policy_mode_resolution_prefers_group_override() -> None:
+    """会话模式解析：按群覆盖优先，其余套用 global 行，缺行回退代码默认。"""
 
-        def is_private_chat(self) -> bool:
-            return self._private
+    class _PolicyRepo:
+        def __init__(self, rows: list[dict[str, Any]]) -> None:
+            self.rows = rows
+
+        async def list_group_policies(self) -> list[dict[str, Any]]:
+            return [dict(row) for row in self.rows]
 
     async def scenario() -> None:
         from astrbot_plugin_humanize.main import HumanizePlugin
 
         plugin = HumanizePlugin(SimpleNamespace(), {})
-        assert plugin._session_permitted(_Event(umo=SCOPE)) is True
-        assert plugin._session_permitted(_Event(umo=SCOPE, private=True)) is True
+        # 没有仓库（未初始化）：回退代码默认。
+        assert await plugin._policy_mode_for(SCOPE) == "mention"
 
-        plugin = HumanizePlugin(
-            SimpleNamespace(),
-            {
-                "proactive_mode": "whitelist",
-                "proactive_whitelist": ["100"],
-            },
+        # global 行生效。
+        plugin._container = SimpleNamespace(
+            repository=_PolicyRepo([{"scope_id": "global", "mode": "full"}])
         )
-        assert plugin._session_permitted(_Event(umo=SCOPE)) is True
-        assert (
-            plugin._session_permitted(_Event(umo="aiocqhttp:GroupMessage:200")) is False
-        )
-        # 私聊不受许可名单影响
-        assert (
-            plugin._session_permitted(
-                _Event(umo="aiocqhttp:FriendMessage:200", private=True)
+        assert await plugin._policy_mode_for(SCOPE) == "full"
+
+        # 按群覆盖优先，支持裸群号后缀匹配；未覆盖的群套用 global。
+        plugin._container = SimpleNamespace(
+            repository=_PolicyRepo(
+                [
+                    {"scope_id": "global", "mode": "full"},
+                    {"scope_id": "100", "mode": "silent"},
+                ]
             )
-            is True
         )
+        assert await plugin._policy_mode_for(SCOPE) == "silent"
+        assert await plugin._policy_mode_for("aiocqhttp:GroupMessage:200") == "full"
 
-        plugin = HumanizePlugin(
-            SimpleNamespace(),
-            {
-                "proactive_mode": "blacklist",
-                "proactive_blacklist": ["100"],
-            },
+        # 空行与空模式被忽略，落回代码默认。
+        plugin._container = SimpleNamespace(
+            repository=_PolicyRepo(
+                [
+                    {"scope_id": "", "mode": "silent"},
+                    {"scope_id": "global", "mode": ""},
+                ]
+            )
         )
-        assert plugin._session_permitted(_Event(umo=SCOPE)) is False
-        assert (
-            plugin._session_permitted(_Event(umo="aiocqhttp:GroupMessage:200")) is True
-        )
+        assert await plugin._policy_mode_for(SCOPE) == "mention"
 
     asyncio.run(scenario())

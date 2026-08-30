@@ -100,6 +100,7 @@
       label: "管理",
       items: [
         { id: "prompts", name: "提示词模板", icon: "edit", href: "/plugin-page/astrbot_plugin_humanize/prompts" },
+        { id: "policy", name: "群聊策略", icon: "users", href: "/plugin-page/astrbot_plugin_humanize/policy" },
         { id: "settings", name: "设置", icon: "settings", href: "/plugin-page/astrbot_plugin_humanize/settings" },
       ],
     },

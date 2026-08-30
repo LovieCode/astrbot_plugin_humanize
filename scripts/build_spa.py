@@ -28,7 +28,16 @@ from pathlib import Path
 ROOT = Path(__file__).resolve().parent.parent
 SRC = ROOT / "webui"
 OUT = ROOT / "pages" / "humanize"
-VIEWS = ["dashboard", "memory", "jargon", "examples", "context", "prompts", "settings"]
+VIEWS = [
+    "dashboard",
+    "memory",
+    "jargon",
+    "examples",
+    "context",
+    "prompts",
+    "policy",
+    "settings",
+]
 
 # Per-view id prefix. Pages keep their own names; only shared ids get prefixed.
 PREFIX = {
@@ -38,6 +47,7 @@ PREFIX = {
     "examples": "ex",
     "context": "cx",
     "prompts": "pt",
+    "policy": "pl",
     "settings": "st",
 }
 
@@ -190,6 +200,9 @@ def view_main(view: str, mapping: dict[str, dict[str, str]]) -> str:
     content = rename_html(content, mapping, view)
     # Remove the per-view topbar (the SPA has a single shared topbar).
     content = re.sub(r'<div class="topbar" id="topbar"></div>', "", content, count=1)
+    # 行尾空白只会在 git diff --check 里反复炸雷（topbar 移除后的残留缩进等），
+    # 产物按生成物标准统一去掉。
+    content = "\n".join(line.rstrip() for line in content.split("\n"))
     # section-link navigation: relative page links become plugin-page routes.
     for target in VIEWS:
         content = content.replace(

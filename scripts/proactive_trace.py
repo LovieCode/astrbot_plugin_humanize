@@ -232,6 +232,10 @@ async def _new_plugin(tag: str):
     queue: asyncio.Queue = asyncio.Queue()
     plugin = _HARNESS._plugin(data_dir, pytest.MonkeyPatch(), queue)
     await plugin.initialize()
+    # 与 harness 测试一致：这些场景需要完整主动路径（策略默认仅直接触发）。
+    await plugin._container.repository.set_group_policy_mode(
+        scope_id="global", mode="full"
+    )
     return plugin, queue, data_dir
 
 

@@ -523,7 +523,19 @@
           "image_cache_enabled": true
         },
         "collapsed": true,
-        "hint": "缓存最多保存多少张图片，超出后按最久未使用清理。"
+        "hint": "缓存最多保存多少张普通图片，超出后按最久未使用清理。"
+      },
+      "image_cache_max_sticker_entries": {
+        "description": "表情包缓存上限",
+        "type": "int",
+        "default": 500,
+        "minimum": 1,
+        "maximum": 50000,
+        "condition": {
+          "image_cache_enabled": true
+        },
+        "collapsed": true,
+        "hint": "表情包长期保留并缓存转述文本，最多保存多少条，超出后按最久未使用清理。"
       }
     }
   },
@@ -531,46 +543,6 @@
     "description": "主动参与",
     "type": "object",
     "items": {
-      "proactive_mode": {
-        "description": "参与许可",
-        "type": "string",
-        "default": "off",
-        "options": [
-          "off",
-          "whitelist",
-          "blacklist"
-        ],
-        "labels": [
-          "不限制（不主动）",
-          "白名单（仅列出的群）",
-          "黑名单（列出的群除外）"
-        ],
-        "hint": "许可名单，同时决定主动发言是否开启：不许可的群里机器人完全沉默（@ 也不回复、不旁观）。白名单/黑名单按会话标识匹配（完整格式如 aiocqhttp:GroupMessage:123456，或只填群号）。黑名单留空 = 所有群都许可且开启主动。"
-      },
-      "proactive_whitelist": {
-        "description": "许可群（白名单）",
-        "type": "list",
-        "default": [],
-        "items": {
-          "type": "string"
-        },
-        "condition": {
-          "proactive_mode": "whitelist"
-        },
-        "hint": "每行一个会话标识，只有这些群会被许可（回复、旁观、主动发言）。"
-      },
-      "proactive_blacklist": {
-        "description": "禁止群（黑名单）",
-        "type": "list",
-        "default": [],
-        "items": {
-          "type": "string"
-        },
-        "condition": {
-          "proactive_mode": "blacklist"
-        },
-        "hint": "每行一个会话标识，这些群完全沉默；其余群全部许可并开启主动发言。"
-      },
       "proactive_keywords": {
         "description": "触发关键词",
         "type": "list",
@@ -578,7 +550,7 @@
         "items": {
           "type": "string"
         },
-        "hint": "消息里出现机器人名字或这些词时，跳过等待尽快触发回复。每行一个词。"
+        "hint": "消息里出现机器人名字或这些词时，跳过等待尽快触发回复。每行一个词。群聊许可与主动模式改在 WebUI 的「群聊策略」页维护。"
       },
       "proactive_window_initial_seconds": {
         "description": "初始触发窗口（秒）",

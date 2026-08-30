@@ -16,6 +16,7 @@
 <link rel="stylesheet" href="shared/views/examples.css" />
 <link rel="stylesheet" href="shared/views/context.css" />
 <link rel="stylesheet" href="shared/views/prompts.css" />
+<link rel="stylesheet" href="shared/views/policy.css" />
 <link rel="stylesheet" href="shared/views/settings.css" />
 <style>
 /* 单页应用：一次只显示一个视图 */
@@ -42,7 +43,7 @@
 
 
     <!-- 顶栏由 shared/ui.js 渲染 -->
-    
+
 
     <!-- Hero -->
     <section class="hero reveal">
@@ -235,12 +236,12 @@
       by LovieCode · astrbot_plugin_humanize v0.2.0
     </div>
 
-  
+
     </section>
     <section class="view" id="view-memory">
 
 
-    
+
 
     <!-- 数据源 Tab -->
     <div class="source-tabs reveal">
@@ -390,7 +391,7 @@
       by LovieCode · astrbot_plugin_humanize v0.2.0
     </div>
 
-  
+
 
     <div class="drawer-mask" id="mem-drawerMask"></div>
 
@@ -536,7 +537,7 @@
     <section class="view" id="view-jargon">
 
 
-    
+
 
     <!-- 筛选：作用域 + 状态 -->
     <div class="jg-filter reveal">
@@ -603,7 +604,7 @@
       by LovieCode · astrbot_plugin_humanize v0.2.0
     </div>
 
-  
+
 
     <div class="drawer-mask" id="jg-drawerMask"></div>
 
@@ -629,7 +630,7 @@
     <section class="view" id="view-examples">
 
 
-    
+
 
     <!-- 筛选 -->
     <div class="ex-filter reveal">
@@ -695,7 +696,7 @@
       by LovieCode · astrbot_plugin_humanize v0.2.0
     </div>
 
-  
+
 
     <div class="drawer-mask" id="ex-drawerMask"></div>
 
@@ -714,7 +715,7 @@
     <section class="view" id="view-context">
 
 
-    
+
 
     <!-- 筛选：仅保留有效后端筛选维度 -->
     <div class="cx-filter reveal">
@@ -746,12 +747,12 @@
       by LovieCode · astrbot_plugin_humanize v0.2.0
     </div>
 
-  
+
     </section>
     <section class="view" id="view-prompts">
 
 
-    
+
 
     <div class="pt-layout">
 
@@ -907,12 +908,89 @@
       by LovieCode · astrbot_plugin_humanize v0.2.0
     </div>
 
-  
+
+    </section>
+    <section class="view" id="view-policy">
+
+
+
+
+    <div class="pl-layout">
+
+      <div class="pl-main">
+
+        <!-- 全局默认模式 -->
+        <div class="card reveal">
+          <div class="card-head"><span class="card-dot"></span><span class="card-title">全局默认模式</span></div>
+          <div class="pl-note">所有没有单独设置的群都套用这里的模式；保存立即生效，无需重启。</div>
+          <div class="pl-modes" id="plGlobalModes">
+            <button class="pl-mode" type="button" data-value="silent"><span class="pl-mode-name">完全沉默</span></button>
+            <button class="pl-mode" type="button" data-value="no_proactive"><span class="pl-mode-name">不许主动回复</span></button>
+            <button class="pl-mode" type="button" data-value="admin"><span class="pl-mode-name">允许管理员@</span></button>
+            <button class="pl-mode" type="button" data-value="mention"><span class="pl-mode-name">允许所有@和关键词</span></button>
+            <button class="pl-mode" type="button" data-value="full"><span class="pl-mode-name">完全主动回复</span></button>
+          </div>
+          <div class="pl-mode-desc" id="plGlobalDesc"></div>
+          <div class="pl-actions">
+            <button class="btn btn-primary" id="plSaveGlobal" data-icon="check">保存全局默认</button>
+          </div>
+        </div>
+
+        <!-- 按群覆盖 -->
+        <div class="card reveal">
+          <div class="card-head"><span class="card-dot"></span><span class="card-title">群聊覆盖</span></div>
+          <div class="pl-note">单独设置的群以这里为准，覆盖全局默认。填群号即可（如 123456），机器人见过的群会自动带出名称供选择。</div>
+          <div class="pl-add">
+            <input class="st-input pl-scope-input" id="plNewScope" list="plScopeOptions" placeholder="群号或完整会话标识（aiocqhttp:GroupMessage:123456）" />
+            <datalist id="plScopeOptions"></datalist>
+            <select class="st-input pl-mode-select" id="plNewMode">
+              <option value="silent">完全沉默</option>
+              <option value="no_proactive">不许主动回复</option>
+              <option value="admin">允许管理员@</option>
+              <option value="mention">允许所有@和关键词</option>
+              <option value="full">完全主动回复</option>
+            </select>
+            <button class="btn btn-primary" id="plAddBtn" data-icon="plus">添加</button>
+          </div>
+          <div class="pl-groups" id="plGroups"></div>
+          <div id="plEmptyHost"></div>
+        </div>
+
+      </div>
+
+      <!-- 侧栏：模式说明 -->
+      <aside class="pl-aside">
+        <div class="card">
+          <div class="card-head"><span class="card-dot"></span><span class="card-title">模式说明</span></div>
+          <div class="pl-side-list">
+            <div class="pl-side-item"><b>完全沉默</b>：该群完全不参与，@ 也不回复、不旁观、不处理图片。</div>
+            <div class="pl-side-item"><b>不许主动回复</b>：只回复 @，绝不主动搭话。</div>
+            <div class="pl-side-item"><b>允许管理员@</b>：仅当群管理员引用机器人消息或命中关键词时，才主动触发回复。</div>
+            <div class="pl-side-item"><b>允许所有@和关键词</b>：任何人引用机器人或命中关键词都会触发；不开闲聊窗。</div>
+            <div class="pl-side-item"><b>完全主动回复</b>：在上一档基础上，群里的普通闲聊也会按窗口节奏触发回复。</div>
+          </div>
+        </div>
+        <div class="card">
+          <div class="card-head"><span class="card-dot"></span><span class="card-title">会话名称参考</span></div>
+          <div class="pl-note">机器人收到过的群会自动记录群名；列表里就能对上号。没见过的群可以直接填群号。</div>
+          <div class="pl-sessions" id="plSessions"></div>
+        </div>
+      </aside>
+
+    </div>
+
+    <div class="footer">
+      Made with
+      <svg viewBox="0 0 24 24" fill="currentColor"><path d="M20.8 4.6a5.5 5.5 0 0 0-7.8 0L12 5.6l-1-1a5.5 5.5 0 0 0-7.8 7.8l1 1L12 21l7.8-7.6 1-1a5.5 5.5 0 0 0 0-7.8z"/></svg>
+      by LovieCode · astrbot_plugin_humanize v0.2.0
+    </div>
+
+
     </section>
     <section class="view" id="view-settings">
 
 
-    
+
 
     <div class="st-layout">
 
@@ -1221,30 +1299,9 @@
           <div class="card-head"><span class="card-dot"></span><span class="card-title">主动参与</span></div>
           <div class="st-row">
             <div class="st-row-main">
-              <span class="st-row-label">参与许可 <span class="st-row-key">参与许可</span></span>
-              <span class="st-row-desc">许可名单同时决定主动发言是否开启：不许可的群里机器人完全沉默（@ 也不回复、不旁观）。</span>
+              <span class="st-row-label">群聊许可与主动模式</span>
+              <span class="st-row-desc">哪些群许可、每个群允许到什么程度的主动回复，在「群聊策略」页维护；此页只保留触发节奏与关键词。</span>
             </div>
-            <div class="st-row-control">
-              <div class="st-seg" data-key="proactive_mode">
-                <span class="st-seg-item active" data-value="off">不限制</span>
-                <span class="st-seg-item" data-value="whitelist">白名单</span>
-                <span class="st-seg-item" data-value="blacklist">黑名单</span>
-              </div>
-            </div>
-          </div>
-          <div class="st-row">
-            <div class="st-row-main">
-              <span class="st-row-label">许可群（白名单） <span class="st-row-key">白名单会话</span></span>
-              <span class="st-row-desc">每行一个会话标识（完整格式如 aiocqhttp:GroupMessage:123456，或只填群号），只有这些群被许可。</span>
-            </div>
-            <div class="st-row-control"><textarea class="st-input wide st-qq-area" rows="3" data-key="proactive_whitelist"></textarea></div>
-          </div>
-          <div class="st-row">
-            <div class="st-row-main">
-              <span class="st-row-label">禁止群（黑名单） <span class="st-row-key">黑名单会话</span></span>
-              <span class="st-row-desc">每行一个会话标识，这些群完全沉默；其余群全部许可并开启主动发言（留空即所有群许可）。</span>
-            </div>
-            <div class="st-row-control"><textarea class="st-input wide st-qq-area" rows="3" data-key="proactive_blacklist"></textarea></div>
           </div>
           <div class="st-row">
             <div class="st-row-main">
@@ -1304,7 +1361,7 @@
       by LovieCode · astrbot_plugin_humanize v0.2.0
     </div>
 
-  
+
     </section>
 
   </main>
@@ -1332,6 +1389,7 @@ document.querySelectorAll("[data-icon]").forEach((el) => {
 <script src="shared/views/examples.js"></script>
 <script src="shared/views/context.js"></script>
 <script src="shared/views/prompts.js"></script>
+<script src="shared/views/policy.js"></script>
 <script src="shared/views/settings.js"></script>
 <script src="app.js"></script>
 </body>
