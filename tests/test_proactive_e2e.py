@@ -293,7 +293,11 @@ def test_window_no_reply_cycle_stretches_and_keeps_history(
                 scope_id=SCOPE
             )
             assert state["window_seconds"] == 11  # 1 秒窗口 + 沉默 +10
-            assert (await _load_window(plugin)).entry_count == 2
+            # 主动检查沉默收场不落账：窗口里只有小明的旁观条目，
+            # 不会出现"系统提示"伪装的用户消息。
+            assert (await _load_window(plugin)).entry_count == 1
+            rendered = _rendered(list((await _load_window(plugin)).contexts))
+            assert "系统提示" not in rendered
         finally:
             await plugin.terminate()
 
@@ -338,7 +342,9 @@ def test_window_reply_cycle_sends_resets_and_writes_history(
             assert window.entry_count == 2
             rendered = _rendered(list(window.contexts))
             assert "好呀，我也要去" in rendered
-            assert "系统提示" in rendered  # 主动回合的历史发言者是系统提示
+            # 主动回合只落 Bot 发言（assistant_only），不带用户侧占位。
+            assert "洛薇 · " in rendered
+            assert "系统提示" not in rendered
         finally:
             await plugin.terminate()
 
@@ -486,7 +492,8 @@ def test_chatter_and_turns_share_one_window_directory_under_persona(
             assert "我也想吃火锅" in rendered_proactive
             assert "火锅店选好了吗" in rendered_proactive
             await _dispatch(plugin, synthetic, _LLM_NO_REPLY_RESPONSE)
-            assert (await _load_window(plugin)).entry_count == 4
+            # 沉默的主动检查不落账：仍是旁观 + @ 回合 + Bot 主动发言三条。
+            assert (await _load_window(plugin)).entry_count == 3
 
             # 磁盘事实：会话目录落在人格 agent 目录下，default 目录不存在。
             sessions_root = (

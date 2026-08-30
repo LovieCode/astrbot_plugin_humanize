@@ -1839,6 +1839,15 @@ class HumanizePlugin(Star):
         messages = event.get_extra(_CONTEXT_WINDOW_PENDING_MESSAGES_KEY, ())
         if action not in {Action.REPLY.value, Action.NO_REPLY.value}:
             return
+        if event.get_extra(_PROACTIVE_KIND_KEY):
+            if action == Action.NO_REPLY.value:
+                # 主动检查沉默收场：没有真实用户消息也没有 Bot 发言，
+                # 落账只会把系统占位伪装成历史用户条目，直接不写。
+                return
+            # 主动回合回复了：只记 Bot 的最终发言（见 append 的 assistant_only）。
+            assistant_only = True
+        else:
+            assistant_only = False
         if not isinstance(messages, tuple):
             messages = ()
         try:
@@ -1876,6 +1885,7 @@ class HumanizePlugin(Star):
                         event.get_extra(_MESSAGE_XML_KEY, ""),
                     )
                 ),
+                assistant_only=assistant_only,
             )
             event.set_extra(_CONTEXT_TURN_REF_KEY, result.context_ref)
             committer = getattr(

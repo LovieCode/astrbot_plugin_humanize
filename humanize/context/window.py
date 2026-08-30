@@ -109,6 +109,7 @@ class ContextWindowService:
         image_count: int = 0,
         token_budget: int = _DEFAULT_TOKEN_BUDGET,
         current_user_prompt: str = "",
+        assistant_only: bool = False,
     ) -> ContextWindowAppend:
         """Persist one complete logical turn and compact it when required.
 
@@ -125,18 +126,25 @@ class ContextWindowService:
                 instead of "last user message", so synthetic user messages that
                 AstrBot appends mid-turn (cached tool images, max-step notices,
                 interruption notices) no longer discard the tool history.
+            assistant_only: Record only the bot's final reply, with no user
+                side and no tool sequence. For turns that have no real user
+                message (proactive checks): the injected notice must never
+                masquerade as a user entry in history.
 
         Returns:
             Idempotent persistence result with the safe short context reference.
 
         Raises:
-            ValueError: If the action is unsupported or identity is unavailable.
+            ValueError: If the action is unsupported, identity is unavailable,
+                or ``assistant_only`` is combined with ``No Reply``.
             RuntimeError: If the workspace was not initialized.
         """
         if not self._ready:
             raise RuntimeError("context window is not initialized")
         if action not in {"Reply", "No Reply"}:
             raise ValueError("unsupported context-window action")
+        if assistant_only and action != "Reply":
+            raise ValueError("assistant-only persistence requires a Reply action")
         return await asyncio.to_thread(
             self._append_sync,
             context,
@@ -147,6 +155,7 @@ class ContextWindowService:
             max(0, int(image_count)),
             token_budget,
             str(current_user_prompt or ""),
+            bool(assistant_only),
         )
 
     async def read_context(
@@ -361,6 +370,7 @@ class ContextWindowService:
         image_count: int,
         token_budget: int,
         current_user_prompt: str = "",
+        assistant_only: bool = False,
     ) -> ContextWindowAppend:
         identity, agent_id, session_directory = self._session_info(context)
         turn_ref = self._memory.turn_ref_for(context)
@@ -392,6 +402,7 @@ class ContextWindowService:
                 image_cache=image_cache,
                 image_count=image_count,
                 current_user_prompt=current_user_prompt,
+                assistant_only=assistant_only,
             )
             l2_path = session_directory / "context_l2" / f"{context_ref}.json"
             transaction.atomic_write(l2_path, self._serialize(canonical))
@@ -756,7 +767,26 @@ class ContextWindowService:
         image_cache: tuple[Any, ...],
         image_count: int,
         current_user_prompt: str = "",
+        assistant_only: bool = False,
     ) -> dict[str, Any]:
+        if assistant_only:
+            # 主动回合没有真实用户消息：只记 Bot 的最终发言，不把系统通告
+            # 伪装成用户条目，也不保留工具序列（旁观条目已覆盖群聊历史）。
+            visible = "\n".join(
+                self._clip(item, _L2_MESSAGE_MAX_CHARS) for item in final_messages
+            )
+            return {
+                "action": action,
+                "context_ref": context_ref,
+                "created_at": context.occurred_at,
+                "sender_name": "",
+                "bot_name": str(context.bot_name or "").strip(),
+                "l0": self._clip(" ".join(visible.split()), 160),
+                "messages": [{"role": "assistant", "content": visible}],
+                "source_complete": bool(context.source_complete),
+                "turn_ref": turn_ref,
+                "version": 1,
+            }
         image_descriptions = self._image_descriptions(image_cache)
         normalized = self._current_turn_messages(
             context,
