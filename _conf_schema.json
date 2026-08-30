@@ -586,15 +586,7 @@
         "default": 10,
         "minimum": 5,
         "maximum": 600,
-        "hint": "群里出现新消息后等待多久再评估是否发言。"
-      },
-      "proactive_window_min_seconds": {
-        "description": "最短评估窗口（秒）",
-        "type": "int",
-        "default": 10,
-        "minimum": 5,
-        "maximum": 600,
-        "hint": "机器人连续找到话说时，窗口最多缩短到该值。"
+        "hint": "群里出现新消息后等待多久再评估是否发言；机器人连续发言则窗口减半，连续沉默则翻倍，翻倍上限见最长评估窗口。"
       },
       "proactive_window_max_seconds": {
         "description": "最长评估窗口（秒）",
@@ -602,25 +594,9 @@
         "default": 300,
         "minimum": 30,
         "maximum": 3600,
-        "hint": "机器人连续选择不说话时，窗口最多拉长到该值；它同时是调用频率的上限。"
-      },
-      "proactive_min_reply_interval_seconds": {
-        "description": "主动发言最小间隔（秒）",
-        "type": "int",
-        "default": 60,
-        "minimum": 0,
-        "maximum": 3600,
-        "hint": "两次主动发言之间至少间隔该时长；设为 0 关闭该限制。"
-      },
-      "proactive_followup_delay_seconds": {
-        "description": "话题跟进延迟（秒）",
-        "type": "int",
-        "default": 300,
-        "minimum": 30,
-        "maximum": 1800,
-        "hint": "机器人回复后如果一直没人再说话，等待该时长后评估是否补一句；每个话题只跟进一次。"
+        "hint": "窗口翻倍的上限，同时也是评估调用频率的上限。"
       }
     },
-    "hint": "在群聊中主动参与：按时间窗口评估未 @ 的聊天、有人提到机器人时立即评估、话题冷场后可补一句。默认关闭。"
+    "hint": "在群聊中主动参与：按时间窗口评估未 @ 的聊天、有人提到机器人时立即评估、话题冷场约 5 分钟后可补一次话。默认关闭。"
   }
 }

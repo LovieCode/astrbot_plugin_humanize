@@ -8,7 +8,7 @@ import time
 import uuid
 from collections.abc import Awaitable, Callable
 from dataclasses import replace
-from datetime import datetime, timedelta
+from datetime import datetime
 from typing import Any
 
 from astrbot.core.agent.message import TextPart
@@ -24,6 +24,8 @@ logger = logging.getLogger("astrbot")
 # 直接触发（提到名字 / 引用回复）仍稍等片刻，让紧跟着的补充消息并入同一批。
 _DIRECT_TRIGGER_DELAY_SECONDS = 2.0
 _MAX_WAITS_PER_BATCH = 3
+# 话题跟进固定延迟：机器人回复后群里安静这么久才检查一次是否补话。
+_FOLLOWUP_DELAY_SECONDS = 300.0
 
 
 def _append_prompt(existing: str, addition: str) -> str:
@@ -185,9 +187,10 @@ class ProactiveService:
 
     def _schedule_followup(self, scope_id: str) -> None:
         self._cancel_timer(self._followup_timers, scope_id)
-        delay = float(self._config.proactive_followup_delay_seconds)
         task = asyncio.create_task(
-            self._timer_entry(scope_id, delay, "followup", self._followup_timers),
+            self._timer_entry(
+                scope_id, _FOLLOWUP_DELAY_SECONDS, "followup", self._followup_timers
+            ),
             name="humanize-proactive-followup",
         )
         self._followup_timers[scope_id] = task
@@ -239,13 +242,6 @@ class ProactiveService:
                 or self._config.proactive_window_initial_seconds
             )
         )
-        if kind == "window" and self._within_min_interval(state):
-            logger.debug(
-                "[Humanize] proactive evaluation deferred (min interval) scope=%s",
-                scope_id,
-            )
-            return
-
         context = self._build_context(scope_id, kind)
         try:
             lines = await self._context_window.read_ambient_lines(context)
@@ -486,25 +482,11 @@ class ProactiveService:
 
     def _clamp_window(self, seconds: int) -> int:
         maximum = self._config.proactive_window_max_seconds
-        minimum = min(self._config.proactive_window_min_seconds, maximum)
         try:
             value = int(seconds)
         except (TypeError, ValueError):
             value = self._config.proactive_window_initial_seconds
-        return max(minimum, min(value, maximum))
-
-    def _within_min_interval(self, state: dict[str, Any]) -> bool:
-        interval = self._config.proactive_min_reply_interval_seconds
-        if interval <= 0:
-            return False
-        raw = str(state.get("last_reply_at") or "")
-        if not raw:
-            return False
-        try:
-            last = datetime.fromisoformat(raw)
-        except ValueError:
-            return False
-        return datetime.now() - last < timedelta(seconds=interval)
+        return max(1, min(value, maximum))
 
     def _build_context(self, scope_id: str, kind: str) -> MessageContext:
         return MessageContext(

@@ -119,10 +119,7 @@ class PluginConfig:
     proactive_whitelist: tuple[str, ...] = ()
     proactive_blacklist: tuple[str, ...] = ()
     proactive_window_initial_seconds: int = 10
-    proactive_window_min_seconds: int = 10
     proactive_window_max_seconds: int = 300
-    proactive_min_reply_interval_seconds: int = 60
-    proactive_followup_delay_seconds: int = 300
     proactive_keywords: tuple[str, ...] = ()
 
     @classmethod
@@ -249,17 +246,8 @@ class PluginConfig:
             proactive_window_initial_seconds=_as_int(
                 data.get("proactive_window_initial_seconds"), 10, 5, 600
             ),
-            proactive_window_min_seconds=_as_int(
-                data.get("proactive_window_min_seconds"), 10, 5, 600
-            ),
             proactive_window_max_seconds=_as_int(
                 data.get("proactive_window_max_seconds"), 300, 30, 3_600
-            ),
-            proactive_min_reply_interval_seconds=_as_int(
-                data.get("proactive_min_reply_interval_seconds"), 60, 0, 3_600
-            ),
-            proactive_followup_delay_seconds=_as_int(
-                data.get("proactive_followup_delay_seconds"), 300, 30, 1_800
             ),
             proactive_keywords=_as_string_list(data.get("proactive_keywords")),
         )
@@ -320,11 +308,6 @@ class PluginConfig:
             "proactive_whitelist": list(self.proactive_whitelist),
             "proactive_blacklist": list(self.proactive_blacklist),
             "proactive_window_initial_seconds": (self.proactive_window_initial_seconds),
-            "proactive_window_min_seconds": self.proactive_window_min_seconds,
             "proactive_window_max_seconds": self.proactive_window_max_seconds,
-            "proactive_min_reply_interval_seconds": (
-                self.proactive_min_reply_interval_seconds
-            ),
-            "proactive_followup_delay_seconds": self.proactive_followup_delay_seconds,
             "proactive_keywords": list(self.proactive_keywords),
         }

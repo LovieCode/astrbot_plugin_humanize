@@ -8,7 +8,6 @@ real model calls or timer waits.
 from __future__ import annotations
 
 import asyncio
-from datetime import datetime, timedelta
 from types import SimpleNamespace
 from typing import Any
 
@@ -205,7 +204,6 @@ def _service(
 def test_window_reply_sends_drains_and_shrinks() -> None:
     async def scenario() -> None:
         service, parts = _service(
-            config=_config(proactive_window_min_seconds=5),
             lines=["小明: 今天聊什么", "小红: 随便啊"],
             outcomes=[_outcome(Action.REPLY)],
         )
@@ -220,7 +218,7 @@ def test_window_reply_sends_drains_and_shrinks() -> None:
         ]
         assert parts["window"].drops == [SCOPE]
         state = parts["repository"].states[SCOPE]
-        assert state["window_seconds"] == 5  # 初始 10 减半，受最小值约束
+        assert state["window_seconds"] == 5  # 初始 10 减半（无最短窗口限制）
         assert "第一条\n第二条" in state["last_reply_text"]
         # 评估调用带 Wait 规则与人格、协议分节；上下文取自受管窗口
         call = parts["provider"].calls[0]
@@ -316,17 +314,12 @@ def test_invalid_output_stretches_window_without_draining() -> None:
     asyncio.run(scenario())
 
 
-def test_direct_trigger_ignores_min_interval_and_disallows_wait() -> None:
+def test_direct_trigger_disallows_wait() -> None:
     async def scenario() -> None:
-        config = _config(proactive_min_reply_interval_seconds=3_600)
         service, parts = _service(
-            config=config,
             lines=["小明: 机器人帮我看看"],
             outcomes=[_outcome(Action.REPLY)],
         )
-        parts["repository"].states[SCOPE] = {
-            "last_reply_at": datetime.now().isoformat(timespec="seconds"),
-        }
         try:
             await service._evaluate(SCOPE, "direct")
         finally:
@@ -338,51 +331,6 @@ def test_direct_trigger_ignores_min_interval_and_disallows_wait() -> None:
         assert record["stage"] == "proactive_direct"
         # 直接触发的提示词不包含 Wait 规则
         assert "Wait" not in parts["provider"].calls[0]["prompt"]
-
-    asyncio.run(scenario())
-
-
-def test_window_evaluation_respects_min_reply_interval() -> None:
-    async def scenario() -> None:
-        config = _config(proactive_min_reply_interval_seconds=3_600)
-        service, parts = _service(
-            config=config,
-            lines=["小明: 内容"],
-            outcomes=[_outcome(Action.NO_REPLY)],
-        )
-        parts["repository"].states[SCOPE] = {
-            "last_reply_at": datetime.now().isoformat(timespec="seconds"),
-        }
-        try:
-            await service._evaluate(SCOPE, "window")
-        finally:
-            await service.shutdown()
-
-        assert parts["provider"].calls == []
-        assert parts["window"].drops == []
-
-    asyncio.run(scenario())
-
-
-def test_min_interval_expires() -> None:
-    async def scenario() -> None:
-        config = _config(proactive_min_reply_interval_seconds=60)
-        service, parts = _service(
-            config=config,
-            lines=["小明: 内容"],
-            outcomes=[_outcome(Action.REPLY)],
-        )
-        parts["repository"].states[SCOPE] = {
-            "last_reply_at": (datetime.now() - timedelta(minutes=5)).isoformat(
-                timespec="seconds"
-            ),
-        }
-        try:
-            await service._evaluate(SCOPE, "window")
-        finally:
-            await service.shutdown()
-
-        assert parts["sends"] != []
 
     asyncio.run(scenario())
 
