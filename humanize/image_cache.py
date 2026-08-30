@@ -1,9 +1,13 @@
-"""Durable, LRU-capped cache for images received by the plugin.
+"""Durable, capped cache for images received by the plugin.
 
 Received images are materialized once, copied into the plugin data directory
 and indexed in ``humanize.db``. Component paths are rewritten so AstrBot core
 reuses the cached copy instead of its own temporary files, and later turns can
 re-read the image by path (resident tool) until the entry is evicted.
+
+Entries carry a kind: regular images are LRU-capped; stickers are kept
+long-term under a separate, larger cap and may store a transcription keyed by
+content hash so the same sticker is never transcribed twice.
 """
 
 from __future__ import annotations
@@ -63,6 +67,7 @@ class ImageCacheStore:
         message_id: str = "",
         scope_type: str = "",
         scope_id: str = "",
+        kind: str = "image",
     ) -> CachedImage:
         """Copy one materialized image into the cache and index it.
 
@@ -71,6 +76,8 @@ class ImageCacheStore:
             message_id: Message the image arrived with (provenance only).
             scope_type: Conversation scope for auditing.
             scope_id: Conversation scope identifier for auditing.
+            kind: Entry kind, ``'image'`` (LRU-evicted) or ``'sticker'``
+                (kept long-term under its own cap, carries the transcription).
 
         Returns:
             A :class:`CachedImage`. On any failure the original path is
@@ -91,6 +98,7 @@ class ImageCacheStore:
                 scope_type=scope_type,
                 scope_id=scope_id,
                 file_size=result[2],
+                kind=kind,
             )
             await self._evict()
         except Exception:
@@ -114,26 +122,34 @@ class ImageCacheStore:
         return target, digest, len(data)
 
     async def _evict(self) -> None:
-        max_entries = self._config.image_cache_max_entries
-        entries = await self._repository.list_image_cache_entries()
-        overflow = len(entries) - max_entries
-        if overflow <= 0:
-            return
-        evicted = entries[:overflow]
-        await self._repository.delete_image_cache_entries(
-            [str(entry["file_hash"]) for entry in evicted]
-        )
-        for entry in evicted:
-            try:
-                path = Path(str(entry["file_path"]))
-                if self.is_cache_path(str(path)):
-                    path.unlink(missing_ok=True)
-            except OSError:
-                logger.debug(
-                    "[Humanize] failed to unlink evicted image %s",
-                    entry.get("file_path"),
-                )
-        logger.debug("[Humanize] evicted %s images from cache", overflow)
+        # 两类各自限长：普通图按 LRU 出，表情包长期保留但受独立上限约束。
+        for kind, max_entries in (
+            ("image", self._config.image_cache_max_entries),
+            ("sticker", self._config.image_cache_max_sticker_entries),
+        ):
+            entries = await self._repository.list_image_cache_entries(kind=kind)
+            overflow = len(entries) - max_entries
+            if overflow <= 0:
+                continue
+            evicted = entries[:overflow]
+            await self._repository.delete_image_cache_entries(
+                [str(entry["file_hash"]) for entry in evicted]
+            )
+            for entry in evicted:
+                try:
+                    path = Path(str(entry["file_path"]))
+                    if self.is_cache_path(str(path)):
+                        path.unlink(missing_ok=True)
+                except OSError:
+                    logger.debug(
+                        "[Humanize] failed to unlink evicted image %s",
+                        entry.get("file_path"),
+                    )
+            logger.debug(
+                "[Humanize] evicted %s %s entries from image cache",
+                overflow,
+                kind,
+            )
 
     async def read(self, path: str) -> bytes | None:
         """Read one cached image by path, restricted to the cache directory.

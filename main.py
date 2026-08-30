@@ -120,6 +120,57 @@ _CONTROL_TAG_PATTERN = re.compile(
     r"(?=\s|/?>|&gt;)",
     re.IGNORECASE,
 )
+# 图片转述提示词：普通图重画面与图中文字，表情包重梗义与使用情境。
+_IMAGE_TRANSCRIPTION_PROMPT = (
+    "你是群聊的图片转述助手，看转述的人完全看不到原图。请用中文转述这张图片，"
+    "让人不用看图也能懂：1）画面主体：人物或角色在做什么、关键物品与场景；"
+    "2）图中出现的所有文字按原样转写出来（截图、梗图上的文字是理解关键）；"
+    "3）结合聊天上下文点明这张图想表达的意思或情绪。"
+    "控制在 2~4 句话，直接输出转述，不要开场白和解释。"
+)
+_STICKER_TRANSCRIPTION_PROMPT = (
+    "你是群聊的表情包解读助手，看转述的人完全看不到原图。这是一张 QQ 表情包，"
+    "请用中文解读：1）画面里的形象或角色、表情动作，图上配的文字按原样转写；"
+    "2）这张表情包通常用来表达什么情绪或意思（如无语、开心、阴阳怪气等）。"
+    "控制在 1~3 句话，直接输出解读，不要开场白和解释。"
+)
+
+
+def _direct_image_kinds(event: AstrMessageEvent) -> list[str]:
+    """Classify direct message images in raw segment order.
+
+    napcat 的 image 段携带 ``sub_type`` 与 ``summary``：0 且无 summary 是
+    普通图片；非 0（动画表情、商城表情等）或带 ``[xx]`` summary 的是表情包。
+    引用消息（Reply 链）里的图片不在段列表里，由调用方按普通图处理。
+
+    Args:
+        event: Incoming message event with a OneBot ``raw_message``.
+
+    Returns:
+        One kind per direct image segment, ``'sticker'`` or ``'image'``.
+    """
+    raw = getattr(getattr(event, "message_obj", None), "raw_message", None)
+    segments = raw.get("message") if isinstance(raw, dict) else None
+    if not isinstance(segments, list):
+        return []
+    kinds: list[str] = []
+    for segment in segments:
+        if not isinstance(segment, dict) or segment.get("type") != "image":
+            continue
+        data = segment.get("data")
+        if not isinstance(data, dict):
+            data = {}
+        summary = str(data.get("summary") or "").strip()
+        if summary == "[图片]":
+            # 平台占位符不代表表情包。
+            summary = ""
+        try:
+            sub_type = int(data.get("sub_type", data.get("subType")) or 0)
+        except (TypeError, ValueError):
+            sub_type = 0
+        kinds.append("sticker" if (summary or sub_type != 0) else "image")
+    return kinds
+
 
 # 事件循环对任务只持弱引用：fire-and-forget 任务必须在此持强引用，
 # 否则可能在完成前被 GC 回收（持久化静默丢失、异常无人接收）。
@@ -287,16 +338,33 @@ class HumanizePlugin(Star):
         # 缓存路径——core 后续 convert_to_file_path 直接复用，不再依赖临时目录。
         # 全程 fail-open：缓存失败时保留原路径。
         cache_paths: list[str] = []
+        cache_kinds: list[str] = []
         components: list[Any] = []
         message_obj = getattr(getattr(event, "message_obj", None), "message", []) or []
         components.extend(message_obj)
         for component in message_obj:
             if type(component).__name__ == "Reply":
                 components.extend(getattr(component, "chain", []) or [])
+        # components 先直发段（与原始段顺序一致）后引用链，直发图按下标分类。
+        direct_kinds = _direct_image_kinds(event)
+        direct_image_ids = {
+            id(component)
+            for component in message_obj
+            if type(component).__name__ == "Image"
+        }
+        direct_index = 0
         try:
             for component in components:
                 if type(component).__name__ != "Image":
                     continue
+                kind = "image"
+                if id(component) in direct_image_ids:
+                    kind = (
+                        direct_kinds[direct_index]
+                        if direct_index < len(direct_kinds)
+                        else "image"
+                    )
+                    direct_index += 1
                 convert = getattr(component, "convert_to_file_path", None)
                 if not callable(convert):
                     continue
@@ -314,6 +382,7 @@ class HumanizePlugin(Star):
                     message_id=str(getattr(event, "message_id", "") or ""),
                     scope_type="",
                     scope_id=str(getattr(event, "unified_msg_origin", "") or ""),
+                    kind=kind,
                 )
                 if cached.cached:
                     try:
@@ -326,27 +395,31 @@ class HumanizePlugin(Star):
                             exc_info=True,
                         )
                 cache_paths.append(cached.file_path)
+                cache_kinds.append(kind)
         except Exception:
             logger.exception("[Humanize] image cache interception failed")
         event.set_extra(_EVENT_IMAGE_CACHE_PATHS_KEY, tuple(cache_paths))
-        # 转述：配置了转述模型即对本次图片转述（供 Msg 内联），与常驻工具互补。
+        # 转述：配置了转述模型即逐张转述（供 Msg 内联）；表情包命中内容 hash
+        # 级长期缓存时不再调用转述模型，与常驻工具互补。
+        transcriptions: list[str] = []
         if cache_paths and self._plugin_config.image_transcription_provider_id:
-            try:
-                transcriptions = await self._transcribe_images(
-                    event,
-                    cache_paths,
-                    str(
-                        event.get_message_str()
-                        if hasattr(event, "get_message_str")
-                        else ""
-                    ),
-                )
-                if transcriptions:
-                    event.set_extra(
-                        _EVENT_IMAGE_TRANSCRIPTIONS_KEY, tuple(transcriptions)
+            user_text = str(
+                event.get_message_str() if hasattr(event, "get_message_str") else ""
+            )
+            for path, kind in zip(cache_paths, cache_kinds):
+                try:
+                    transcriptions.append(
+                        await self._transcribe_one_image(
+                            path,
+                            user_text,
+                            kind=kind,
+                        )
                     )
-            except Exception:
-                logger.exception("[Humanize] auto image transcription failed")
+                except Exception:
+                    logger.exception("[Humanize] image transcription failed: %s", path)
+                    transcriptions.append("")
+            if any(item.strip() for item in transcriptions):
+                event.set_extra(_EVENT_IMAGE_TRANSCRIPTIONS_KEY, tuple(transcriptions))
         await self._maybe_record_chatter(event)
         await self._maybe_schedule_proactive(event)
 
@@ -499,17 +572,15 @@ class HumanizePlugin(Star):
             and len(transcriptions) < len(image_paths)
             and self._plugin_config.image_transcription_provider_id
         ):
-            try:
-                transcriptions.extend(
-                    str(item)
-                    for item in await self._transcribe_images(
-                        event,
-                        image_paths[len(transcriptions) :],
-                        raw_user,
+            # 引用图或 prepare 阶段整体失败的补转述：逐张现转，按普通图处理。
+            for path in image_paths[len(transcriptions) :]:
+                try:
+                    transcriptions.append(
+                        await self._transcribe_one_image(path, raw_user)
                     )
-                )
-            except Exception:
-                logger.exception("[Humanize] image transcription failed")
+                except Exception:
+                    logger.exception("[Humanize] image transcription failed: %s", path)
+                    transcriptions.append("")
         event.set_extra(_IMAGE_CACHE_KEY, tuple(transcriptions))
         if image_paths:
             image_lines = [
@@ -934,15 +1005,11 @@ class HumanizePlugin(Star):
                 event.get_message_str() if hasattr(event, "get_message_str") else ""
             )
             try:
-                transcriptions = await self._transcribe_images(
-                    event,
-                    [clean_path],
-                    user_text,
-                )
+                transcription = await self._transcribe_one_image(clean_path, user_text)
             except Exception:
                 logger.exception("[Humanize] image read tool failed")
                 return "图片转述失败。"
-            if not transcriptions:
+            if not transcription.strip():
                 return "未生成转述文本。"
             # 记录工具转述，保证持久化回合仍带图片标注（见上下文持久化报告）。
             try:
@@ -952,19 +1019,14 @@ class HumanizePlugin(Star):
                         event.get_extra(_TOOL_IMAGE_TRANSCRIPTIONS_KEY, ()) or ()
                     )
                 ]
-                existing.extend(
-                    str(getattr(item, "text", item) or "") for item in transcriptions
-                )
+                existing.append(transcription)
                 event.set_extra(
                     _TOOL_IMAGE_TRANSCRIPTIONS_KEY,
                     tuple(item for item in existing if item.strip()),
                 )
             except Exception:
                 logger.exception("[Humanize] failed to record tool transcription")
-            return str(
-                getattr(transcriptions[0], "text", transcriptions[0])
-                or "未生成转述文本。"
-            )
+            return transcription
 
         tool = FunctionTool(
             name="humanize_read_image",
@@ -993,26 +1055,44 @@ class HumanizePlugin(Star):
             len(image_paths),
         )
 
-    async def _transcribe_images(
+    async def _transcribe_one_image(
         self,
-        event: AstrMessageEvent,
-        image_urls: list[str],
+        image_path: str,
         user_text: str,
-    ) -> list[object]:
-        """Transcribe images with a multimodal provider, in context.
+        *,
+        kind: str = "image",
+    ) -> str:
+        """Transcribe one image with the multimodal provider, in context.
 
-        The transcription carries the conversational context (user message) and
-        captures both the image meaning and simple content, so later turns can
-        understand it without seeing the image again.
+        表情包（kind='sticker'）的转述按内容 hash 长期缓存：命中直接返回，
+        未命中转述后回写；普通图片每次现转。缓存查找以缓存路径反查索引，
+        因此引用消息里的表情包同样能命中。
 
         Args:
-            event: Active event for provider resolution.
-            image_urls: Current request image URLs.
-            user_text: Current user message text.
+            image_path: Local path of the image to transcribe.
+            user_text: Current user message text, for contextual reading.
+            kind: Classified kind from the raw segment; refined by the index.
 
         Returns:
-            List of plain-text ImageCache entries, or an empty list on failure.
+            The transcription text, empty on failure.
         """
+        repository = (
+            getattr(self._container, "repository", None) if self._container else None
+        )
+        entry = None
+        if repository is not None and image_path:
+            try:
+                entry = await repository.get_image_cache_entry(file_path=image_path)
+            except Exception:
+                logger.debug(
+                    "[Humanize] image cache entry lookup failed", exc_info=True
+                )
+        if entry and str(entry.get("kind") or "") == "sticker":
+            kind = "sticker"
+        if kind == "sticker" and entry:
+            cached_text = str(entry.get("transcription") or "").strip()
+            if cached_text:
+                return cached_text[:600]
         provider = await self.context.provider_manager.get_provider_by_id(
             self._plugin_config.image_transcription_provider_id
         )
@@ -1021,10 +1101,11 @@ class HumanizePlugin(Star):
                 "[Humanize] image transcription provider not found: %s",
                 self._plugin_config.image_transcription_provider_id,
             )
-            return []
+            return ""
         prompt = (
-            "你是图片转述助手。结合当前聊天上下文，用简洁中文转述图片的含义和简单内容"
-            "（不是干巴巴描述画面）。只输出转述文本，不要解释。"
+            _STICKER_TRANSCRIPTION_PROMPT
+            if kind == "sticker"
+            else _IMAGE_TRANSCRIPTION_PROMPT
         )
         if user_text.strip():
             prompt += f"\n用户当前消息：{user_text}"
@@ -1032,7 +1113,7 @@ class HumanizePlugin(Star):
             response = await provider.text_chat(
                 prompt=prompt,
                 session_id="",
-                image_urls=image_urls,
+                image_urls=[image_path],
                 audio_urls=[],
                 func_tool=None,
                 contexts=[],
@@ -1048,13 +1129,21 @@ class HumanizePlugin(Star):
                 exc,
                 exc_info=True,
             )
-            return []
+            return ""
         text = str(getattr(response, "completion_text", "") or "").strip()
         if not text:
-            return []
-        from .humanize.domain.models import ImageCache
-
-        return [ImageCache(text=text[:600])]
+            return ""
+        text = text[:600]
+        if kind == "sticker" and entry and repository is not None:
+            try:
+                await repository.save_image_transcription(
+                    file_hash=str(entry.get("file_hash") or ""),
+                    kind="sticker",
+                    transcription=text,
+                )
+            except Exception:
+                logger.exception("[Humanize] failed to save sticker transcription")
+        return text
 
     @filter.on_using_llm_tool(priority=_FINALIZER_PRIORITY)
     async def on_tool_start(self, event: AstrMessageEvent, tool, tool_args) -> None:

@@ -237,3 +237,57 @@ def test_proactive_state_upsert_merges_and_resets(tmp_path: Path) -> None:
         assert await repository.get_proactive_state(scope_id=scope) == {}
 
     asyncio.run(scenario())
+
+
+def test_image_cache_transcription_roundtrip(tmp_path: Path) -> None:
+    """表情包转述随索引行持久化：按 hash/路径可反查，kind 首见即定。"""
+
+    async def scenario() -> None:
+        repository = await _repository(tmp_path / "humanize.db")
+
+        await repository.upsert_image_cache_entry(
+            file_hash="hash-a",
+            file_path="/cache/sticker.png",
+            kind="sticker",
+            file_size=10,
+        )
+        await repository.upsert_image_cache_entry(
+            file_hash="hash-b",
+            file_path="/cache/photo.png",
+            kind="image",
+        )
+
+        entry = await repository.get_image_cache_entry(file_hash="hash-a")
+        assert entry is not None
+        assert entry["kind"] == "sticker"
+        assert entry["transcription"] == ""
+
+        # 按路径反查（常驻读图工具用）。
+        by_path = await repository.get_image_cache_entry(file_path="/cache/photo.png")
+        assert by_path is not None
+        assert by_path["file_hash"] == "hash-b"
+        assert by_path["kind"] == "image"
+        assert await repository.get_image_cache_entry(file_path="/missing.png") is None
+
+        # 重复 upsert 不覆盖已有 kind，也不清掉已保存的转述。
+        await repository.save_image_transcription(
+            file_hash="hash-a", kind="sticker", transcription="梗图转述"
+        )
+        await repository.upsert_image_cache_entry(
+            file_hash="hash-a",
+            file_path="/cache/sticker-again.png",
+            kind="image",
+        )
+        entry = await repository.get_image_cache_entry(file_hash="hash-a")
+        assert entry is not None
+        assert entry["kind"] == "sticker"
+        assert entry["transcription"] == "梗图转述"
+        assert entry["file_path"] == "/cache/sticker-again.png"
+
+        # list 按 kind 过滤（淘汰策略分别限长用）。
+        stickers = await repository.list_image_cache_entries(kind="sticker")
+        assert [row["file_hash"] for row in stickers] == ["hash-a"]
+        images = await repository.list_image_cache_entries(kind="image")
+        assert [row["file_hash"] for row in images] == ["hash-b"]
+
+    asyncio.run(scenario())

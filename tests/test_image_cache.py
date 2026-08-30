@@ -21,6 +21,7 @@ class _ConfigStub:
         self._root = root
         self.image_cache_enabled = True
         self.image_cache_max_entries = 10
+        self.image_cache_max_sticker_entries = 10
 
     def data_path(self) -> Path:
         return self._root
@@ -38,8 +39,17 @@ class _RepositoryStub:
             raise RuntimeError("image cache index unavailable")
         self.entries.append(dict(kwargs))
 
-    async def list_image_cache_entries(self) -> list[dict[str, Any]]:
-        return list(self.entries)
+    async def list_image_cache_entries(
+        self, *, limit: int = 0, kind: str = ""
+    ) -> list[dict[str, Any]]:
+        selected = [
+            dict(entry)
+            for entry in self.entries
+            if not kind or entry.get("kind") == kind
+        ]
+        if limit > 0:
+            return selected[:limit]
+        return selected
 
     async def delete_image_cache_entries(self, hashes: Any) -> None:
         drop = set(hashes)
@@ -157,5 +167,64 @@ def test_read_touches_lru_timestamp(tmp_path: Path) -> None:
         repository.touches.clear()  # type: ignore[attr-defined]
         assert await store.read(str(tmp_path / "missing.png")) is None
         assert repository.touches == []  # type: ignore[attr-defined]
+
+    asyncio.run(scenario())
+
+
+def test_sticker_survives_image_lru_eviction(tmp_path: Path) -> None:
+    """普通图按 LRU 淘汰时，表情包（kind='sticker'）不受影响地长期保留。"""
+
+    async def scenario() -> None:
+        repository = _RepositoryStub()
+        store = _store(tmp_path, repository)
+        store._config.image_cache_max_entries = 1
+
+        photo_a = tmp_path / "photo-a.png"
+        photo_a.write_bytes(b"photo-a")
+        sticker = tmp_path / "sticker.png"
+        sticker.write_bytes(b"sticker-bytes")
+        photo_b = tmp_path / "photo-b.png"
+        photo_b.write_bytes(b"photo-b")
+
+        first = await store.store(str(photo_a))
+        kept = await store.store(str(sticker), kind="sticker")
+        second = await store.store(str(photo_b))
+
+        assert first.cached and kept.cached and second.cached
+        assert not Path(first.file_path).exists(), "最旧的普通图应被淘汰"
+        assert Path(second.file_path).exists()
+        assert Path(kept.file_path).exists(), "表情包不参与普通图 LRU 淘汰"
+        kinds = {entry["file_hash"]: entry["kind"] for entry in repository.entries}
+        assert kinds[kept.file_hash] == "sticker"
+
+    asyncio.run(scenario())
+
+
+def test_sticker_cap_evicts_oldest_sticker_only(tmp_path: Path) -> None:
+    """表情包也有独立上限：超出时只淘汰最旧的表情包，普通图不受牵连。"""
+
+    async def scenario() -> None:
+        repository = _RepositoryStub()
+        store = _store(tmp_path, repository)
+        store._config.image_cache_max_sticker_entries = 1
+
+        photo = tmp_path / "photo.png"
+        photo.write_bytes(b"photo")
+        sticker_a = tmp_path / "sticker-a.png"
+        sticker_a.write_bytes(b"sticker-a")
+        sticker_b = tmp_path / "sticker-b.png"
+        sticker_b.write_bytes(b"sticker-b")
+
+        kept_photo = await store.store(str(photo))
+        old_sticker = await store.store(str(sticker_a), kind="sticker")
+        new_sticker = await store.store(str(sticker_b), kind="sticker")
+
+        assert kept_photo.cached and old_sticker.cached and new_sticker.cached
+        assert not Path(old_sticker.file_path).exists(), "最旧的表情包应被淘汰"
+        assert Path(new_sticker.file_path).exists()
+        assert Path(kept_photo.file_path).exists(), "普通图不应被表情包淘汰影响"
+        hashes = {entry["file_hash"] for entry in repository.entries}
+        assert new_sticker.file_hash in hashes and kept_photo.file_hash in hashes
+        assert old_sticker.file_hash not in hashes
 
     asyncio.run(scenario())

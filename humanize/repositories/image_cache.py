@@ -23,6 +23,7 @@ class ImageCacheRepository:
         scope_type: str = "",
         scope_id: str = "",
         file_size: int = 0,
+        kind: str = "image",
     ) -> None:
         def operation(conn: sqlite3.Connection) -> None:
             now = _now()
@@ -30,8 +31,9 @@ class ImageCacheRepository:
                 """
                 INSERT INTO humanize_image_cache (
                     file_hash, file_path, message_id, scope_type, scope_id,
-                    file_size, created_at, last_hit_at
-                ) VALUES (?, ?, ?, ?, ?, ?, ?, ?)
+                    file_size, kind, transcription, transcribed_at,
+                    created_at, last_hit_at
+                ) VALUES (?, ?, ?, ?, ?, ?, ?, '', NULL, ?, ?)
                 ON CONFLICT(file_hash) DO UPDATE SET
                     file_path = excluded.file_path,
                     message_id = excluded.message_id,
@@ -44,9 +46,65 @@ class ImageCacheRepository:
                     scope_type,
                     scope_id,
                     max(0, int(file_size)),
+                    kind,
                     now,
                     now,
                 ),
+            )
+            conn.commit()
+
+        await self._run(operation)
+
+    async def get_image_cache_entry(
+        self,
+        *,
+        file_hash: str = "",
+        file_path: str = "",
+    ) -> dict[str, Any] | None:
+        """Fetch one cache entry's identity and transcription metadata.
+
+        Args:
+            file_hash: Content hash; takes precedence when both keys are given.
+            file_path: Cached file path, used by the resident read tool.
+
+        Returns:
+            The entry dict (file_hash, file_path, kind, transcription,
+            transcribed_at) or None when absent.
+        """
+        if not file_hash and not file_path:
+            return None
+
+        def operation(conn: sqlite3.Connection) -> dict[str, Any] | None:
+            if file_hash:
+                row = conn.execute(
+                    "SELECT file_hash, file_path, kind, transcription, "
+                    "transcribed_at FROM humanize_image_cache WHERE file_hash = ?",
+                    (file_hash,),
+                ).fetchone()
+            else:
+                row = conn.execute(
+                    "SELECT file_hash, file_path, kind, transcription, "
+                    "transcribed_at FROM humanize_image_cache WHERE file_path = ?",
+                    (file_path,),
+                ).fetchone()
+            return dict(row) if row is not None else None
+
+        return await self._run(operation)
+
+    async def save_image_transcription(
+        self,
+        *,
+        file_hash: str,
+        kind: str,
+        transcription: str,
+    ) -> None:
+        """Persist one sticker transcription under its content hash."""
+
+        def operation(conn: sqlite3.Connection) -> None:
+            conn.execute(
+                "UPDATE humanize_image_cache SET kind = ?, transcription = ?, "
+                "transcribed_at = ? WHERE file_hash = ?",
+                (kind, transcription, _now(), file_hash),
             )
             conn.commit()
 
@@ -71,20 +129,34 @@ class ImageCacheRepository:
 
         await self._run(operation)
 
-    async def list_image_cache_entries(self, *, limit: int = 0) -> list[dict[str, Any]]:
-        """Return cache entries ordered by least recently used first."""
+    async def list_image_cache_entries(
+        self, *, limit: int = 0, kind: str = ""
+    ) -> list[dict[str, Any]]:
+        """Return cache entries ordered by least recently used first.
+
+        Args:
+            limit: When positive, cap the number of returned rows.
+            kind: When non-empty, restrict to one entry kind
+                ('image' or 'sticker'); empty returns all kinds.
+        """
 
         def operation(conn: sqlite3.Connection) -> list[dict[str, Any]]:
             sql = (
                 "SELECT id, file_hash, file_path, message_id, scope_type, "
-                "scope_id, file_size, created_at, last_hit_at "
-                "FROM humanize_image_cache ORDER BY last_hit_at ASC, id ASC"
+                "scope_id, file_size, kind, transcription, transcribed_at, "
+                "created_at, last_hit_at "
+                "FROM humanize_image_cache"
             )
+            params: list[Any] = []
+            if kind:
+                sql += " WHERE kind = ?"
+                params.append(kind)
+            sql += " ORDER BY last_hit_at ASC, id ASC"
             if limit > 0:
                 sql += " LIMIT ?"
-                rows = conn.execute(sql, (limit,)).fetchall()
+                rows = conn.execute(sql, (*params, limit)).fetchall()
             else:
-                rows = conn.execute(sql).fetchall()
+                rows = conn.execute(sql, tuple(params)).fetchall()
             return [dict(row) for row in rows]
 
         return await self._run(operation)

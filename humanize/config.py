@@ -99,6 +99,7 @@ class PluginConfig:
     image_transcription_provider_id: str = ""
     image_cache_enabled: bool = True
     image_cache_max_entries: int = 100
+    image_cache_max_sticker_entries: int = 500
     memory_identity_secret_env: str = "HUMANIZE_MEMORY_SECRET"
     memory_recall_timeout_seconds: float = 1.5
     memory_auto_activate_confidence: float = 0.88
@@ -196,6 +197,9 @@ class PluginConfig:
             image_cache_max_entries=_as_int(
                 data.get("image_cache_max_entries"), 100, 1, 10_000
             ),
+            image_cache_max_sticker_entries=_as_int(
+                data.get("image_cache_max_sticker_entries"), 500, 1, 50_000
+            ),
             memory_identity_secret_env=_as_identifier(
                 data.get("memory_identity_secret_env"), "HUMANIZE_MEMORY_SECRET"
             ),
@@ -286,6 +290,7 @@ class PluginConfig:
             "image_transcription_provider_id": self.image_transcription_provider_id,
             "image_cache_enabled": self.image_cache_enabled,
             "image_cache_max_entries": self.image_cache_max_entries,
+            "image_cache_max_sticker_entries": self.image_cache_max_sticker_entries,
             "memory_identity_secret_env": self.memory_identity_secret_env,
             "memory_recall_timeout_seconds": self.memory_recall_timeout_seconds,
             "memory_auto_activate_confidence": (self.memory_auto_activate_confidence),

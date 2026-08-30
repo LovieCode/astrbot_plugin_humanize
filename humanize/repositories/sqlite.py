@@ -181,6 +181,9 @@ class SQLiteRepository(
                 "TEXT NOT NULL DEFAULT ''",
             ),
             ("humanize_prompt_prefix_samples", "ttft_ms", "INTEGER"),
+            ("humanize_image_cache", "kind", "TEXT NOT NULL DEFAULT 'image'"),
+            ("humanize_image_cache", "transcription", "TEXT NOT NULL DEFAULT ''"),
+            ("humanize_image_cache", "transcribed_at", "TEXT"),
             (
                 "humanize_prompt_templates",
                 "memory_extraction_content",
