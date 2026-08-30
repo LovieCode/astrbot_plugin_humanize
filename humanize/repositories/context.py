@@ -405,8 +405,10 @@ class ContextRepository:
                 LEFT JOIN (
                     SELECT p.* FROM protocol_logs p
                     JOIN (
+                        -- 终态日志：普通回合 final；主动回合落 proactive_* 阶段。
                         SELECT request_id, MAX(id) AS final_id
-                        FROM protocol_logs WHERE stage = 'final'
+                        FROM protocol_logs
+                        WHERE stage IN ('final', 'proactive_window', 'proactive_direct')
                         GROUP BY request_id
                     ) latest ON latest.final_id = p.id
                 ) fp ON fp.request_id = r.request_id

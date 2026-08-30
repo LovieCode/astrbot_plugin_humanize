@@ -594,6 +594,75 @@ def test_context_run_final_snapshot_update_is_idempotent(tmp_path: Path) -> None
     asyncio.run(scenario())
 
 
+def test_context_run_listing_counts_proactive_stages_as_terminal(
+    tmp_path: Path,
+) -> None:
+    """列表协议状态 JOIN 的终态集合必须包含主动回合的 proactive_* 阶段。
+
+    回归钉：列表查询曾只认 stage='final'，主动回合落的是
+    proactive_window/proactive_direct，列表上协议状态列全部显示
+    '—'，而点开详情（全量读 protocol_logs）又能看到"已回复"。
+    """
+
+    async def scenario() -> None:
+        repository = SQLiteRepository(tmp_path / "humanize.db")
+        await repository.initialize()
+        section = ContextSection(
+            key="current_message",
+            ordinal=0,
+            priority=100,
+            source_type="message",
+            source_refs=("message:msg-1",),
+            targets=("prompt",),
+            required=True,
+            included=True,
+            budget_tokens=None,
+            estimated_tokens=4,
+            applied_tokens=4,
+            item_count=1,
+            reason="current_user_message",
+            content="占位",
+        )
+
+        for request_id, stage in (
+            ("req-direct", "proactive_direct"),
+            ("req-window", "proactive_window"),
+        ):
+            context = _context(request_id)
+            await repository.record_context_run(context, (section,), "user")
+            await repository.record_protocol(
+                context,
+                success=True,
+                action="Reply",
+                failure_code="",
+                failure_detail="",
+                raw_output="<Action>Reply</Action>",
+                messages=("回复",),
+                model="model-1",
+                duration_ms=10,
+                stage=stage,
+            )
+
+        listing = await repository.list_context_runs(
+            scope_type="", scope_id="", section_key="", page=1, page_size=20
+        )
+        summaries = {
+            item["request_id"]: item["protocol_summary"] for item in listing["items"]
+        }
+
+        assert summaries["req-direct"] == {
+            "success": True,
+            "action": "Reply",
+            "failure_code": "",
+            "duration_ms": 10,
+            "model": "model-1",
+            "no_reply_reason": "",
+        }
+        assert summaries["req-window"]["success"] is True
+
+    asyncio.run(scenario())
+
+
 def test_context_detail_links_latest_final_failure(tmp_path: Path) -> None:
     async def scenario() -> None:
         repository = SQLiteRepository(tmp_path / "humanize.db")
