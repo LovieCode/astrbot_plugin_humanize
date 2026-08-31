@@ -32,24 +32,83 @@
 
       <div class="pl-main">
 
+        <!-- 概览 -->
+        <div class="pl-summary reveal">
+          <div class="stat-card pl-sum-card">
+            <div class="stat-top">
+              <span class="stat-icon i-pink" data-icon="globe"></span>
+              <span class="pl-sum-tag">全局</span>
+            </div>
+            <div class="stat-value pl-sum-value" id="plSumMode">—</div>
+            <div class="stat-label">默认模式（未单独设置的群）</div>
+          </div>
+          <div class="stat-card pl-sum-card">
+            <div class="stat-top">
+              <span class="stat-icon i-violet" data-icon="users"></span>
+              <span class="pl-sum-tag">覆盖</span>
+            </div>
+            <div class="stat-value" id="plSumGroups">0</div>
+            <div class="stat-label">单独设置了模式的群</div>
+          </div>
+          <div class="stat-card pl-sum-card">
+            <div class="stat-top">
+              <span class="stat-icon i-blue" data-icon="chat"></span>
+              <span class="pl-sum-tag">触发</span>
+            </div>
+            <div class="stat-value" id="plSumKeywords">0</div>
+            <div class="stat-label">主动触发关键词</div>
+          </div>
+        </div>
+
         <!-- 全局默认模式 -->
         <div class="card reveal">
-          <div class="card-head"><span class="card-dot"></span><span class="card-title">全局默认模式</span></div>
-          <div class="pl-note">所有没有单独设置的群都套用这里的模式；保存立即生效，无需重启。</div>
+          <div class="card-head">
+            <span class="card-dot"></span>
+            <span class="card-title">全局默认模式</span>
+            <span class="pl-head-tag">所有没有单独设置的群都套用这里</span>
+          </div>
+          <div class="pl-note">从左到右放开程度递增，选一档即可；保存立即生效，无需重启。</div>
           <div class="pl-modes" id="plGlobalModes">
-            <button class="pl-mode" type="button" data-value="silent"><span class="pl-mode-name">完全沉默</span></button>
-            <button class="pl-mode" type="button" data-value="no_proactive"><span class="pl-mode-name">不许主动回复</span></button>
-            <button class="pl-mode" type="button" data-value="admin"><span class="pl-mode-name">允许管理员@</span></button>
-            <button class="pl-mode" type="button" data-value="mention"><span class="pl-mode-name">允许所有@和关键词</span></button>
-            <button class="pl-mode" type="button" data-value="full"><span class="pl-mode-name">完全主动回复</span></button>
+            <button class="pl-mode" type="button" data-value="silent">
+              <span class="pl-mode-top"><span class="pl-mode-step">LEVEL 1</span><span class="pl-mode-check" data-icon="check"></span></span>
+              <span class="pl-mode-name">完全沉默</span>
+              <span class="pl-mode-meter"><i class="on"></i><i></i><i></i><i></i><i></i></span>
+            </button>
+            <button class="pl-mode" type="button" data-value="no_proactive">
+              <span class="pl-mode-top"><span class="pl-mode-step">LEVEL 2</span><span class="pl-mode-check" data-icon="check"></span></span>
+              <span class="pl-mode-name">不许主动回复</span>
+              <span class="pl-mode-meter"><i class="on"></i><i class="on"></i><i></i><i></i><i></i></span>
+            </button>
+            <button class="pl-mode" type="button" data-value="admin">
+              <span class="pl-mode-top"><span class="pl-mode-step">LEVEL 3</span><span class="pl-mode-check" data-icon="check"></span></span>
+              <span class="pl-mode-name">允许管理员@</span>
+              <span class="pl-mode-meter"><i class="on"></i><i class="on"></i><i class="on"></i><i></i><i></i></span>
+            </button>
+            <button class="pl-mode" type="button" data-value="mention">
+              <span class="pl-mode-top"><span class="pl-mode-step">LEVEL 4</span><span class="pl-mode-check" data-icon="check"></span></span>
+              <span class="pl-mode-name">允许所有@和关键词</span>
+              <span class="pl-mode-meter"><i class="on"></i><i class="on"></i><i class="on"></i><i class="on"></i><i></i></span>
+            </button>
+            <button class="pl-mode" type="button" data-value="full">
+              <span class="pl-mode-top"><span class="pl-mode-step">LEVEL 5</span><span class="pl-mode-check" data-icon="check"></span></span>
+              <span class="pl-mode-name">完全主动回复</span>
+              <span class="pl-mode-meter"><i class="on"></i><i class="on"></i><i class="on"></i><i class="on"></i><i class="on"></i></span>
+            </button>
           </div>
-          <div class="pl-mode-desc" id="plGlobalDesc"></div>
-          <div class="pl-prob-row">
-            <label class="pl-prob-label" for="plGlobalProb">期望发言概率</label>
-            <input class="pl-input pl-prob-input" id="plGlobalProb" type="number" min="1" max="100" step="1" placeholder="未设置" />
-            <span class="pl-prob-unit">%</span>
+          <div class="pl-desc">
+            <span class="pl-desc-icon" data-icon="info"></span>
+            <span id="plGlobalDesc"></span>
           </div>
-          <div class="pl-prob-note">软性期望，不是硬性限制：主动触发时告诉机器人大概多常开口，说不说仍由它结合上下文自行判断。留空表示不注入这条期望。</div>
+          <div class="pl-field">
+            <div class="pl-field-main">
+              <span class="pl-field-label">期望发言概率</span>
+              <span class="pl-field-hint">软性期望，不是硬性限制：只提示机器人大概多常开口，说不说仍由它结合上下文判断；被 @、命中关键词或被引用时一定会回应。留空表示不注入这条期望。</span>
+            </div>
+            <div class="pl-field-control">
+              <input class="pl-input pl-prob-input" id="plGlobalProb" type="number" min="1" max="100" step="1" placeholder="未设置" aria-label="全局期望发言概率" />
+              <span class="pl-prob-unit">%</span>
+            </div>
+          </div>
           <div class="pl-actions">
             <button class="btn btn-primary" id="plSaveGlobal" data-icon="check">保存全局默认</button>
           </div>
@@ -57,8 +116,12 @@
 
         <!-- 按群覆盖 -->
         <div class="card reveal">
-          <div class="card-head"><span class="card-dot"></span><span class="card-title">群聊覆盖</span></div>
-          <div class="pl-note">单独设置的群以这里为准，覆盖全局默认。填群号即可（如 123456），机器人见过的群会自动带出名称供选择。「期望发言概率」是软性提示（1-100）：主动触发时告诉机器人大概多常开口，说不说由它自己判断，不是硬性限制；留空回退全局默认。</div>
+          <div class="card-head">
+            <span class="card-dot"></span>
+            <span class="card-title">群聊覆盖</span>
+            <span class="pl-head-tag">覆盖全局默认 · 改动即时保存</span>
+          </div>
+          <div class="pl-note">单独设置的群以这里为准，覆盖全局默认。填群号即可（如 123456），机器人见过的群会自动带出名称供选择。</div>
           <div class="pl-add">
             <input class="pl-input pl-scope-input" id="plNewScope" list="plScopeOptions" placeholder="群号或完整会话标识（aiocqhttp:GroupMessage:123456）" />
             <datalist id="plScopeOptions"></datalist>
@@ -77,8 +140,12 @@
 
         <!-- 触发关键词 -->
         <div class="card reveal">
-          <div class="card-head"><span class="card-dot"></span><span class="card-title">触发关键词</span></div>
-          <div class="pl-note">消息里出现这些词（可把机器人昵称加进来）或引用了机器人的消息时，跳过等待尽快触发回复。对「允许所有@和关键词」及以上的模式生效。回车或逗号添加。</div>
+          <div class="card-head">
+            <span class="card-dot"></span>
+            <span class="card-title">触发关键词</span>
+            <span class="pl-head-tag">对「允许所有@和关键词」及以上的模式生效</span>
+          </div>
+          <div class="pl-note">消息里出现这些词（可把机器人昵称加进来）或引用了机器人的消息时，跳过等待尽快触发回复。回车或逗号可一次添加多个。</div>
           <div class="pl-keywords" id="plKeywords"></div>
           <div class="pl-kw-add">
             <input class="pl-input pl-kw-input" id="plNewKeyword" placeholder="输入关键词后回车" />
@@ -93,16 +160,38 @@
         <div class="card">
           <div class="card-head"><span class="card-dot"></span><span class="card-title">模式说明</span></div>
           <div class="pl-side-list">
-            <div class="pl-side-item"><b>完全沉默</b>：该群完全不参与，@ 也不回复、不旁观、不处理图片。</div>
-            <div class="pl-side-item"><b>不许主动回复</b>：只回复 @，绝不主动搭话。</div>
-            <div class="pl-side-item"><b>允许管理员@</b>：仅当群管理员引用机器人消息或命中关键词时，才主动触发回复。</div>
-            <div class="pl-side-item"><b>允许所有@和关键词</b>：任何人引用机器人或命中关键词都会触发；不开闲聊窗。</div>
-            <div class="pl-side-item"><b>完全主动回复</b>：在上一档基础上，群里的普通闲聊也会按窗口节奏触发回复。</div>
-            <div class="pl-side-item"><b>期望发言概率</b>：软性期望，不是硬性限制。机器人被动触发检查时，提示它大概多常该开口（如 30% 就是"十次里大概三次可以说"），说不说仍由它结合上下文判断。回复 @ 和关键词/引用直呼不受影响，一定会回应。</div>
+            <div class="pl-side-item" data-mode="silent">
+              <span class="pl-side-dot"></span>
+              <div class="pl-side-text"><b>完全沉默</b>：该群完全不参与，@ 也不回复、不旁观、不处理图片。</div>
+            </div>
+            <div class="pl-side-item" data-mode="no_proactive">
+              <span class="pl-side-dot"></span>
+              <div class="pl-side-text"><b>不许主动回复</b>：只回复 @，绝不主动搭话。</div>
+            </div>
+            <div class="pl-side-item" data-mode="admin">
+              <span class="pl-side-dot"></span>
+              <div class="pl-side-text"><b>允许管理员@</b>：仅当群管理员引用机器人消息或命中关键词时，才主动触发回复。</div>
+            </div>
+            <div class="pl-side-item" data-mode="mention">
+              <span class="pl-side-dot"></span>
+              <div class="pl-side-text"><b>允许所有@和关键词</b>：任何人引用机器人或命中关键词都会触发；不开闲聊窗。</div>
+            </div>
+            <div class="pl-side-item" data-mode="full">
+              <span class="pl-side-dot"></span>
+              <div class="pl-side-text"><b>完全主动回复</b>：在上一档基础上，群里的普通闲聊也会按窗口节奏触发回复。</div>
+            </div>
+            <div class="pl-side-item">
+              <span class="pl-side-dot pl-side-dot-plain"></span>
+              <div class="pl-side-text"><b>期望发言概率</b>：软性期望，不是硬性限制。提示它大概多常该开口（30% 就是"十次里大概三次可以说"），说不说仍由它判断。</div>
+            </div>
           </div>
         </div>
         <div class="card">
-          <div class="card-head"><span class="card-dot"></span><span class="card-title">会话名称参考</span></div>
+          <div class="card-head">
+            <span class="card-dot"></span>
+            <span class="card-title">会话名称参考</span>
+            <span class="pl-head-tag" id="plSessionCount"></span>
+          </div>
           <div class="pl-note">机器人收到过的群会自动记录群名；列表里就能对上号。没见过的群可以直接填群号。</div>
           <div class="pl-sessions" id="plSessions"></div>
         </div>

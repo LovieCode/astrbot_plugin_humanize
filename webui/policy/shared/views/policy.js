@@ -44,9 +44,13 @@
   const groupsEl = $("#plGroups");
   const emptyHost = $("#plEmptyHost");
   const sessionsEl = $("#plSessions");
+  const sessionCountEl = $("#plSessionCount");
   const keywordsEl = $("#plKeywords");
   const keywordInput = $("#plNewKeyword");
   const keywordAddBtn = $("#plKwAddBtn");
+  const sumModeEl = $("#plSumMode");
+  const sumGroupsEl = $("#plSumGroups");
+  const sumKeywordsEl = $("#plSumKeywords");
 
   let globalMode = "mention";
   let groups = [];
@@ -76,8 +80,19 @@
     globalDescEl.textContent = MODE_DESCS[globalMode] || "";
   }
 
+  function renderSummary() {
+    if (sumModeEl) sumModeEl.textContent = MODE_LABELS[globalMode] || "—";
+    if (sumGroupsEl) sumGroupsEl.textContent = String(groups.length);
+    if (sumKeywordsEl) sumKeywordsEl.textContent = String(keywords.length);
+  }
+
   function renderSessions() {
     sessionsEl.textContent = "";
+    if (sessionCountEl) {
+      sessionCountEl.textContent = knownSessions.length
+        ? "共 " + knownSessions.length + " 个"
+        : "暂无";
+    }
     if (!knownSessions.length) {
       const empty = document.createElement("div");
       empty.className = "pl-note";
@@ -139,6 +154,11 @@
       const row = document.createElement("div");
       row.className = "pl-group";
       row.dataset.scope = group.scope_id;
+      row.dataset.mode = group.mode;
+
+      const dot = document.createElement("span");
+      dot.className = "pl-group-dot";
+      dot.title = MODE_LABELS[group.mode] || group.mode;
 
       const info = document.createElement("div");
       info.className = "pl-group-info";
@@ -151,15 +171,23 @@
       info.appendChild(name);
       info.appendChild(id);
 
+      const controls = document.createElement("div");
+      controls.className = "pl-group-controls";
+
       const select = buildModeSelect(group.mode);
       select.addEventListener("change", () => {
+        // 颜色小圆点跟着当前档位走，便于一眼扫出哪些群放得开
+        row.dataset.mode = select.value;
+        dot.title = MODE_LABELS[select.value] || select.value;
+        updateProbDisabled();
         saveOverride(group.scope_id, select.value);
       });
 
+      const probField = document.createElement("div");
+      probField.className = "pl-prob-field";
       const probLabel = document.createElement("span");
       probLabel.className = "pl-prob-tag";
       probLabel.textContent = "期望发言";
-
       const probInput = document.createElement("input");
       probInput.className = "pl-input pl-prob-input";
       probInput.type = "number";
@@ -175,6 +203,21 @@
       probInput.addEventListener("change", () => {
         saveProbability(group.scope_id, select.value, probInput);
       });
+      const probUnit = document.createElement("span");
+      probUnit.className = "pl-prob-unit";
+      probUnit.textContent = "%";
+      probField.appendChild(probLabel);
+      probField.appendChild(probInput);
+      probField.appendChild(probUnit);
+      function updateProbDisabled() {
+        const disabled = select.value === "silent";
+        probField.classList.toggle("is-muted", disabled);
+        probInput.disabled = disabled;
+        probInput.title = disabled
+          ? "完全沉默模式下发言概率不适用"
+          : "期望发言概率（1-100，软性期望；留空回退全局默认）";
+      }
+      updateProbDisabled();
 
       const removeBtn = document.createElement("button");
       removeBtn.className = "btn btn-ghost pl-danger";
@@ -182,17 +225,26 @@
       removeBtn.textContent = "移除";
       removeBtn.addEventListener("click", () => removeOverride(group.scope_id));
 
+      controls.appendChild(select);
+      controls.appendChild(probField);
+      controls.appendChild(removeBtn);
+
+      row.appendChild(dot);
       row.appendChild(info);
-      row.appendChild(select);
-      row.appendChild(probLabel);
-      row.appendChild(probInput);
-      row.appendChild(removeBtn);
+      row.appendChild(controls);
       groupsEl.appendChild(row);
     });
   }
 
   function renderKeywords() {
     keywordsEl.textContent = "";
+    if (!keywords.length) {
+      const empty = document.createElement("div");
+      empty.className = "pl-kw-empty";
+      empty.textContent = "还没有关键词；机器人只会在被 @、被引用或闲聊窗到期时开口。";
+      keywordsEl.appendChild(empty);
+      return;
+    }
     keywords.forEach((keyword, index) => {
       const tag = document.createElement("span");
       tag.className = "pl-kw";
@@ -217,6 +269,7 @@
 
   function renderAll() {
     renderGlobalModes();
+    renderSummary();
     renderGroups();
     renderSessions();
     renderDatalist();
