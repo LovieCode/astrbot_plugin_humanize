@@ -1162,38 +1162,29 @@ class HumanizePlugin(Star):
         )
         if user_text.strip():
             prompt += f"\n用户当前消息：{user_text}"
-        response = None
-        last_exc: Exception | None = None
-        for attempt in range(1, 4):
-            try:
-                response = await provider.text_chat(
-                    prompt=prompt,
-                    session_id="",
-                    image_urls=[image_path],
-                    audio_urls=[],
-                    func_tool=None,
-                    contexts=[],
-                    system_prompt="",
-                    tool_calls_result=None,
-                    model=None,
-                    extra_user_content_parts=[],
-                    request_max_retries=1,
-                )
-                break
-            except Exception as exc:
-                last_exc = exc
-                logger.warning(
-                    "[Humanize] image transcription attempt %s/3 failed: %s",
-                    attempt,
-                    exc,
-                )
-                if attempt < 3:
-                    await asyncio.sleep(attempt)
-        if response is None:
+        # 重试与聊天请求同策略：request_max_retries 传 None（不压成 1），
+        # 由 Provider 内部按 provider_settings.request_max_retries（默认 5）
+        # 做指数退避重试，连接错误/超时/429/5xx 均可重试；聊天看起来稳，
+        # 靠的正是这套 Provider 级重试，转述此前禁用它导致瞬时故障直接失败。
+        try:
+            response = await provider.text_chat(
+                prompt=prompt,
+                session_id="",
+                image_urls=[image_path],
+                audio_urls=[],
+                func_tool=None,
+                contexts=[],
+                system_prompt="",
+                tool_calls_result=None,
+                model=None,
+                extra_user_content_parts=[],
+                request_max_retries=None,
+            )
+        except Exception as exc:
             logger.error(
-                "[Humanize] image transcription request failed after 3 attempts: %s",
-                last_exc,
-                exc_info=last_exc is not None,
+                "[Humanize] image transcription request failed: %s",
+                exc,
+                exc_info=True,
             )
             return ""
         text = str(getattr(response, "completion_text", "") or "").strip()
