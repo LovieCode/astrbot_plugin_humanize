@@ -15,9 +15,27 @@ from ..ports import RepositoryPort
 logger = logging.getLogger("astrbot")
 
 _MAX_WAITS_PER_BATCH = 3
-# 计时反馈：回复后立刻回到 1 秒窗口；沉默/无效则拉长 10 秒。
-_REPLY_RESET_SECONDS = 1
-_NO_REPLY_STEP_SECONDS = 10
+# 计时反馈：回复后回到 2 秒保底窗口；拒绝（No Reply / 无效输出 /
+# 等待耗尽）的增量依次为 1、3、5、10 秒，之后每步 ×√2 缓增
+# （14, 20, 28, 40…），整体仍受 max 窗口钳制。
+_REPLY_RESET_SECONDS = 2
+_MIN_WINDOW_SECONDS = 2
+_NO_REPLY_STEP_SCHEDULE = (1, 3, 5, 10)
+
+
+def _no_reply_step(rejections: int) -> int:
+    """Return the stretch increment for the Nth consecutive rejection.
+
+    Args:
+        rejections: 连续拒绝次数，从 1 起。
+
+    Returns:
+        前四步取固定序列 1/3/5/10，之后每步 ×√2（四舍五入取整）。
+    """
+    schedule_len = len(_NO_REPLY_STEP_SCHEDULE)
+    if rejections <= schedule_len:
+        return _NO_REPLY_STEP_SCHEDULE[rejections - 1]
+    return round(_NO_REPLY_STEP_SCHEDULE[-1] * 2 ** ((rejections - schedule_len) / 2))
 
 
 def _iso_now() -> str:
@@ -50,9 +68,10 @@ class ProactiveService:
     into the host event queue, where the ordinary reply pipeline runs —
     full managed context, protocol validation, sending. The model's single
     Action is reported back through the outcome callback: Reply re-arms the
-    window at 1 second, No Reply adds 10 seconds, Wait re-runs the batch
-    after N seconds (at most three times). The service never calls a
-    provider, sends a message, or decides what to say.
+    window at the 2-second floor, a rejection (No Reply, invalid output, or
+    exhausted waits) stretches it by 1/3/5/10 seconds and then by ×√2 per
+    step, Wait re-runs the batch after N seconds (at most three times). The
+    service never calls a provider, sends a message, or decides what to say.
     """
 
     def __init__(
@@ -70,6 +89,7 @@ class ProactiveService:
         self._templates: dict[str, Any] = {}
         self._window_timers: dict[str, asyncio.Task[None]] = {}
         self._waits: dict[str, int] = {}
+        self._rejections: dict[str, int] = {}
         self._closed = False
 
     # ---------- 入口（由消息钩子调用） ----------
@@ -121,8 +141,9 @@ class ProactiveService:
         """Re-arm the window right after the bot replied in this group.
 
         A reply — proactive or a normal @-answer — means the conversation
-        is warm; the next unaddressed message triggers after 1 second and
-        the model decides whether to keep participating.
+        is warm; the consecutive-rejection ladder is cleared and the next
+        unaddressed message triggers after the 2-second floor, and the
+        model decides whether to keep participating.
 
         Args:
             scope_id: Group session identifier.
@@ -130,6 +151,7 @@ class ProactiveService:
         if self._closed:
             return
         self._waits.pop(scope_id, None)
+        self._rejections.pop(scope_id, None)
         await self._remember(scope_id, window_seconds=_REPLY_RESET_SECONDS)
 
     async def on_wait_requested(
@@ -167,6 +189,7 @@ class ProactiveService:
             task.cancel()
         self._window_timers.clear()
         self._waits.clear()
+        self._rejections.clear()
         self._templates.clear()
 
     # ---------- 调度 ----------
@@ -282,6 +305,7 @@ class ProactiveService:
                 return
             self._waits.pop(scope_id, None)
             if action is Action.REPLY:
+                self._rejections.pop(scope_id, None)
                 await self._remember(
                     scope_id,
                     window_seconds=_REPLY_RESET_SECONDS,
@@ -310,9 +334,11 @@ class ProactiveService:
                 or self._config.proactive_window_initial_seconds
             )
         )
+        rejections = self._rejections.get(scope_id, 0) + 1
+        self._rejections[scope_id] = rejections
         await self._remember(
             scope_id,
-            window_seconds=self._clamp_window(current + _NO_REPLY_STEP_SECONDS),
+            window_seconds=self._clamp_window(current + _no_reply_step(rejections)),
             last_eval_at=_iso_now(),
         )
 
@@ -337,4 +363,4 @@ class ProactiveService:
             value = int(seconds)
         except (TypeError, ValueError):
             value = self._config.proactive_window_initial_seconds
-        return max(1, min(value, maximum))
+        return max(_MIN_WINDOW_SECONDS, min(value, maximum))

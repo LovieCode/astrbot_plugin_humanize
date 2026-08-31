@@ -224,7 +224,7 @@ def test_missing_template_skips_triggering() -> None:
     asyncio.run(scenario())
 
 
-def test_reply_outcome_resets_window_to_one_second() -> None:
+def test_reply_outcome_resets_window_to_floor() -> None:
     async def scenario() -> None:
         service, parts = _service()
         parts["repository"].states[SCOPE] = {"window_seconds": 120}
@@ -233,13 +233,14 @@ def test_reply_outcome_resets_window_to_one_second() -> None:
         await outcome(_ctx(), action=Action.REPLY)
         await service.shutdown()
 
-        assert parts["repository"].states[SCOPE]["window_seconds"] == 1
+        assert parts["repository"].states[SCOPE]["window_seconds"] == 2
         assert SCOPE not in service._waits
+        assert SCOPE not in service._rejections
 
     asyncio.run(scenario())
 
 
-def test_no_reply_outcome_adds_ten_seconds() -> None:
+def test_no_reply_outcome_adds_first_scheduled_step() -> None:
     async def scenario() -> None:
         service, parts = _service()
         outcome = service._outcome(SCOPE)
@@ -247,7 +248,8 @@ def test_no_reply_outcome_adds_ten_seconds() -> None:
         await outcome(_ctx(), action=Action.NO_REPLY)
         await service.shutdown()
 
-        assert parts["repository"].states[SCOPE]["window_seconds"] == 20
+        # 初始窗口 10 秒 + 第一次拒绝增量 1 秒。
+        assert parts["repository"].states[SCOPE]["window_seconds"] == 11
 
     asyncio.run(scenario())
 
@@ -255,7 +257,7 @@ def test_no_reply_outcome_adds_ten_seconds() -> None:
 def test_no_reply_window_grows_to_the_cap() -> None:
     async def scenario() -> None:
         service, parts = _service()
-        parts["repository"].states[SCOPE] = {"window_seconds": 295}
+        parts["repository"].states[SCOPE] = {"window_seconds": 299}
         outcome = service._outcome(SCOPE)
 
         await outcome(_ctx(), action=Action.NO_REPLY)
@@ -274,7 +276,7 @@ def test_invalid_outcome_also_stretches_window() -> None:
         await outcome(_ctx(), action=None)
         await service.shutdown()
 
-        assert parts["repository"].states[SCOPE]["window_seconds"] == 20
+        assert parts["repository"].states[SCOPE]["window_seconds"] == 11
 
     asyncio.run(scenario())
 
@@ -296,8 +298,36 @@ def test_wait_defers_and_exhausts_after_three() -> None:
         # 第三次等待被拒：按沉默处理，拉长窗口且不再排新计时器。
         await outcome(_ctx(), action=Action.WAIT, wait_seconds=7)
         assert SCOPE not in service._waits
-        assert parts["repository"].states[SCOPE]["window_seconds"] == 20
+        assert parts["repository"].states[SCOPE]["window_seconds"] == 11
         assert SCOPE not in service._window_timers
+        await service.shutdown()
+
+    asyncio.run(scenario())
+
+
+def test_no_reply_rejection_ladder_then_reply_resets() -> None:
+    """拒绝连击按 1/3/5/10 秒走，之后 ×√2 缓增；回复后重新从第一步算。"""
+
+    async def scenario() -> None:
+        service, parts = _service()
+        outcome = service._outcome(SCOPE)
+        states = parts["repository"].states
+
+        # 初始 10 秒；增量依次 1、3、5、10、14、20、28（×√2 取整）。
+        expected = [11, 14, 19, 29, 43, 63, 91]
+        for window in expected:
+            await outcome(_ctx(), action=Action.NO_REPLY)
+            assert states[SCOPE]["window_seconds"] == window
+        assert service._rejections[SCOPE] == len(expected)
+
+        # 回复一次：窗口回到 2 秒保底，连拒计数清零。
+        await outcome(_ctx(), action=Action.REPLY)
+        assert states[SCOPE]["window_seconds"] == 2
+        assert SCOPE not in service._rejections
+
+        # 重新从阶梯第一步开始：+1 → 3 秒。
+        await outcome(_ctx(), action=Action.NO_REPLY)
+        assert states[SCOPE]["window_seconds"] == 3
         await service.shutdown()
 
     asyncio.run(scenario())
@@ -308,12 +338,14 @@ def test_on_bot_reply_resets_window_and_waits() -> None:
         service, parts = _service()
         parts["repository"].states[SCOPE] = {"window_seconds": 120}
         service._waits[SCOPE] = 2
+        service._rejections[SCOPE] = 5
 
         await service.on_bot_reply(SCOPE)
         await service.shutdown()
 
-        assert parts["repository"].states[SCOPE]["window_seconds"] == 1
+        assert parts["repository"].states[SCOPE]["window_seconds"] == 2
         assert SCOPE not in service._waits
+        assert SCOPE not in service._rejections
 
     asyncio.run(scenario())
 

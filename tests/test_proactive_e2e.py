@@ -165,7 +165,8 @@ def _plugin(
             "memory_enabled": False,
         },
     )
-    # 提速：初始窗口压到下限 1 秒（线上默认 10 秒），其余计时语义不变。
+    # 提速：初始窗口压到下限（线上默认 10 秒），受 2 秒保底下限托底，
+    # 其余计时语义不变。
     plugin._plugin_config = replace(
         plugin._plugin_config, proactive_window_initial_seconds=0
     )
@@ -292,7 +293,9 @@ def test_window_no_reply_cycle_stretches_and_keeps_history(
             state = await plugin._container.repository.get_proactive_state(
                 scope_id=SCOPE
             )
-            assert state["window_seconds"] == 11  # 1 秒窗口 + 沉默 +10
+            assert (
+                state["window_seconds"] == 3
+            )  # 初始压到保底 2 秒 + 沉默 +1（阶梯首步）
             # 主动检查沉默收场不落账：窗口里只有小明的旁观条目，
             # 不会出现"系统提示"伪装的用户消息。
             assert (await _load_window(plugin)).entry_count == 1
@@ -336,7 +339,7 @@ def test_window_reply_cycle_sends_resets_and_writes_history(
             state = await plugin._container.repository.get_proactive_state(
                 scope_id=SCOPE
             )
-            assert state["window_seconds"] == 1
+            assert state["window_seconds"] == 2  # 回复后回到 2 秒保底窗口
 
             window = await _load_window(plugin)
             assert window.entry_count == 2
@@ -394,7 +397,7 @@ def test_window_wait_cycle_defers_then_replies(
             state = await plugin._container.repository.get_proactive_state(
                 scope_id=SCOPE
             )
-            assert state["window_seconds"] == 1
+            assert state["window_seconds"] == 2  # 回复后回到 2 秒保底窗口
             assert (await _load_window(plugin)).entry_count == 2
         finally:
             await plugin.terminate()
@@ -550,7 +553,7 @@ def test_normal_at_reply_resets_pending_window(
             state = await plugin._container.repository.get_proactive_state(
                 scope_id=SCOPE
             )
-            assert state["window_seconds"] == 1
+            assert state["window_seconds"] == 2  # 回复后回到 2 秒保底窗口
             assert queue.empty()
         finally:
             await plugin.terminate()
