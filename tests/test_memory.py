@@ -1043,7 +1043,7 @@ def test_search_memory_for_tool_renders_sections_guards_and_args() -> None:
             return SimpleNamespace(
                 included=True,
                 content="<MemoryContext><Memory type='preference'>喜欢爬山</Memory></MemoryContext>",
-                source_refs=(),
+                source_refs=("viking://memories/abc123",),
                 item_count=1,
                 reason="matched",
                 duration_ms=1,
@@ -1056,24 +1056,37 @@ def test_search_memory_for_tool_renders_sections_guards_and_args() -> None:
                 rows=(
                     {
                         "updated_at": "2026-07-17T00:00:00+00:00",
-                        "action": "Reply",
+                        "action": "Observed",
                         "context_ref": "ctx-1A2B3C4D",
-                        "content": "用户提到周末想去爬山",
+                        "sender_name": "小红",
+                        "content": "小红提到周末想去爬山",
                     },
                 ),
                 reason="ok",
                 duration_ms=1,
             )
 
+    class FakeManagement:
+        def get_memory_detail(self, memory_id: str):
+            assert memory_id == "abc123"
+            return {
+                "memory_key": "preference:mountain",
+                "evidence": [
+                    {"quote": "我下周末想去爬山，谁一起？", "occurred_at": "2026-07-01"}
+                ],
+            }
+
     async def scenario() -> None:
         fake = FakeRecall()
         service = _memory_service(object())  # type: ignore[arg-type]
         service._openviking_ready = True
         service._openviking_recall = fake  # type: ignore[assignment]
+        service._openviking_management = FakeManagement()  # type: ignore[assignment]
 
         result = await service.search_memory_for_tool(
             _context(request_id="search-1"),
             query="爬山",
+            sender="小",
             since="2026-07-01",
             until="2026-07-31",
             limit=2,
@@ -1082,8 +1095,12 @@ def test_search_memory_for_tool_renders_sections_guards_and_args() -> None:
         assert "== 长期记忆 ==" in result
         assert "== 对话归档" in result
         assert "ctx-1A2B3C4D" in result
+        assert "小红" in result  # 归档行展示发送者
         # 存储时间 2026-07-17T00:00Z 按 UTC+8 展示为 08:00。
         assert "2026-07-17 08:00" in result
+        # 溯源：命中记忆附 evidence 原始发言摘录。
+        assert "== 记忆依据" in result
+        assert "我下周末想去爬山" in result
         # 时间边界按东八区归一化为 UTC 后传给 recall 适配层。
         assert fake.recall_kwargs["since"] == datetime(2026, 6, 30, 16, 0, tzinfo=UTC)
         assert fake.recall_kwargs["until"] == datetime(
@@ -1091,6 +1108,7 @@ def test_search_memory_for_tool_renders_sections_guards_and_args() -> None:
         )
         assert fake.recall_kwargs["include_session_fallback"] is False
         assert fake.history_kwargs["query"] == "爬山"
+        assert fake.history_kwargs["sender"] == "小"
         assert fake.history_kwargs["limit"] == 2
 
         bad_type = await service.search_memory_for_tool(

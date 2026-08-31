@@ -649,3 +649,94 @@ async def test_recall_time_window_filters_memory_and_session_rows(
 
     unfiltered = await recall()
     assert unfiltered.included is True
+
+
+@pytest.mark.asyncio
+async def test_history_search_reads_observed_l2_rows_with_sender(
+    tmp_path: Path,
+) -> None:
+    """context_l2 is the primary archive corpus: chatters, senders, transcribed images."""
+    adapter, workspace = _adapter(tmp_path)
+    adapter.commit_turn(_payload())  # legacy real turn, commits corpus only
+
+    session_dir = (
+        workspace.root
+        / "sessions"
+        / "default"
+        / "private_user"
+        / ("b" * 64)
+        / ("d" * 64)
+        / "context_l2"
+    )
+    session_dir.mkdir(parents=True)
+    record = {
+        "version": 1,
+        "action": "Observed",
+        "context_ref": "ctx-2A2B3C4D",
+        "created_at": "2026-07-18T12:00:00+00:00",
+        "sender_name": "小红",
+        "bot_name": "",
+        "l0": "小红: 看我家猫的照片",
+        "messages": [
+            {
+                "role": "user",
+                "content": "看我家猫的照片\n[图片 1: 一只橘猫趴在键盘上]",
+            }
+        ],
+        "source_complete": True,
+        "turn_ref": "",
+        "message_id": "msg-observed-1",
+    }
+    (session_dir / "ctx-2A2B3C4D.json").write_text(
+        json.dumps(record, ensure_ascii=False), encoding="utf-8"
+    )
+
+    searcher = OpenVikingRecallAdapter(workspace)
+    filters = (
+        {
+            "scope_type": "private_user",
+            "scope_hash": "b" * 64,
+            "subject_hash": "c" * 64,
+        },
+    )
+
+    # 图片转述文字是检索面：query 命中转述而不是用户文本本身。
+    by_caption = await searcher.search_session_history(
+        agent_id="default",
+        scope_filters=filters,
+        conversation_hash="d" * 64,
+        query="橘猫",
+    )
+    assert by_caption.included is True
+    row = by_caption.rows[0]
+    assert row["action"] == "Observed"
+    assert row["sender_name"] == "小红"
+    assert row["context_ref"] == "ctx-2A2B3C4D"
+    assert "橘猫趴在键盘上" in str(row["content"])
+
+    by_sender = await searcher.search_session_history(
+        agent_id="default",
+        scope_filters=filters,
+        conversation_hash="d" * 64,
+        sender="小",
+    )
+    assert by_sender.included is True
+    assert all(row["sender_name"] == "小红" for row in by_sender.rows)
+
+    other_sender = await searcher.search_session_history(
+        agent_id="default",
+        scope_filters=filters,
+        conversation_hash="d" * 64,
+        sender="小明",
+    )
+    # 旁观命中被 sender 过滤排除；legacy commit 行无发送者，同样不入选。
+    assert other_sender.included is False
+
+    combined = await searcher.search_session_history(
+        agent_id="default",
+        scope_filters=filters,
+        conversation_hash="d" * 64,
+    )
+    assert combined.included is True
+    actions = {str(row["action"]) for row in combined.rows}
+    assert {"Reply", "Observed"} <= actions

@@ -23,7 +23,7 @@ from .provider import OpenVikingProviderBridge
 from .type_quota import (
     DEFAULT_QUOTAS,
 )
-from .workspace import OpenVikingWorkspace
+from .workspace import OpenVikingWorkspace, WorkspaceTransaction
 
 logger = logging.getLogger("astrbot")
 
@@ -596,6 +596,7 @@ class OpenVikingRecallAdapter:
         scope_filters: tuple[dict[str, str], ...],
         conversation_hash: str,
         query: str = "",
+        sender: str = "",
         since: datetime | None = None,
         until: datetime | None = None,
         limit: int = 10,
@@ -611,13 +612,15 @@ class OpenVikingRecallAdapter:
             scope_filters: Validated exact scope descriptors.
             conversation_hash: HMAC-derived current conversation identifier.
             query: Optional fuzzy keyword query; empty means pure time scan.
+            sender: Optional case-insensitive sender-name substring; real turns
+                without a recorded sender are dropped under this filter.
             since: Optional inclusive lower bound on commit timestamps.
             until: Optional inclusive upper bound on commit timestamps.
             limit: Maximum number of returned rows (clamped to 1..20).
 
         Returns:
-            Bounded row collection with commit time, action, context_ref and
-            text; or an omitted result when the conversation has no archive.
+            Bounded row collection with commit time, action, sender, context_ref
+            and text; or an omitted result when the conversation has no archive.
         """
         started = time.perf_counter()
         try:
@@ -628,17 +631,39 @@ class OpenVikingRecallAdapter:
         if not _DIGEST_PATTERN.fullmatch(str(conversation_hash or "").lower()):
             return OpenVikingSessionSearch(False, (), "bad_conversation", 0)
         bounded_limit = max(1, min(int(limit), 20))
-        rows = await asyncio.to_thread(
-            self._read_session_candidates,
+        # 主语料：本会话 context_l2 全部条目（含 Observed 旁观消息与图片
+        # 转述标注）；commits 提交只兜底没有 L2 文件的更早记录。
+        l2_rows, legacy_rows = await asyncio.to_thread(
+            self._read_history_candidates,
             clean_agent,
             filters,
             str(conversation_hash or "").lower(),
         )
+        seen_refs = {
+            str(row.get("context_ref") or "")
+            for row in l2_rows
+            if str(row.get("context_ref") or "")
+        }
+        rows = [
+            *l2_rows,
+            *(
+                row
+                for row in legacy_rows
+                if str(row.get("context_ref") or "") not in seen_refs
+            ),
+        ]
         if since is not None or until is not None:
             rows = [
                 row
                 for row in rows
                 if _within_window(str(row.get("updated_at") or ""), since, until)
+            ]
+        clean_sender = str(sender or "").strip().casefold()
+        if clean_sender:
+            rows = [
+                row
+                for row in rows
+                if clean_sender in str(row.get("sender_name") or "").casefold()
             ]
         clean_query = str(query or "").strip()
         if clean_query:
@@ -660,6 +685,173 @@ class OpenVikingRecallAdapter:
         if not rows:
             return OpenVikingSessionSearch(False, (), "no_match", duration_ms)
         return OpenVikingSessionSearch(True, tuple(rows), "ok", duration_ms)
+
+    def _read_history_candidates(
+        self,
+        agent_id: str,
+        scope_filters: tuple[dict[str, str], ...],
+        conversation_hash: str,
+    ) -> tuple[list[dict[str, Any]], list[dict[str, Any]]]:
+        """Read L2 turn records plus legacy commit rows for one conversation.
+
+        Returns a ``(l2_rows, legacy_commit_rows)`` pair. L2 rows carry sender
+        names and the transcribed image markers embedded in message content;
+        legacy rows only cover turns committed before the context window.
+        """
+        l2_rows: list[dict[str, Any]] = []
+        legacy_rows: list[dict[str, Any]] = []
+        with self._workspace.transaction() as transaction:
+            for scope in scope_filters:
+                session_directory = (
+                    Path("sessions")
+                    / agent_id
+                    / scope["scope_type"]
+                    / scope["scope_hash"]
+                    / conversation_hash
+                )
+                meta_path = session_directory / ".meta.json"
+                if not transaction.is_file(meta_path):
+                    continue
+                session_uri = (
+                    f"viking://agent/{agent_id}/sessions/{scope['scope_type']}/"
+                    f"{scope['scope_hash']}/{conversation_hash}"
+                )
+                meta = self._read_json(transaction, meta_path)
+                if not isinstance(meta, dict) or any(
+                    str(meta.get(key) or "") != expected
+                    for key, expected in (
+                        ("agent_id", agent_id),
+                        ("scope_type", scope["scope_type"]),
+                        ("scope_hash", scope["scope_hash"]),
+                        ("subject_hash", scope["subject_hash"]),
+                        ("conversation_hash", conversation_hash),
+                        ("session_uri", session_uri),
+                    )
+                ):
+                    continue
+                legacy_rows.extend(
+                    self._read_legacy_commit_rows(
+                        transaction, session_directory, session_uri
+                    )
+                )
+                for path in transaction.list_files(
+                    session_directory / "context_l2", suffix=".json"
+                )[:300]:
+                    # list_files 返回绝对路径，read_bytes 只接受 workspace 相对路径
+                    record = self._read_json(
+                        transaction, path.relative_to(self._workspace.root)
+                    )
+                    row = self._session_row_from_l2(record, session_uri)
+                    if row is not None:
+                        l2_rows.append(row)
+        return l2_rows, legacy_rows
+
+    @staticmethod
+    def _read_json(
+        transaction: WorkspaceTransaction, path: Path, *, default: Any = None
+    ) -> Any:
+        try:
+            return json.loads(transaction.read_bytes(path).decode("utf-8"))
+        except (OSError, UnicodeDecodeError, json.JSONDecodeError):
+            return default
+
+    @staticmethod
+    def _session_row_from_l2(record: Any, session_uri: str) -> dict[str, Any] | None:
+        """Convert one canonical L2 record into a bounded archive row."""
+        if not isinstance(record, dict) or record.get("version") != 1:
+            return None
+        context_ref = str(record.get("context_ref") or "")
+        if not _CONTEXT_REF_PATTERN.fullmatch(context_ref):
+            return None
+        action = str(record.get("action") or "")
+        if action not in {"Reply", "No Reply", "Observed"}:
+            return None
+        user_text = ""
+        reply_text = ""
+        for message in record.get("messages", []):
+            if not isinstance(message, dict):
+                continue
+            role = str(message.get("role") or "")
+            if role == "user" and not user_text:
+                user_text = " ".join(str(message.get("content") or "").split())
+            elif (
+                role == "assistant" and not message.get("tool_calls") and not reply_text
+            ):
+                reply_text = " ".join(str(message.get("content") or "").split())
+        user_text = user_text[:400]
+        if not user_text:
+            return None
+        if action == "No Reply":
+            user_text = user_text[:200]
+            reply_text = ""
+        reply_text = reply_text[:200]
+        content = f"{user_text} -> {reply_text}" if reply_text else user_text
+        return {
+            "abstract": user_text[:160],
+            "content": content,
+            "memory_key": "conversation_archive",
+            "memory_type": "session",
+            "overview": content[:600],
+            "source_kind": "session",
+            "updated_at": str(record.get("created_at") or ""),
+            "uri": f"{session_uri}/context_l2/{context_ref}.json",
+            "action": action,
+            "context_ref": context_ref,
+            "sender_name": str(record.get("sender_name") or "").strip(),
+        }
+
+    def _read_legacy_commit_rows(
+        self,
+        transaction: WorkspaceTransaction,
+        session_directory: Path,
+        session_uri: str,
+    ) -> list[dict[str, Any]]:
+        """Read commit rows that predate per-turn L2 files (messages.jsonl)."""
+        rows: list[dict[str, Any]] = []
+        for path in transaction.list_files(
+            session_directory / "commits", suffix=".json"
+        )[:100]:
+            commit_id = path.stem
+            if not _DIGEST_PATTERN.fullmatch(commit_id):
+                continue
+            record = self._read_json(
+                transaction, path.relative_to(self._workspace.root)
+            )
+            if (
+                not isinstance(record, dict)
+                or str(record.get("commit_id") or "") != commit_id
+                or str(record.get("action") or "") not in {"Reply", "No Reply"}
+            ):
+                continue
+            l2_uri = str(record.get("l2_uri") or "")
+            context_ref = str(record.get("context_ref") or "")
+            if l2_uri and not l2_uri.endswith("/messages.jsonl"):
+                # 有 L2 文件的回合由 context_l2 语料负责，这里只兜底更早的
+                # messages.jsonl 提交；context_ref 交给去重，正常不应出现。
+                continue
+            if context_ref and not _CONTEXT_REF_PATTERN.fullmatch(context_ref):
+                continue
+            l0 = str(record.get("l0") or "").strip()[:160]
+            l1 = str(record.get("l1") or "").strip()[:1_000]
+            content = l1 or l0
+            if not content:
+                continue
+            rows.append(
+                {
+                    "abstract": l0 or content[:160],
+                    "content": content,
+                    "memory_key": "recent_conversation",
+                    "memory_type": "session",
+                    "overview": l1 or content[:600],
+                    "source_kind": "session",
+                    "updated_at": str(record.get("created_at") or ""),
+                    "uri": f"{session_uri}/commits/{commit_id}",
+                    "action": str(record.get("action") or ""),
+                    "context_ref": context_ref,
+                    "sender_name": "",
+                }
+            )
+        return rows
 
     @staticmethod
     def _normalize_filters(

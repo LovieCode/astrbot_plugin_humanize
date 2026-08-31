@@ -590,24 +590,30 @@ class ChatMemoryService:
         *,
         query: str = "",
         memory_type: str = "",
+        sender: str = "",
         since: str = "",
         until: str = "",
         limit: int = 6,
     ) -> str:
         """Render one bounded tool-response for the model-facing search tool.
 
-        两条语料、两种检索方式：
+        两条语料、三种可用过滤：
         - 长期记忆（被抽取的 profile/preference/entity/event）：复用 recall
-          管线（词法 + Embedding + Rerank，scope 过滤），仅在提供 query 时执行；
-        - 对话归档（本会话逐回合 L0/L1 提交，含时间与 context_ref）：确定性
-          词法扫描 + 时间范围过滤。
+          管线（词法 + Embedding + Rerank，scope 过滤），仅在提供 query 时执行，
+          并附 evidence 原始发言摘录作为溯源；
+        - 对话归档（本会话逐回合 L2 记录，含 Reply/No Reply/Observed 旁观、
+          发送者、时间、context_ref 与图片转述标注）：确定性词法扫描 +
+          时间范围 + 发送者过滤。
 
-        返回的是不可信历史资料文本；ref 回读由 main.py 直接走 context_window。
+        各过滤维度可与 query 任意组合；返回的是不可信历史资料文本，
+        ref 回读由 main.py 直接走 context_window。
 
         Args:
             context: Trusted metadata for the currently active chat request.
             query: Fuzzy keyword query; empty means pure time browse.
             memory_type: Optional memory type filter.
+            sender: Optional case-insensitive sender-name substring filter for
+                the conversation archive.
             since: Optional lower time bound (date or ISO datetime string).
             until: Optional upper time bound; date-only includes the whole day.
             limit: Bounded row count for each section (clamped 1..10).
@@ -648,6 +654,13 @@ class ChatMemoryService:
                     until=window_until,
                 )
                 section = str(recalled.content or "").strip()
+                evidence_lines = await self._memory_evidence_lines(recalled.source_refs)
+                if evidence_lines:
+                    section = (
+                        (section + "\n" if section else "")
+                        + "== 记忆依据（原始发言摘录）==\n"
+                        + "\n".join(evidence_lines)
+                    )
                 sections.append(
                     "== 长期记忆 ==\n" + (section if section else "（无匹配）")
                 )
@@ -658,20 +671,23 @@ class ChatMemoryService:
                 notices.append("语义记忆检索暂不可用。")
         elif clean_type:
             notices.append("长期记忆检索需要同时提供 query 关键词。")
+        clean_sender = str(sender or "").strip()[:60]
         try:
             history = await self._openviking_recall.search_session_history(
                 agent_id=context.agent_id,
                 scope_filters=identity.scopes,
                 conversation_hash=identity.conversation_hash,
                 query=clean_query,
+                sender=clean_sender,
                 since=window_since,
                 until=window_until,
                 limit=bounded_limit,
             )
             lines = [
-                "- {time} {action} {ref}: {text}".format(
+                "- {time} [{action}] {sender} {ref}: {text}".format(
                     time=_format_tool_time(str(row.get("updated_at") or "")),
                     action=str(row.get("action") or "Turn"),
+                    sender=str(row.get("sender_name") or "").strip() or "-",
                     ref=(ref if (ref := str(row.get("context_ref") or "")) else "-"),
                     text=self._clip_history_line(str(row.get("content") or "")),
                 )
@@ -700,6 +716,46 @@ class ChatMemoryService:
         """Clip one archive line, preserving an explicit ellipsis marker."""
         value = " ".join(str(text or "").split())
         return value[:220] + ("…" if len(value) > 220 else "")
+
+    async def _memory_evidence_lines(
+        self,
+        source_refs: tuple[str, ...],
+    ) -> list[str]:
+        """Collect bounded provenance quotes for the recalled memory URIs.
+
+        溯源：每条命中记忆都带 evidence（抽取时的原始发言摘录），取第一条
+        展示，让模型能回答「为什么记得这个」。管理通道不可用时静默省略。
+        """
+        management = self._openviking_management
+        if management is None or not source_refs:
+            return []
+        lines: list[str] = []
+        for uri in source_refs[:10]:
+            memory_id = str(uri).rsplit("/", 1)[-1]
+            try:
+                detail = await asyncio.to_thread(
+                    management.get_memory_detail, memory_id
+                )
+            except Exception:
+                logger.debug(
+                    "[Humanize] memory provenance lookup failed", exc_info=True
+                )
+                continue
+            if not isinstance(detail, dict):
+                continue
+            evidence = detail.get("evidence")
+            if not isinstance(evidence, list) or not evidence:
+                continue
+            quote = str(
+                (evidence[0] or {}).get("quote")
+                if isinstance(evidence[0], dict)
+                else ""
+            ).strip()
+            if not quote:
+                continue
+            key = str(detail.get("memory_key") or "").strip() or "memory"
+            lines.append(f"- {key}: {self._clip_history_line(quote)}")
+        return lines
 
     async def build_turn_job(
         self,
