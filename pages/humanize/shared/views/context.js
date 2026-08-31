@@ -855,17 +855,19 @@ HZ.views["context"] = { init: function () {
     const reasoning = extractReasoning(response, finalTurn, protocol);
     if (reasoning) {
       list.appendChild(el("div", "raw-divider", "思考过程"));
-      const block = el("div", "raw-raw collapsed");
+      // 与消息区块同一阈值：短思考直接展开，长思考才默认折叠。
+      const longReasoning = reasoning.length > 360;
+      const block = el("div", "raw-raw" + (longReasoning ? " collapsed" : ""));
       const bhead = el("div", "raw-msg-head");
       bhead.appendChild(el("span", "raw-idx", "[?]"));
       bhead.appendChild(el("span", "raw-role", "thinking"));
       bhead.appendChild(el("span", "raw-len", reasoning.length + " 字"));
-      const btn = el("button", "raw-collapse", "展开");
+      const btn = el("button", "raw-collapse", longReasoning ? "展开" : "收起");
       const paintBtn = () => {
         btn.querySelectorAll("svg").forEach((s) => s.remove());
         btn.insertAdjacentHTML("afterbegin", HZ.icon(btn.dataset.icon));
       };
-      btn.dataset.icon = "arrow-down";
+      btn.dataset.icon = longReasoning ? "arrow-down" : "arrow-up";
       paintBtn();
       bhead.appendChild(btn);
       btn.addEventListener("click", () => {
@@ -949,13 +951,14 @@ HZ.views["context"] = { init: function () {
   }
 
   function extractReasoning(response, finalTurn, protocol) {
-    if (!response && !finalTurn && !protocol) return "";
-    // response_sequence 的 snapshot 中可能有 reasoning_content（final turn）
-    if (finalTurn && finalTurn.snapshot && finalTurn.snapshot.fields) {
-      const r = finalTurn.snapshot.fields.reasoning_content;
-      if (r) return String(r);
+    /* 后端已把快照里的思考内容归一化到 reasoning_content：响应快照有两种
+       存储形状（当前 wrapper：final_response / responses，旧版：单个响应），
+       解析属于后端职责，前端只取值，避免形状一变就静默丢失思考过程。 */
+    const sources = [finalTurn, response, protocol];
+    for (const source of sources) {
+      const value = source && source.reasoning_content;
+      if (value) return String(value);
     }
-    if (response && response.reasoning_content) return String(response.reasoning_content);
     return "";
   }
 

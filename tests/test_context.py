@@ -459,7 +459,120 @@ def test_context_detail_links_full_final_response_snapshot(tmp_path: Path) -> No
             "snapshot_complete": True,
             "raw_output": raw_output,
             "messages": [body],
+            "reasoning_content": "完整推理元数据",
         }
+
+    asyncio.run(scenario())
+
+
+def test_context_detail_exposes_reasoning_from_both_snapshot_shapes(
+    tmp_path: Path,
+) -> None:
+    """思考过程必须能从当前 wrapper 与旧版单响应两种快照中取到。
+
+    回归守卫：响应快照曾以单个 LLMResponse 落库，改为
+    ``final_response``/``responses`` wrapper 后前端仍按 ``snapshot.fields``
+    取值，导致思考过程静默消失。提取统一在仓储层完成，两种形状都要覆盖。
+    """
+
+    async def scenario() -> None:
+        repository = SQLiteRepository(tmp_path / "humanize.db")
+        await repository.initialize()
+        section = ContextSection(
+            key="current_message",
+            ordinal=0,
+            priority=100,
+            source_type="message",
+            source_refs=("message:msg-1",),
+            targets=("prompt",),
+            required=True,
+            included=True,
+            budget_tokens=None,
+            estimated_tokens=4,
+            applied_tokens=4,
+            item_count=1,
+            reason="current_user_message",
+            content="测试",
+        )
+
+        def response_fields(reasoning: str) -> dict[str, object]:
+            return {
+                "type": "LLMResponse",
+                "fields": {
+                    "role": "assistant",
+                    "completion_text": "你好",
+                    "reasoning_content": reasoning,
+                },
+            }
+
+        wrapper_snapshot = {
+            "capture_stage": "on_llm_response_firewall",
+            "responses": [
+                {
+                    "sequence": 1,
+                    "phase": "tool",
+                    "is_final": False,
+                    "snapshot_complete": True,
+                    "response": response_fields("工具轮思考"),
+                },
+                {
+                    "sequence": 2,
+                    "phase": "final",
+                    "is_final": True,
+                    "snapshot_complete": True,
+                    "response": response_fields("最终轮思考"),
+                },
+            ],
+            "final_response": {
+                "sequence": 2,
+                "phase": "final",
+                "is_final": True,
+                "snapshot_complete": True,
+                "response": response_fields("最终轮思考"),
+            },
+        }
+        legacy_snapshot = response_fields("旧版形状思考")
+
+        for request_id, snapshot in (
+            ("req-wrapper", wrapper_snapshot),
+            ("req-legacy", legacy_snapshot),
+            ("req-empty", {"capture_stage": "on_llm_response_firewall"}),
+        ):
+            context = _context(request_id)
+            await repository.record_context_run(context, (section,), "user")
+            await repository.record_protocol(
+                context,
+                success=True,
+                action="Reply",
+                failure_code="",
+                failure_detail="",
+                raw_output="<Action>Reply</Action>你好",
+                messages=["你好"],
+                response_snapshot=snapshot,
+                response_snapshot_complete=True,
+                model="reasoning-model",
+                duration_ms=12,
+                stage="final",
+            )
+
+        wrapper_detail = await repository.get_context_run("req-wrapper")
+        legacy_detail = await repository.get_context_run("req-legacy")
+        empty_detail = await repository.get_context_run("req-empty")
+
+        assert wrapper_detail is not None
+        assert legacy_detail is not None
+        assert empty_detail is not None
+        assert wrapper_detail["response"]["reasoning_content"] == "最终轮思考"
+        assert legacy_detail["response"]["reasoning_content"] == "旧版形状思考"
+        assert empty_detail["response"]["reasoning_content"] == ""
+        # 每一轮各自携带当轮思考，前端按轮次取用。
+        assert [
+            item["reasoning_content"] for item in wrapper_detail["response_sequence"]
+        ] == ["最终轮思考"]
+        assert (
+            wrapper_detail["response_snapshot"]["protocol"]["reasoning_content"]
+            == "最终轮思考"
+        )
 
     asyncio.run(scenario())
 

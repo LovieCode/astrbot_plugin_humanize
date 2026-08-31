@@ -13,7 +13,58 @@ from ..domain.models import ContextSection, MessageContext
 from .base import _now
 from .migrations import _CONTEXT_PREVIEW_CHARS
 
-__all__ = ["ContextRepository"]
+__all__ = ["ContextRepository", "extract_response_reasoning"]
+
+
+def _snapshot_fields(candidate: Any) -> dict[str, Any]:
+    """Return the serialized field mapping of one response snapshot entry.
+
+    Args:
+        candidate: Serialized LLM response or snapshot wrapper node.
+
+    Returns:
+        The ``fields`` mapping when present, otherwise an empty mapping.
+    """
+    if not isinstance(candidate, dict):
+        return {}
+    fields = candidate.get("fields")
+    return fields if isinstance(fields, dict) else {}
+
+
+def extract_response_reasoning(snapshot: Any) -> str:
+    """Return persisted model reasoning text from one response snapshot.
+
+    Response snapshots changed shape: the firewall now stores one wrapper per
+    request (``final_response`` plus the ordered ``responses`` list) instead of
+    a single serialized response. Callers must not depend on that layout, so
+    the reasoning content is resolved here from every supported shape.
+
+    Args:
+        snapshot: Persisted response snapshot, either the current wrapper or a
+            legacy single-response snapshot.
+
+    Returns:
+        The reasoning text, or an empty string when the model produced none.
+    """
+    if not isinstance(snapshot, dict):
+        return ""
+    candidates: list[Any] = []
+    final_response = snapshot.get("final_response")
+    if isinstance(final_response, dict):
+        candidates.append(final_response.get("response"))
+    responses = snapshot.get("responses")
+    if isinstance(responses, list):
+        candidates.extend(
+            entry.get("response") for entry in responses if isinstance(entry, dict)
+        )
+    # Legacy rows stored the serialized response itself as the snapshot.
+    candidates.append(snapshot)
+    reasoning = ""
+    for candidate in candidates:
+        value = _snapshot_fields(candidate).get("reasoning_content")
+        if isinstance(value, str) and value.strip():
+            reasoning = value
+    return reasoning
 
 
 class ContextRepository:
@@ -571,6 +622,9 @@ class ContextRepository:
                 if not isinstance(llm_response, dict):
                     llm_response = {}
                     llm_snapshot_complete = False
+                # 思考过程一并返回：快照形状（wrapper / 旧版单响应）属于存储细节，
+                # 不该要求调用方各自解析嵌套结构。
+                row_item["reasoning_content"] = extract_response_reasoning(llm_response)
                 turn_snapshot = {
                     "snapshot_kind": "llm_response",
                     "snapshot_complete": bool(
@@ -594,6 +648,7 @@ class ContextRepository:
                         "failure_code": row_item["failure_code"],
                         "raw_output": row_item["raw_output"],
                         "messages": row_item["messages"],
+                        "reasoning_content": row_item["reasoning_content"],
                         "snapshot": llm_response or None,
                         "snapshot_complete": bool(
                             llm_snapshot_complete and row_item["snapshot_complete"]
