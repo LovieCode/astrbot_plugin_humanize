@@ -47,6 +47,51 @@ class OpenVikingRecallResult:
     content_hashes: tuple[str, ...]
 
 
+@dataclass(frozen=True, slots=True)
+class OpenVikingSessionSearch:
+    """Bounded same-conversation archive search result for tool callers."""
+
+    included: bool
+    rows: tuple[dict[str, Any], ...]
+    reason: str
+    duration_ms: int
+
+
+def _as_utc(value: str) -> datetime | None:
+    """Parse an ISO-ish timestamp into an aware UTC datetime.
+
+    Naive timestamps are interpreted as UTC. Unparsable input yields ``None``.
+    """
+    text = str(value or "").strip()
+    if not text:
+        return None
+    try:
+        parsed = datetime.fromisoformat(text.replace("Z", "+00:00"))
+    except ValueError:
+        return None
+    if parsed.tzinfo is None:
+        parsed = parsed.replace(tzinfo=UTC)
+    return parsed
+
+
+def _within_window(moment: str, since: datetime | None, until: datetime | None) -> bool:
+    """Return whether one stored timestamp falls inside the requested range.
+
+    Rows whose timestamp cannot be parsed are dropped when any bound is
+    present: a time-scoped search must not surface undated entries.
+    """
+    if since is None and until is None:
+        return True
+    parsed = _as_utc(moment)
+    if parsed is None:
+        return False
+    if since is not None and parsed < since:
+        return False
+    if until is not None and parsed > until:
+        return False
+    return True
+
+
 class OpenVikingRecallAdapter:
     """Read scoped OpenViking memories and render trusted temporary context."""
 
@@ -77,6 +122,8 @@ class OpenVikingRecallAdapter:
         conversation_hash: str = "",
         include_session_fallback: bool = True,
         queries: tuple[str, ...] = (),
+        since: datetime | None = None,
+        until: datetime | None = None,
     ) -> OpenVikingRecallResult:
         """Recall active memories after final identity and expiry filtering.
 
@@ -96,6 +143,8 @@ class OpenVikingRecallAdapter:
             memory_type: Optional exact memory type filter for admin debugging.
             queries: Optional additional typed queries from intent analysis. Each
                 query is scored independently and the best score wins.
+            since: Optional inclusive lower bound on stored timestamps.
+            until: Optional inclusive upper bound on stored timestamps.
 
         Returns:
             Safe ``MemoryContext`` XML or an omitted fail-open result.
@@ -130,6 +179,13 @@ class OpenVikingRecallAdapter:
                         str(conversation_hash or "").lower(),
                     )
                 )
+            if since is not None or until is not None:
+                # 时间范围过滤对两种语料统一生效；无时间戳的条目不入选。
+                rows = [
+                    row
+                    for row in rows
+                    if _within_window(str(row.get("updated_at") or ""), since, until)
+                ]
             candidate_count = len(rows)
             if not rows:
                 return self._empty("no_match", started, candidate_count=0)
@@ -512,6 +568,7 @@ class OpenVikingRecallAdapter:
                     content = l1 or l0
                     if not content:
                         continue
+                    record_context_ref = str(record.get("context_ref") or "")
                     rows.append(
                         {
                             "abstract": l0 or content[:160],
@@ -522,9 +579,87 @@ class OpenVikingRecallAdapter:
                             "source_kind": "session",
                             "updated_at": str(record.get("created_at") or ""),
                             "uri": f"{session_uri}/commits/{commit_id}",
+                            "action": str(record.get("action") or ""),
+                            "context_ref": (
+                                record_context_ref
+                                if _CONTEXT_REF_PATTERN.fullmatch(record_context_ref)
+                                else ""
+                            ),
                         }
                     )
         return rows
+
+    async def search_session_history(
+        self,
+        *,
+        agent_id: str,
+        scope_filters: tuple[dict[str, str], ...],
+        conversation_hash: str,
+        query: str = "",
+        since: datetime | None = None,
+        until: datetime | None = None,
+        limit: int = 10,
+    ) -> OpenVikingSessionSearch:
+        """Search one exact conversation's archived turns without XML rendering.
+
+        回忆工具的时间/模糊检索入口：语料是本会话每个回合的 L0/L1 提交
+        记录（含时间与 context_ref），不调用 Embedding/Rerank——历史归档
+        量级有限，确定性词法打分足够，且保持零额外成本。
+
+        Args:
+            agent_id: Normalized Agent identifier.
+            scope_filters: Validated exact scope descriptors.
+            conversation_hash: HMAC-derived current conversation identifier.
+            query: Optional fuzzy keyword query; empty means pure time scan.
+            since: Optional inclusive lower bound on commit timestamps.
+            until: Optional inclusive upper bound on commit timestamps.
+            limit: Maximum number of returned rows (clamped to 1..20).
+
+        Returns:
+            Bounded row collection with commit time, action, context_ref and
+            text; or an omitted result when the conversation has no archive.
+        """
+        started = time.perf_counter()
+        try:
+            clean_agent = normalize_openviking_agent_id(agent_id)
+            filters = self._normalize_filters(scope_filters)
+        except ValueError:
+            return OpenVikingSessionSearch(False, (), "bad_scope", 0)
+        if not _DIGEST_PATTERN.fullmatch(str(conversation_hash or "").lower()):
+            return OpenVikingSessionSearch(False, (), "bad_conversation", 0)
+        bounded_limit = max(1, min(int(limit), 20))
+        rows = await asyncio.to_thread(
+            self._read_session_candidates,
+            clean_agent,
+            filters,
+            str(conversation_hash or "").lower(),
+        )
+        if since is not None or until is not None:
+            rows = [
+                row
+                for row in rows
+                if _within_window(str(row.get("updated_at") or ""), since, until)
+            ]
+        clean_query = str(query or "").strip()
+        if clean_query:
+            scored: list[tuple[float, str, dict[str, Any]]] = []
+            for row in rows:
+                score = self._lexical_score(
+                    clean_query,
+                    f"{row.get('overview') or ''}\n{row.get('content') or ''}",
+                )
+                if score <= 0.0:
+                    continue
+                scored.append((score, str(row.get("updated_at") or ""), row))
+            scored.sort(key=lambda item: (item[0], item[1]), reverse=True)
+            rows = [row for _, _, row in scored[:bounded_limit]]
+        else:
+            rows.sort(key=lambda row: str(row.get("updated_at") or ""), reverse=True)
+            rows = list(rows[:bounded_limit])
+        duration_ms = max(0, int((time.perf_counter() - started) * 1_000))
+        if not rows:
+            return OpenVikingSessionSearch(False, (), "no_match", duration_ms)
+        return OpenVikingSessionSearch(True, tuple(rows), "ok", duration_ms)
 
     @staticmethod
     def _normalize_filters(

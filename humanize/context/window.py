@@ -1224,5 +1224,5 @@ class ContextWindowService:
             return value
         return (
             f"{self._clip(value, limit)}\n"
-            f"[Earlier content folded. Use humanize_read_context with ref {context_ref}.]"
+            f"[Earlier content folded. Use humanize_memory_search with ref {context_ref} to read the full record.]"
         )

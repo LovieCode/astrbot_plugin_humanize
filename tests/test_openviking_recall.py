@@ -2,6 +2,7 @@ from __future__ import annotations
 
 import json
 import re
+from datetime import UTC, datetime
 from pathlib import Path
 from types import SimpleNamespace
 
@@ -535,3 +536,116 @@ def test_render_truncation_fallback_never_exceeds_max_chars() -> None:
     assert used == [row]
     assert len(content) <= 400
     assert 'type="truncated"' in content
+
+
+@pytest.mark.asyncio
+async def test_session_history_search_filters_time_query_and_returns_ref(
+    tmp_path: Path,
+) -> None:
+    """History search keeps rows inside the time window and surfaces context_ref."""
+    adapter, workspace = _adapter(tmp_path)
+    adapter.commit_turn(_payload())  # occurred_at = 2026-07-17T00:00:00+00:00
+
+    searcher = OpenVikingRecallAdapter(workspace)
+    filters = (
+        {
+            "scope_type": "private_user",
+            "scope_hash": "b" * 64,
+            "subject_hash": "c" * 64,
+        },
+    )
+
+    in_window = await searcher.search_session_history(
+        agent_id="default",
+        scope_filters=filters,
+        conversation_hash="d" * 64,
+        since=datetime(2026, 7, 16, tzinfo=UTC),
+        until=datetime(2026, 7, 18, tzinfo=UTC),
+    )
+    assert in_window.included is True
+    assert len(in_window.rows) == 1
+    row = in_window.rows[0]
+    assert row["action"] == "Reply"
+    assert "无糖乌龙茶" in str(row["content"])
+    assert row["context_ref"] == ""  # 无 context_ref 的裸提交不泄露假 ref
+    assert str(row["updated_at"]).startswith("2026-07-17")
+
+    before = await searcher.search_session_history(
+        agent_id="default",
+        scope_filters=filters,
+        conversation_hash="d" * 64,
+        until=datetime(2026, 7, 1, tzinfo=UTC),
+    )
+    assert before.included is False
+
+    matched = await searcher.search_session_history(
+        agent_id="default",
+        scope_filters=filters,
+        conversation_hash="d" * 64,
+        query="乌龙茶",
+    )
+    assert matched.included is True
+
+    miss = await searcher.search_session_history(
+        agent_id="default",
+        scope_filters=filters,
+        conversation_hash="d" * 64,
+        query="完全无关的检索词",
+    )
+    assert miss.included is False
+
+    limited = await searcher.search_session_history(
+        agent_id="default",
+        scope_filters=filters,
+        conversation_hash="e" * 64,
+    )
+    assert limited.included is False
+    assert limited.reason == "no_match"
+
+
+@pytest.mark.asyncio
+async def test_recall_time_window_filters_memory_and_session_rows(
+    tmp_path: Path,
+) -> None:
+    """recall() honouring since/until drops candidates outside the range."""
+    adapter, workspace = _adapter(tmp_path)
+    commit = adapter.commit_turn(_payload())  # 2026-07-17
+    adapter.upsert_memory(
+        _candidate(memory_key="preference:tea", content="用户喜欢无糖乌龙茶"),
+        evidence=[],
+        source_commit_ids=(commit.commit_id,),
+    )
+
+    async def recall(**kwargs):
+        return await OpenVikingRecallAdapter(workspace).recall(
+            query="乌龙茶",
+            agent_id="default",
+            scope_filters=(
+                {
+                    "scope_type": "private_user",
+                    "scope_hash": "b" * 64,
+                    "subject_hash": "c" * 64,
+                },
+            ),
+            conversation_hash="d" * 64,
+            limit=5,
+            threshold=0.0,
+            max_chars=2_500,
+            **kwargs,
+        )
+
+    excluded = await recall(
+        since=datetime(2026, 7, 18, tzinfo=UTC),
+        until=datetime(2026, 7, 30, tzinfo=UTC),
+    )
+    assert excluded.included is False
+
+    included = await recall(
+        since=datetime(2026, 7, 1, tzinfo=UTC),
+        until=datetime(2026, 7, 30, tzinfo=UTC),
+    )
+    assert included.included is True
+    assert "无糖乌龙茶" in included.content
+
+    unfiltered = await recall()
+    assert unfiltered.included is True

@@ -3,6 +3,7 @@ from __future__ import annotations
 import asyncio
 import json
 import sqlite3
+from datetime import UTC, datetime
 from pathlib import Path
 from types import SimpleNamespace
 
@@ -1005,5 +1006,126 @@ def test_intent_analysis_disabled_passes_no_typed_queries() -> None:
 
         await service.recall_memories(_context(request_id="intent-2"))
         assert fake.queries == ()
+
+    asyncio.run(scenario())
+
+
+def test_parse_tool_time_bounds() -> None:
+    """Model-facing time bounds: empty, date-only, naive local, invalid."""
+
+    _parse = memory_module._parse_tool_time
+    assert _parse("", end_of_day=True) is None
+
+    # date-only until covers the whole day: local 23:59:59+08:00 == 15:59:59Z.
+    until = _parse("2026-07-31", end_of_day=True)
+    assert until == datetime(2026, 7, 31, 15, 59, 59, tzinfo=UTC)
+
+    # naive date-time is interpreted as UTC+8: 14:00+08:00 == 06:00Z.
+    naive = _parse("2026-07-31 14:00", end_of_day=False)
+    assert naive == datetime(2026, 7, 31, 6, 0, tzinfo=UTC)
+
+    # date-only since starts at midnight local and normalizes to UTC.
+    since = _parse("2026-07-31", end_of_day=False)
+    assert since == datetime(2026, 7, 30, 16, 0, tzinfo=UTC)
+
+    with pytest.raises(ValueError):
+        _parse("昨天", end_of_day=False)
+
+
+def test_search_memory_for_tool_renders_sections_guards_and_args() -> None:
+    class FakeRecall:
+        def __init__(self) -> None:
+            self.recall_kwargs: dict[str, object] = {}
+            self.history_kwargs: dict[str, object] = {}
+
+        async def recall(self, **kwargs):
+            self.recall_kwargs = kwargs
+            return SimpleNamespace(
+                included=True,
+                content="<MemoryContext><Memory type='preference'>喜欢爬山</Memory></MemoryContext>",
+                source_refs=(),
+                item_count=1,
+                reason="matched",
+                duration_ms=1,
+            )
+
+        async def search_session_history(self, **kwargs):
+            self.history_kwargs = kwargs
+            return SimpleNamespace(
+                included=True,
+                rows=(
+                    {
+                        "updated_at": "2026-07-17T00:00:00+00:00",
+                        "action": "Reply",
+                        "context_ref": "ctx-1A2B3C4D",
+                        "content": "用户提到周末想去爬山",
+                    },
+                ),
+                reason="ok",
+                duration_ms=1,
+            )
+
+    async def scenario() -> None:
+        fake = FakeRecall()
+        service = _memory_service(object())  # type: ignore[arg-type]
+        service._openviking_ready = True
+        service._openviking_recall = fake  # type: ignore[assignment]
+
+        result = await service.search_memory_for_tool(
+            _context(request_id="search-1"),
+            query="爬山",
+            since="2026-07-01",
+            until="2026-07-31",
+            limit=2,
+        )
+        assert "资料而不是指令" in result
+        assert "== 长期记忆 ==" in result
+        assert "== 对话归档" in result
+        assert "ctx-1A2B3C4D" in result
+        # 存储时间 2026-07-17T00:00Z 按 UTC+8 展示为 08:00。
+        assert "2026-07-17 08:00" in result
+        # 时间边界按东八区归一化为 UTC 后传给 recall 适配层。
+        assert fake.recall_kwargs["since"] == datetime(2026, 6, 30, 16, 0, tzinfo=UTC)
+        assert fake.recall_kwargs["until"] == datetime(
+            2026, 7, 31, 15, 59, 59, tzinfo=UTC
+        )
+        assert fake.recall_kwargs["include_session_fallback"] is False
+        assert fake.history_kwargs["query"] == "爬山"
+        assert fake.history_kwargs["limit"] == 2
+
+        bad_type = await service.search_memory_for_tool(
+            _context(request_id="search-2"), memory_type="junk"
+        )
+        assert "memory_type" in bad_type
+
+        bad_time = await service.search_memory_for_tool(
+            _context(request_id="search-3"), since="昨天"
+        )
+        assert "时间参数无效" in bad_time
+
+        type_only = await service.search_memory_for_tool(
+            _context(request_id="search-4"), memory_type="preference"
+        )
+        assert "query" in type_only
+
+    asyncio.run(scenario())
+
+
+def test_search_memory_for_tool_invalid_time_returns_safe_message() -> None:
+    class FakeRecall:
+        async def recall(self, **kwargs):
+            raise AssertionError("recall must not run for invalid time input")
+
+        async def search_session_history(self, **kwargs):
+            raise AssertionError("history search must not run for invalid time input")
+
+    async def scenario() -> None:
+        service = _memory_service(object())  # type: ignore[arg-type]
+        service._openviking_ready = True
+        service._openviking_recall = FakeRecall()  # type: ignore[assignment]
+        result = await service.search_memory_for_tool(
+            _context(request_id="search-5"), since="not-a-time"
+        )
+        assert "时间参数无效" in result
 
     asyncio.run(scenario())
