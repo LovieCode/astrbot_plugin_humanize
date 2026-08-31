@@ -127,6 +127,14 @@
 .pl-mode-name {
   font-size: 13.5px; font-weight: 800; color: var(--text); line-height: 1.4;
 }
+/* 每档相对上一档新增的能力，把阶梯的增量讲清楚 */
+.pl-mode-unlock {
+  font-size: 11px;
+  color: var(--text-2);
+  line-height: 1.5;
+  transition: color var(--dur-mid);
+}
+.pl-mode.active .pl-mode-unlock { color: var(--pink-strong); }
 .pl-mode-check {
   margin-left: auto;
   display: flex;

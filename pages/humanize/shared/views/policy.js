@@ -8,17 +8,17 @@ HZ.views["policy"] = { init: function () {
 
   const MODE_LABELS = {
     silent: "完全沉默",
-    no_proactive: "不许主动回复",
-    admin: "允许管理员@",
-    mention: "允许所有@和关键词",
-    full: "完全主动回复",
+    no_proactive: "只回复@",
+    admin: "管理员可触发",
+    mention: "任何人可触发",
+    full: "完全主动",
   };
   const MODE_DESCS = {
-    silent: "该群完全不参与：@ 也不回复、不旁观记录、不缓存转述图片。",
-    no_proactive: "只回复 @，绝不主动搭话。",
-    admin: "仅当群管理员引用机器人消息或命中关键词时才主动触发回复。",
-    mention: "任何人引用机器人或命中关键词都会触发；不开闲聊窗。",
-    full: "闲聊窗 + 所有人触发：普通闲聊也按窗口节奏触发回复。",
+    silent: "彻底闭麦：@ 也不回复，图片不处理、消息不旁观、所有触发门全关。",
+    no_proactive: "被 @ 或唤醒时正常回复；引用、关键词、闲聊窗等一切主动路径全部关闭。",
+    admin: "在上一档基础上：群管理员引用机器人或命中关键词时也会主动回，普通成员触发无效。",
+    mention: "在上一档基础上：任何人引用机器人或命中关键词都会主动回，但仍不开闲聊窗。",
+    full: "在上一档基础上再开闲聊窗：群里的普通闲聊也会按窗口节奏触发回复。",
   };
   const MODES = Object.keys(MODE_LABELS);
 

@@ -954,31 +954,36 @@
             <span class="card-title">全局默认模式</span>
             <span class="pl-head-tag">所有没有单独设置的群都套用这里</span>
           </div>
-          <div class="pl-note">从左到右放开程度递增，选一档即可；保存立即生效，无需重启。</div>
+          <div class="pl-note">从左到右每档只多开一扇门：@ 回复 → 管理员触发 → 任何人触发 → 闲聊窗。保存立即生效，无需重启。</div>
           <div class="pl-modes" id="plGlobalModes">
             <button class="pl-mode" type="button" data-value="silent">
               <span class="pl-mode-top"><span class="pl-mode-step">LEVEL 1</span><span class="pl-mode-check" data-icon="check"></span></span>
               <span class="pl-mode-name">完全沉默</span>
+              <span class="pl-mode-unlock">什么都不开</span>
               <span class="pl-mode-meter"><i class="on"></i><i></i><i></i><i></i><i></i></span>
             </button>
             <button class="pl-mode" type="button" data-value="no_proactive">
               <span class="pl-mode-top"><span class="pl-mode-step">LEVEL 2</span><span class="pl-mode-check" data-icon="check"></span></span>
-              <span class="pl-mode-name">不许主动回复</span>
+              <span class="pl-mode-name">只回复@</span>
+              <span class="pl-mode-unlock">解锁：@ 与唤醒回复</span>
               <span class="pl-mode-meter"><i class="on"></i><i class="on"></i><i></i><i></i><i></i></span>
             </button>
             <button class="pl-mode" type="button" data-value="admin">
               <span class="pl-mode-top"><span class="pl-mode-step">LEVEL 3</span><span class="pl-mode-check" data-icon="check"></span></span>
-              <span class="pl-mode-name">允许管理员@</span>
+              <span class="pl-mode-name">管理员可触发</span>
+              <span class="pl-mode-unlock">解锁：管理员引用/关键词</span>
               <span class="pl-mode-meter"><i class="on"></i><i class="on"></i><i class="on"></i><i></i><i></i></span>
             </button>
             <button class="pl-mode" type="button" data-value="mention">
               <span class="pl-mode-top"><span class="pl-mode-step">LEVEL 4</span><span class="pl-mode-check" data-icon="check"></span></span>
-              <span class="pl-mode-name">允许所有@和关键词</span>
+              <span class="pl-mode-name">任何人可触发</span>
+              <span class="pl-mode-unlock">解锁：所有人引用/关键词</span>
               <span class="pl-mode-meter"><i class="on"></i><i class="on"></i><i class="on"></i><i class="on"></i><i></i></span>
             </button>
             <button class="pl-mode" type="button" data-value="full">
               <span class="pl-mode-top"><span class="pl-mode-step">LEVEL 5</span><span class="pl-mode-check" data-icon="check"></span></span>
-              <span class="pl-mode-name">完全主动回复</span>
+              <span class="pl-mode-name">完全主动</span>
+              <span class="pl-mode-unlock">解锁：闲聊窗</span>
               <span class="pl-mode-meter"><i class="on"></i><i class="on"></i><i class="on"></i><i class="on"></i><i class="on"></i></span>
             </button>
           </div>
@@ -1014,10 +1019,10 @@
             <datalist id="plScopeOptions"></datalist>
             <select class="pl-mode-select" id="plNewMode">
               <option value="silent">完全沉默</option>
-              <option value="no_proactive">不许主动回复</option>
-              <option value="admin">允许管理员@</option>
-              <option value="mention">允许所有@和关键词</option>
-              <option value="full">完全主动回复</option>
+              <option value="no_proactive">只回复@</option>
+              <option value="admin">管理员可触发</option>
+              <option value="mention">任何人可触发</option>
+              <option value="full">完全主动</option>
             </select>
             <button class="btn btn-primary" id="plAddBtn" data-icon="plus">添加</button>
           </div>
@@ -1030,7 +1035,7 @@
           <div class="card-head">
             <span class="card-dot"></span>
             <span class="card-title">触发关键词</span>
-            <span class="pl-head-tag">对「允许所有@和关键词」及以上的模式生效</span>
+            <span class="pl-head-tag">对「任何人可触发」及以上的模式生效</span>
           </div>
           <div class="pl-note">消息里出现这些词（可把机器人昵称加进来）或引用了机器人的消息时，跳过等待尽快触发回复。回车或逗号可一次添加多个。</div>
           <div class="pl-keywords" id="plKeywords"></div>
@@ -1049,23 +1054,23 @@
           <div class="pl-side-list">
             <div class="pl-side-item" data-mode="silent">
               <span class="pl-side-dot"></span>
-              <div class="pl-side-text"><b>完全沉默</b>：该群完全不参与，@ 也不回复、不旁观、不处理图片。</div>
+              <div class="pl-side-text"><b>完全沉默</b>：彻底闭麦，@ 也不回复，图片不处理、消息不旁观。</div>
             </div>
             <div class="pl-side-item" data-mode="no_proactive">
               <span class="pl-side-dot"></span>
-              <div class="pl-side-text"><b>不许主动回复</b>：只回复 @，绝不主动搭话。</div>
+              <div class="pl-side-text"><b>只回复@</b>：@ 或唤醒时正常回复；引用、关键词、闲聊窗等主动路径全关。</div>
             </div>
             <div class="pl-side-item" data-mode="admin">
               <span class="pl-side-dot"></span>
-              <div class="pl-side-text"><b>允许管理员@</b>：仅当群管理员引用机器人消息或命中关键词时，才主动触发回复。</div>
+              <div class="pl-side-text"><b>管理员可触发</b>：管理员引用机器人或命中关键词才主动回，普通成员无效。</div>
             </div>
             <div class="pl-side-item" data-mode="mention">
               <span class="pl-side-dot"></span>
-              <div class="pl-side-text"><b>允许所有@和关键词</b>：任何人引用机器人或命中关键词都会触发；不开闲聊窗。</div>
+              <div class="pl-side-text"><b>任何人可触发</b>：引用机器人或命中关键词就主动回，但不开闲聊窗。</div>
             </div>
             <div class="pl-side-item" data-mode="full">
               <span class="pl-side-dot"></span>
-              <div class="pl-side-text"><b>完全主动回复</b>：在上一档基础上，群里的普通闲聊也会按窗口节奏触发回复。</div>
+              <div class="pl-side-text"><b>完全主动</b>：在上一档基础上再开闲聊窗，普通闲聊按窗口节奏触发回复。</div>
             </div>
             <div class="pl-side-item">
               <span class="pl-side-dot pl-side-dot-plain"></span>
