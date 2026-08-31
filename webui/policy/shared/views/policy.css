@@ -189,6 +189,46 @@
   width: 168px;
 }
 
+/* ---------- 期望发言概率 ---------- */
+.pl-prob-row {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  margin-top: 12px;
+}
+
+.pl-prob-label {
+  font-size: 13px;
+  font-weight: 700;
+  color: var(--text);
+  white-space: nowrap;
+}
+
+.pl-prob-input {
+  width: 96px;
+  flex: 0 0 96px;
+  padding: 8px 11px;
+  text-align: center;
+}
+
+.pl-prob-unit {
+  font-size: 12.5px;
+  color: var(--text-2);
+}
+
+.pl-prob-note {
+  margin-top: 8px;
+  font-size: 12px;
+  line-height: 1.7;
+  color: var(--text-2);
+}
+
+.pl-group .pl-prob-input {
+  flex: 0 0 88px;
+  width: 88px;
+  padding: 9px 11px;
+}
+
 .pl-danger {
   color: #c05c5c;
 }

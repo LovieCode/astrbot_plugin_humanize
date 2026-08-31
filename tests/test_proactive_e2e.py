@@ -481,6 +481,44 @@ def test_normal_turn_waits_capped_per_batch(
     asyncio.run(scenario())
 
 
+def test_speak_expectation_injected_only_on_window_turns(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """期望发言概率：窗口回合注入 <Rule>，普通 @ 回合不注入。"""
+
+    async def scenario() -> None:
+        queue: asyncio.Queue = asyncio.Queue()
+        plugin = _plugin(tmp_path, monkeypatch, queue)
+        try:
+            await plugin.initialize()
+            await plugin._container.repository.set_group_policy_mode(
+                scope_id="global", mode="full"
+            )
+            await plugin._container.repository.set_group_speak_probability(
+                scope_id="global", probability=40
+            )
+
+            # 普通 @ 回合：有人点名要回应，不注入概率期望。
+            event = _group_event(text="在吗", at_bot=True, message_id="m-1")
+            req, _response = await _run_request(plugin, event, REPLY_RAW)
+            assert "主动发言的概率" not in _injected_prompt(req)
+
+            # 闲聊窗口回合：期望行落在 <Rule> 内部。
+            await plugin.prepare_message_event(
+                _group_event(text="今天天气真好", message_id="m-2")
+            )
+            window = await asyncio.wait_for(queue.get(), timeout=5)
+            window.is_at_or_wake_command = True
+            req2, _response2 = await _run_request(plugin, window, REPLY_RAW)
+            prompt2 = _injected_prompt(req2)
+            assert "主动发言的概率约为 40%" in prompt2
+            assert prompt2.index("主动发言的概率约为 40%") < prompt2.index("<Rule/>")
+        finally:
+            await plugin.terminate()
+
+    asyncio.run(scenario())
+
+
 def test_normal_at_reply_resets_pending_window(
     tmp_path: Path, monkeypatch: pytest.MonkeyPatch
 ) -> None:

@@ -198,6 +198,7 @@ class SQLiteRepository(
                 "reply_examples_content",
                 "TEXT NOT NULL DEFAULT ''",
             ),
+            ("humanize_group_policy", "speak_probability", "INTEGER"),
         ):
             columns = {
                 str(row["name"])
@@ -407,6 +408,15 @@ class SQLiteRepository(
                     "SET repair_content = ?, updated_at = ? "
                     "WHERE repair_content LIKE '%{{version}}%'",
                     (PromptTemplates().repair, now),
+                )
+            if version < 28:
+                # 新版基础规则：加入 {{speak_expectation}} 占位（期望发言概率）；
+                # 只替换未修改过的旧默认，自定义模板保留原样。
+                conn.execute(
+                    "UPDATE humanize_prompt_templates "
+                    "SET rule_content = ?, updated_at = ? "
+                    "WHERE rule_content = ?",
+                    (PromptTemplates().rule, now, LEGACY_RULE_TEMPLATE),
                 )
 
         if self._fts_available and version < 18:

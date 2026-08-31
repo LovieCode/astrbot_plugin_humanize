@@ -2,7 +2,7 @@
 
 from __future__ import annotations
 
-_SCHEMA_VERSION = 27
+_SCHEMA_VERSION = 28
 _CONTEXT_PREVIEW_CHARS = 1_000
 _SCHEMA = """
 CREATE TABLE IF NOT EXISTS jargon_entries (
@@ -457,6 +457,7 @@ CREATE TABLE IF NOT EXISTS humanize_group_policy (
     mode TEXT NOT NULL CHECK (
         mode IN ('silent', 'no_proactive', 'admin', 'mention', 'full')
     ),
+    speak_probability INTEGER,
     updated_at TEXT NOT NULL
 );
 

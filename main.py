@@ -2810,6 +2810,12 @@ class HumanizePlugin(Star):
             occurred_at=occurred_at,
             attachment_refs=tuple(attachment_refs),
             source_complete=source_complete,
+            # 期望发言概率：群聊软性策略，只有主动窗口回合会注入提示。
+            speak_probability=(
+                await self._speak_probability_for(event.unified_msg_origin)
+                if scope_type == "group"
+                else None
+            ),
         )
 
     async def _managed_context_for_reset(
@@ -3187,6 +3193,45 @@ class HumanizePlugin(Star):
                 if mode:
                     return mode
         return DEFAULT_POLICY_MODE
+
+    async def _speak_probability_for(self, umo: str) -> int | None:
+        """Resolve the expected proactive speak probability for one session.
+
+        群聊策略页维护的软性期望：按群覆盖优先（显式设置的行），其余套用
+        ``global`` 行；都未设置或读库失败时返回 ``None``（提示里不注入期望
+        语句）。它不是硬限制——只作为一句话期望注入 <Rule>，由模型权衡。
+
+        Args:
+            umo: Unified message origin of the session.
+
+        Returns:
+            1-100 的百分比，或 ``None`` 表示未设置。
+        """
+        repository = (
+            getattr(self._container, "repository", None) if self._container else None
+        )
+        if repository is None:
+            return None
+        try:
+            rows = await repository.list_group_policies()
+        except Exception:
+            logger.exception(
+                "[Humanize] group speak probability read failed for %s", umo
+            )
+            return None
+        for row in rows:
+            scope_id = str(row.get("scope_id") or "").strip()
+            probability = row.get("speak_probability")
+            if not scope_id or probability is None or scope_id == GLOBAL_POLICY_SCOPE:
+                continue
+            if matches_scope((scope_id,), umo):
+                return int(probability)
+        for row in rows:
+            if str(row.get("scope_id") or "").strip() == GLOBAL_POLICY_SCOPE:
+                probability = row.get("speak_probability")
+                if probability is not None:
+                    return int(probability)
+        return None
 
     def _event_queue(self) -> Any:
         """Return the host event queue for synthetic proactive events."""

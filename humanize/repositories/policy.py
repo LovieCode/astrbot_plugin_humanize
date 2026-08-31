@@ -14,6 +14,27 @@ GLOBAL_POLICY_SCOPE = "global"
 DEFAULT_POLICY_MODE = "mention"
 
 
+def _validate_speak_probability(value: Any) -> int | None:
+    """Normalize one speak-probability input to ``None`` or an int in 1..100.
+
+    Args:
+        value: ``None`` clears the expectation; integers (1-100) set it.
+
+    Returns:
+        The normalized value.
+
+    Raises:
+        ValueError: When the value is neither clearable nor a valid percent.
+    """
+    if value is None:
+        return None
+    if isinstance(value, bool) or not isinstance(value, int):
+        raise ValueError("期望发言概率必须是 1-100 的整数或留空")
+    if not 1 <= value <= 100:
+        raise ValueError("期望发言概率必须在 1-100 之间")
+    return value
+
+
 class GroupPolicyRepository:
     """Domain mixin: per-group participation policy, WebUI managed.
 
@@ -28,7 +49,8 @@ class GroupPolicyRepository:
 
         def operation(conn: sqlite3.Connection) -> list[dict[str, Any]]:
             rows = conn.execute(
-                "SELECT scope_id, mode, updated_at FROM humanize_group_policy "
+                "SELECT scope_id, mode, speak_probability, updated_at "
+                "FROM humanize_group_policy "
                 "ORDER BY scope_id ASC"
             ).fetchall()
             return [dict(row) for row in rows]
@@ -55,6 +77,47 @@ class GroupPolicyRepository:
                         updated_at = excluded.updated_at
                     """,
                     (token, mode, _now()),
+                )
+                conn.commit()
+            except Exception:
+                conn.rollback()
+                raise
+
+        await self._run(operation)
+
+    async def set_group_speak_probability(
+        self, *, scope_id: str, probability: int | None
+    ) -> None:
+        """Upsert one row's expected speak probability, leaving mode intact.
+
+        期望发言概率是软性提示（注入 <Rule> 由模型权衡），不是硬限制；
+        ``None`` 表示清除该行设置，回退到全局默认（或无期望）。
+
+        Args:
+            scope_id: Group scope identifier or the ``global`` default row.
+            probability: 1-100 percent, or ``None`` to clear.
+
+        Raises:
+            ValueError: On empty scope or an out-of-range probability.
+        """
+        token = str(scope_id or "").strip()
+        if not token:
+            raise ValueError("缺少会话标识")
+        normalized = _validate_speak_probability(probability)
+
+        def operation(conn: sqlite3.Connection) -> None:
+            conn.execute("BEGIN IMMEDIATE")
+            try:
+                conn.execute(
+                    """
+                    INSERT INTO humanize_group_policy
+                        (scope_id, mode, speak_probability, updated_at)
+                    VALUES (?, ?, ?, ?)
+                    ON CONFLICT(scope_id) DO UPDATE SET
+                        speak_probability = excluded.speak_probability,
+                        updated_at = excluded.updated_at
+                    """,
+                    (token, DEFAULT_POLICY_MODE, normalized, _now()),
                 )
                 conn.commit()
             except Exception:

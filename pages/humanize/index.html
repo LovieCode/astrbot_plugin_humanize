@@ -931,6 +931,12 @@
             <button class="pl-mode" type="button" data-value="full"><span class="pl-mode-name">完全主动回复</span></button>
           </div>
           <div class="pl-mode-desc" id="plGlobalDesc"></div>
+          <div class="pl-prob-row">
+            <label class="pl-prob-label" for="plGlobalProb">期望发言概率</label>
+            <input class="pl-input pl-prob-input" id="plGlobalProb" type="number" min="1" max="100" step="1" placeholder="未设置" />
+            <span class="pl-prob-unit">%</span>
+          </div>
+          <div class="pl-prob-note">软性期望，不是硬性限制：主动触发时告诉机器人大概多常开口，说不说仍由它结合上下文自行判断。留空表示不注入这条期望。</div>
           <div class="pl-actions">
             <button class="btn btn-primary" id="plSaveGlobal" data-icon="check">保存全局默认</button>
           </div>

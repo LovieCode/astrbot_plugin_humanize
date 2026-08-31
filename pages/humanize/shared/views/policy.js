@@ -35,6 +35,7 @@ HZ.views["policy"] = { init: function () {
   const $ = (sel) => document.querySelector(sel);
   const globalModesEl = $("#plGlobalModes");
   const globalDescEl = $("#plGlobalDesc");
+  const globalProbEl = $("#plGlobalProb");
   const saveGlobalBtn = $("#plSaveGlobal");
   const scopeInput = $("#plNewScope");
   const scopeOptions = $("#plScopeOptions");
@@ -55,6 +56,17 @@ HZ.views["policy"] = { init: function () {
   function selectedMode(host) {
     const active = host.querySelector(".pl-mode.active");
     return active ? active.dataset.value : "";
+  }
+
+  /* 期望发言概率输入解析：空串 = 清除(null)；1-100 整数有效；其余报错。 */
+  function parseProbInput(input) {
+    const raw = (input.value || "").trim();
+    if (!raw) return { ok: true, value: null };
+    const value = Number(raw);
+    if (!Number.isInteger(value) || value < 1 || value > 100) {
+      return { ok: false };
+    }
+    return { ok: true, value };
   }
 
   function renderGlobalModes() {
@@ -144,6 +156,21 @@ HZ.views["policy"] = { init: function () {
         saveOverride(group.scope_id, select.value);
       });
 
+      const probInput = document.createElement("input");
+      probInput.className = "pl-input pl-prob-input";
+      probInput.type = "number";
+      probInput.min = "1";
+      probInput.max = "100";
+      probInput.step = "1";
+      probInput.placeholder = "未设置";
+      probInput.title = "期望发言概率（1-100，留空回退全局默认）";
+      if (group.speak_probability !== null && group.speak_probability !== undefined) {
+        probInput.value = String(group.speak_probability);
+      }
+      probInput.addEventListener("change", () => {
+        saveProbability(group.scope_id, select.value, probInput);
+      });
+
       const removeBtn = document.createElement("button");
       removeBtn.className = "btn btn-ghost pl-danger";
       removeBtn.type = "button";
@@ -152,6 +179,7 @@ HZ.views["policy"] = { init: function () {
 
       row.appendChild(info);
       row.appendChild(select);
+      row.appendChild(probInput);
       row.appendChild(removeBtn);
       groupsEl.appendChild(row);
     });
@@ -202,6 +230,13 @@ HZ.views["policy"] = { init: function () {
         ? data.proactive_keywords.map((k) => String(k)).filter(Boolean)
         : [];
       renderAll();
+      if (globalProbEl) {
+        const probability = data && data.global_speak_probability;
+        globalProbEl.value =
+          probability === null || probability === undefined
+            ? ""
+            : String(probability);
+      }
     } catch (e) {
       const err = HZ.api.errorOf(e);
       HZ.toast("读取策略失败：" + err.message, { type: "error" });
@@ -209,6 +244,26 @@ HZ.views["policy"] = { init: function () {
   }
 
   async function saveGlobal() {
+    if (globalProbEl) {
+      const parsed = parseProbInput(globalProbEl);
+      if (!parsed.ok) {
+        HZ.toast("期望发言概率需要是 1-100 的整数，或留空", { type: "error" });
+        return;
+      }
+      try {
+        await HZ.api.post("policy-set", {
+          scope_id: "global",
+          mode: globalMode,
+          speak_probability: parsed.value,
+        });
+        HZ.toast("全局默认已保存：" + MODE_LABELS[globalMode], { type: "success" });
+        await loadPolicy();
+      } catch (e) {
+        const err = HZ.api.errorOf(e);
+        HZ.toast("保存失败：" + err.message, { type: "error" });
+      }
+      return;
+    }
     try {
       await HZ.api.post("policy-set", { scope_id: "global", mode: globalMode });
       HZ.toast("全局默认已保存：" + MODE_LABELS[globalMode], { type: "success" });
@@ -216,6 +271,31 @@ HZ.views["policy"] = { init: function () {
     } catch (e) {
       const err = HZ.api.errorOf(e);
       HZ.toast("保存失败：" + err.message, { type: "error" });
+    }
+  }
+
+  async function saveProbability(scope, mode, input) {
+    const parsed = parseProbInput(input);
+    if (!parsed.ok) {
+      HZ.toast("期望发言概率需要是 1-100 的整数，或留空", { type: "error" });
+      await loadPolicy();
+      return;
+    }
+    try {
+      await HZ.api.post("policy-set", {
+        scope_id: scope,
+        mode,
+        speak_probability: parsed.value,
+      });
+      HZ.toast(
+        "期望发言概率已保存：" + scope + " → " + (parsed.value === null ? "未设置" : parsed.value + "%"),
+        { type: "success" },
+      );
+      await loadPolicy();
+    } catch (e) {
+      const err = HZ.api.errorOf(e);
+      HZ.toast("保存失败：" + err.message, { type: "error" });
+      await loadPolicy();
     }
   }
 

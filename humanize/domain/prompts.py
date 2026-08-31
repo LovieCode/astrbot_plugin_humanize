@@ -13,10 +13,11 @@ DEFAULT_RULE_TEMPLATE = """
 5.你应该克制信息披露，不说自己是什么状态，在做什么 除非必要
 6.保持距离感，避免过于亲密
 7.你只能说白话、那种可以让人一目十行就能看懂的文字，禁止容易造成阅读障碍的修辞、高密度文字等
+{{speak_expectation}}
 <Rule/>
 """.strip()
 
-# 旧版基础规则（迁移锚点：仅当库中内容与之一致时才升级为新默认）
+# 上一版基础规则（迁移锚点：仅当库中内容与之一致时才升级为新默认）
 LEGACY_RULE_TEMPLATE = """
 <Rule>
 1.你正在{{scene}}，需要找自己感兴趣的话题加入，
@@ -24,7 +25,8 @@ LEGACY_RULE_TEMPLATE = """
 3.你在网络上聊天 所以不能有心理、动作、场景等
 4.不要重复上下文中的已知信息
 5.你应该克制信息披露，不说自己是什么状态，在做什么 除非必要
-6.情绪稳定 保持距离感
+6.保持距离感，避免过于亲密
+7.你只能说白话、那种可以让人一目十行就能看懂的文字，禁止容易造成阅读障碍的修辞、高密度文字等
 <Rule/>
 """.strip()
 
@@ -249,7 +251,7 @@ PROMPT_TEMPLATE_SPECS = (
         label="基础规则",
         description="根据当前聊天场景和管理员信息生成的每轮规则。",
         default_content=DEFAULT_RULE_TEMPLATE,
-        variables=("scene", "admin_name", "admin_ids"),
+        variables=("scene", "admin_name", "admin_ids", "speak_expectation"),
     ),
     PromptTemplateSpec(
         key="protocol",

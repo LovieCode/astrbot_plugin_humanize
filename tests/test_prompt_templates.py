@@ -220,6 +220,47 @@ def test_migration_updates_only_unmodified_legacy_protocol_templates(
     asyncio.run(scenario())
 
 
+def test_migration_upgrades_unmodified_rule_template_to_speak_expectation(
+    tmp_path: Path,
+) -> None:
+    async def scenario() -> None:
+        db_path = tmp_path / "humanize.db"
+        repository = SQLiteRepository(db_path)
+        await repository.initialize()
+
+        # 模拟 v27 库：规则模板是上一版默认（无 {{speak_expectation}} 占位）。
+        with sqlite3.connect(db_path) as connection:
+            connection.execute(
+                "UPDATE humanize_prompt_templates SET rule_content = ?",
+                (LEGACY_RULE_TEMPLATE,),
+            )
+            connection.execute("PRAGMA user_version = 27")
+            connection.commit()
+
+        upgraded = SQLiteRepository(db_path)
+        await upgraded.initialize()
+        upgraded_rule = (await upgraded.get_prompt_templates())["templates"]["rule"]
+        assert upgraded_rule == DEFAULT_RULE_TEMPLATE
+        assert "{{speak_expectation}}" in upgraded_rule
+
+        # 自定义过的规则模板保留原样（占位由使用者自行加入）。
+        custom_rule = "自定义规则 {{scene}} {{speak_expectation}}"
+        with sqlite3.connect(db_path) as connection:
+            connection.execute(
+                "UPDATE humanize_prompt_templates SET rule_content = ?",
+                (custom_rule,),
+            )
+            connection.commit()
+
+        preserved = SQLiteRepository(db_path)
+        await preserved.initialize()
+        assert (await preserved.get_prompt_templates())["templates"]["rule"] == (
+            custom_rule
+        )
+
+    asyncio.run(scenario())
+
+
 def test_migration_replaces_customized_templates_still_using_version_variable(
     tmp_path: Path,
 ) -> None:

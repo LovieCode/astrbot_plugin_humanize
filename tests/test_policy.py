@@ -58,6 +58,42 @@ def test_group_policy_upsert_list_and_clear(tmp_path: Path) -> None:
     asyncio.run(scenario())
 
 
+def test_group_speak_probability_set_clear_and_validate(tmp_path: Path) -> None:
+    async def scenario() -> None:
+        repository = await _repository(tmp_path / "humanize.db")
+
+        # 未设置时读取为 None（提示里不注入期望语句）。
+        await repository.set_group_policy_mode(scope_id="global", mode="full")
+        rows = await repository.list_group_policies()
+        assert rows[0]["speak_probability"] is None
+
+        # 设置 / 更新 / 清除；mode 始终保持不动。
+        await repository.set_group_speak_probability(scope_id="global", probability=35)
+        await repository.set_group_speak_probability(scope_id="100", probability=80)
+        rows = {row["scope_id"]: row for row in await repository.list_group_policies()}
+        assert rows["global"]["speak_probability"] == 35
+        assert rows["100"]["speak_probability"] == 80
+        assert rows["100"]["mode"] == "mention"
+
+        await repository.set_group_speak_probability(scope_id="global", probability=60)
+        await repository.set_group_speak_probability(
+            scope_id="global", probability=None
+        )
+        rows = {row["scope_id"]: row for row in await repository.list_group_policies()}
+        assert rows["global"]["speak_probability"] is None
+
+        # 非法值直接拒绝：0、101、小数、字符串、布尔；空会话标识同样拒绝。
+        for bad in (0, 101, 12.5, "35", True):
+            with pytest.raises(ValueError):
+                await repository.set_group_speak_probability(
+                    scope_id="global", probability=bad
+                )
+        with pytest.raises(ValueError):
+            await repository.set_group_speak_probability(scope_id="  ", probability=35)
+
+    asyncio.run(scenario())
+
+
 def test_session_meta_remembers_group_names(tmp_path: Path) -> None:
     async def scenario() -> None:
         repository = await _repository(tmp_path / "humanize.db")
@@ -163,10 +199,12 @@ def test_webapi_policy_endpoints_roundtrip(
         response = await dispatch(_FakeRequest(method="GET"), "policy")
         data = payload(response)["data"]
         assert data["global_mode"] == "full"
+        assert data["global_speak_probability"] is None
         assert data["groups"] == [
             {
                 "scope_id": "123456",
                 "mode": "silent",
+                "speak_probability": None,
                 "display_name": "摸鱼基地",
                 "updated_at": data["groups"][0]["updated_at"],
             }
@@ -174,6 +212,49 @@ def test_webapi_policy_endpoints_roundtrip(
         assert data["known_sessions"] == [
             {"scope_id": "aiocqhttp:GroupMessage:123456", "display_name": "摸鱼基地"}
         ]
+
+        # 期望发言概率：随 policy-set 设置与清除，非法值报 400。
+        response = await dispatch(
+            _FakeRequest(
+                method="POST",
+                body={
+                    "scope_id": "global",
+                    "mode": "full",
+                    "speak_probability": 40,
+                },
+            ),
+            "policy-set",
+        )
+        response = await dispatch(_FakeRequest(method="GET"), "policy")
+        data = payload(response)["data"]
+        assert data["global_speak_probability"] == 40
+        await dispatch(
+            _FakeRequest(
+                method="POST",
+                body={
+                    "scope_id": "123456",
+                    "mode": "silent",
+                    "speak_probability": None,
+                },
+            ),
+            "policy-set",
+        )
+        await repository.set_group_speak_probability(scope_id="123456", probability=70)
+        response = await dispatch(_FakeRequest(method="GET"), "policy")
+        data = payload(response)["data"]
+        assert data["groups"][0]["speak_probability"] == 70
+        response = await dispatch(
+            _FakeRequest(
+                method="POST",
+                body={
+                    "scope_id": "123456",
+                    "mode": "silent",
+                    "speak_probability": 101,
+                },
+            ),
+            "policy-set",
+        )
+        assert response.status_code == 400
 
         # 触发关键词：保存后读回一致，且同步进内存配置；非法类型报 400。
         response = await dispatch(

@@ -104,6 +104,7 @@ class MessageContext:
     source_complete: bool = True
     agent_id: str = "default"
     bot_name: str = ""
+    speak_probability: int | None = None
 
 
 @dataclass(frozen=True, slots=True)

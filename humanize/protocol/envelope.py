@@ -150,7 +150,14 @@ class EnvelopeBuilder:
                 )
             parts.append(brief)
         if self._config.default_rule_enabled:
-            parts.append(self._build_rule(context))
+            parts.append(
+                self._build_rule(
+                    context,
+                    speak_expectation=self._speak_expectation_line(
+                        context, proactive_situation
+                    ),
+                )
+            )
         protocol = self._templates.render(
             "protocol",
             {
@@ -261,7 +268,32 @@ class EnvelopeBuilder:
         root.text = _proactive_notice(situation)
         return ET.tostring(root, encoding="unicode", short_empty_elements=True)
 
-    def _build_rule(self, context: MessageContext) -> str:
+    def _speak_expectation_line(
+        self, context: MessageContext, proactive_situation: str
+    ) -> str:
+        """Build the soft speak-probability line for the rule template.
+
+        期望发言概率只在主动窗口回合注入——那个场合模型才面临"说还是不说"
+        的决定；普通回合在回复别人、直呼回合有人点名，概率期望都不适用。
+        未设置（``None``）时返回空串，模板里的占位行渲染为空行。
+
+        Args:
+            context: Trusted current-message metadata.
+            proactive_situation: ``window`` / ``direct`` / empty.
+
+        Returns:
+            The expectation line, or an empty string when not applicable.
+        """
+        if proactive_situation != "window" or not context.speak_probability:
+            return ""
+        return (
+            f"8.系统期望你在这个群里主动发言的概率约为 {context.speak_probability}%；"
+            "这只是软性期望，不是硬性要求，说不说仍由你结合上下文自行判断"
+        )
+
+    def _build_rule(
+        self, context: MessageContext, *, speak_expectation: str = ""
+    ) -> str:
         admin_ids = "、".join(context.admin_ids) if context.admin_ids else "未配置"
         if context.scope_type == "group" or context.chat_scene == "QQ群":
             scene = "QQ群聊天"
@@ -275,6 +307,7 @@ class EnvelopeBuilder:
                 "scene": scene,
                 "admin_name": context.admin_name,
                 "admin_ids": admin_ids,
+                "speak_expectation": speak_expectation,
             },
         )
         return rule

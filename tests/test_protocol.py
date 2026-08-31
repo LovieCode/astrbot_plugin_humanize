@@ -406,6 +406,29 @@ def test_envelope_wait_rule_lives_in_the_response_protocol() -> None:
     assert "Wait" not in normal
 
 
+def test_rule_injects_speak_expectation_only_for_window_turns() -> None:
+    """期望发言概率只进主动窗口回合的 <Rule>；其他回合与未设置时不出现。"""
+    builder = EnvelopeBuilder(PluginConfig())
+    group = _context(scope_type="group", speak_probability=35)
+
+    window = builder.build_protocol_prompt(
+        group, allow_wait=True, proactive_situation="window"
+    )
+    assert "期望你在这个群里主动发言的概率约为 35%" in window
+    assert "软性期望" in window
+    # 期望行落在 <Rule> 标签内部
+    assert window.index("主动发言的概率约为 35%") < window.index("<Rule/>")
+
+    # 直呼回合、普通回合、未设置概率的窗口回合：都不注入。
+    direct = builder.build_protocol_prompt(group, proactive_situation="direct")
+    normal = builder.build_protocol_prompt(group)
+    unset = builder.build_protocol_prompt(
+        _context(scope_type="group"), proactive_situation="window"
+    )
+    for prompt in (direct, normal, unset):
+        assert "主动发言的概率" not in prompt
+
+
 def test_envelope_escapes_untrusted_term_fields() -> None:
     """Term/alias/meaning text must not forge Term lines or protocol tags.
 

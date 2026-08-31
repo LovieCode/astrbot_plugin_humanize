@@ -253,6 +253,7 @@ class WebApi:
                 return ""
 
             global_mode = DEFAULT_POLICY_MODE
+            global_speak_probability: int | None = None
             groups: list[dict[str, Any]] = []
             for row in rows:
                 scope_id = str(row.get("scope_id") or "").strip()
@@ -262,11 +263,18 @@ class WebApi:
                     mode = str(row.get("mode") or "").strip()
                     if mode:
                         global_mode = mode
+                    probability = row.get("speak_probability")
+                    if probability is not None:
+                        global_speak_probability = int(probability)
                     continue
+                probability = row.get("speak_probability")
                 groups.append(
                     {
                         "scope_id": scope_id,
                         "mode": str(row.get("mode") or ""),
+                        "speak_probability": (
+                            int(probability) if probability is not None else None
+                        ),
                         "display_name": display_name_for(scope_id),
                         "updated_at": str(row.get("updated_at") or ""),
                     }
@@ -279,6 +287,7 @@ class WebApi:
             return self._ok(
                 {
                     "global_mode": global_mode,
+                    "global_speak_probability": global_speak_probability,
                     "groups": groups,
                     "known_sessions": known_sessions,
                     "proactive_keywords": list(self._config.proactive_keywords),
@@ -623,6 +632,12 @@ class WebApi:
             scope_id = str(body.get("scope_id") or "").strip()
             mode = str(body.get("mode") or "").strip()
             await self._repository.set_group_policy_mode(scope_id=scope_id, mode=mode)
+            if "speak_probability" in body:
+                # 期望发言概率（软性提示）：显式传入才改，null 表示清除回退。
+                await self._repository.set_group_speak_probability(
+                    scope_id=scope_id,
+                    probability=body.get("speak_probability"),
+                )
             return self._ok({"scope_id": scope_id, "mode": mode})
         if path == "policy-clear":
             scope_id = str(body.get("scope_id") or "").strip()
