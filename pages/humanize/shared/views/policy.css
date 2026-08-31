@@ -1,14 +1,14 @@
 /* 群聊策略页样式：全局模式选择 + 覆盖列表 + 会话参考
    变量一律用 shared/tokens.css 里的既有 token（--pink 系、--text 系）。 */
 
+/* 与其他视图（jg-layout / cx-layout）保持一致：只受 .main 内边距约束，
+   不再额外限宽居中，宽屏下内容铺满可用宽度。 */
 .pl-layout {
   display: flex;
   gap: 18px;
   align-items: flex-start;
   width: 100%;
-  max-width: 1080px;
-  margin: 0 auto;
-  padding: 6px 22px 0;
+  min-width: 0;
 }
 
 .pl-main {
