@@ -106,8 +106,7 @@ def test_window_compacts_40_entries_to_20_and_survives_restart(
         assert loaded.entry_count == 20
         assert loaded.compacted is False
         assert any(
-            item["role"] == "system"
-            and "HumanizeContextSummary" in str(item["content"])
+            item["role"] == "system" and "historical chat data" in str(item["content"])
             for item in loaded.contexts
         )
         assert sum(item["role"] == "user" for item in loaded.contexts) == 20
@@ -136,9 +135,9 @@ def test_window_compacts_long_history_by_token_budget_and_keeps_latest_turns(
 ) -> None:
     async def scenario() -> None:
         window, _, _ = await _window(tmp_path)
-        last_context = _context(12, user_text="last message")
-        for index in range(1, 13):
-            context = last_context if index == 12 else _context(index)
+        last_context = _context(24, user_text="last message")
+        for index in range(1, 25):
+            context = last_context if index == 24 else _context(index)
             text = "长文本" * 1_500
             await window.append(
                 context,
@@ -150,7 +149,7 @@ def test_window_compacts_long_history_by_token_budget_and_keeps_latest_turns(
 
         loaded = await window.load(last_context, token_budget=500)
         assert loaded.compacted is True
-        assert loaded.entry_count == 10
+        assert loaded.entry_count == 20
         assert any(
             item["role"] == "system" and "Earlier turn" in str(item["content"])
             for item in loaded.contexts
@@ -284,7 +283,7 @@ def test_tool_chains_and_images_are_safe_in_hot_and_cold_context(
             image_count=1,
             token_budget=30_000,
         )
-        for index in range(2, 12):
+        for index in range(2, 26):
             context = _context(index)
             await window.append(
                 context,
@@ -921,10 +920,59 @@ def test_chatter_compacts_like_any_other_entry(tmp_path: Path) -> None:
                 token_budget=256,
             )
         loaded = await window.load(_context(99, user_text="@bot"), token_budget=256)
-        assert loaded.entry_count <= 10
+        assert loaded.entry_count <= 20
         summary = str(loaded.contexts[0].get("content"))
-        assert "<HumanizeContextSummary>" in summary
+        assert "historical chat data" in summary
         assert "闲聊内容" in summary
+
+    asyncio.run(scenario())
+
+
+def test_chatter_summary_aggregates_duplicates_and_bare_images(tmp_path: Path) -> None:
+    """Duplicate chatter lines merge; bare [图片] only counts as omitted."""
+
+    async def scenario() -> None:
+        window, _, _ = await _window(tmp_path)
+        for index in range(1, 25):
+            await window.append_chatter(
+                _context(
+                    index,
+                    sender_id=f"user-{index}",
+                    sender_name=f"成员{index}",
+                    user_text="该水群了" * 60 if index % 2 else "[图片]",
+                ),
+                token_budget=256,
+            )
+        loaded = await window.load(_context(99, user_text="@bot"), token_budget=256)
+        summary = "\n".join(
+            str(item.get("content"))
+            for item in loaded.contexts
+            if item["role"] == "system"
+        )
+        assert "该水群了" in summary
+        assert "（×" in summary
+        assert "- Earlier turn: [图片]\n" not in summary
+        assert "已省略" in summary
+
+    asyncio.run(scenario())
+
+
+def test_chatter_image_keeps_transcription_in_history(tmp_path: Path) -> None:
+    """Chatter images record the prepare-phase transcription, not a bare marker."""
+
+    async def scenario() -> None:
+        window, _, _ = await _window(tmp_path)
+        await window.append_chatter(
+            _context(1, sender_name="碎心", user_text=""),
+            has_image=True,
+            image_descriptions=("一张白色的猫趴在键盘上",),
+        )
+        loaded = await window.load(_context(2, user_text="@bot"), token_budget=30_000)
+        user_contents = [
+            str(item["content"]) for item in loaded.contexts if item["role"] == "user"
+        ]
+        assert any("[图片 1: 一张白色的猫趴在键盘上]" in c for c in user_contents)
+        assert not any(c.strip() == "[图片]" for c in user_contents)
 
     asyncio.run(scenario())
 

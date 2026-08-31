@@ -2950,6 +2950,14 @@ class HumanizePlugin(Star):
             await window(
                 chatter_context,
                 has_image=has_image,
+                # prepare 阶段已经算好的转述直接带上：旁观图片进历史时
+                # 是有内容的标注，不再是无信息占位（零额外转述开销）。
+                image_descriptions=tuple(
+                    str(item)
+                    for item in (
+                        event.get_extra(_EVENT_IMAGE_TRANSCRIPTIONS_KEY, ()) or ()
+                    )
+                ),
                 token_budget=self._context_window_token_budget(umo),
             )
         except Exception:
