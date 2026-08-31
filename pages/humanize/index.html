@@ -945,7 +945,7 @@
         <!-- 按群覆盖 -->
         <div class="card reveal">
           <div class="card-head"><span class="card-dot"></span><span class="card-title">群聊覆盖</span></div>
-          <div class="pl-note">单独设置的群以这里为准，覆盖全局默认。填群号即可（如 123456），机器人见过的群会自动带出名称供选择。</div>
+          <div class="pl-note">单独设置的群以这里为准，覆盖全局默认。填群号即可（如 123456），机器人见过的群会自动带出名称供选择。「期望发言概率」是软性提示（1-100）：主动触发时告诉机器人大概多常开口，说不说由它自己判断，不是硬性限制；留空回退全局默认。</div>
           <div class="pl-add">
             <input class="pl-input pl-scope-input" id="plNewScope" list="plScopeOptions" placeholder="群号或完整会话标识（aiocqhttp:GroupMessage:123456）" />
             <datalist id="plScopeOptions"></datalist>
@@ -985,6 +985,7 @@
             <div class="pl-side-item"><b>允许管理员@</b>：仅当群管理员引用机器人消息或命中关键词时，才主动触发回复。</div>
             <div class="pl-side-item"><b>允许所有@和关键词</b>：任何人引用机器人或命中关键词都会触发；不开闲聊窗。</div>
             <div class="pl-side-item"><b>完全主动回复</b>：在上一档基础上，群里的普通闲聊也会按窗口节奏触发回复。</div>
+            <div class="pl-side-item"><b>期望发言概率</b>：软性期望，不是硬性限制。机器人被动触发检查时，提示它大概多常该开口（如 30% 就是"十次里大概三次可以说"），说不说仍由它结合上下文判断。回复 @ 和关键词/引用直呼不受影响，一定会回应。</div>
           </div>
         </div>
         <div class="card">

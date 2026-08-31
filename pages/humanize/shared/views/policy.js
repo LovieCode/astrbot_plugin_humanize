@@ -156,14 +156,19 @@ HZ.views["policy"] = { init: function () {
         saveOverride(group.scope_id, select.value);
       });
 
+      const probLabel = document.createElement("span");
+      probLabel.className = "pl-prob-tag";
+      probLabel.textContent = "期望发言";
+
       const probInput = document.createElement("input");
       probInput.className = "pl-input pl-prob-input";
       probInput.type = "number";
       probInput.min = "1";
       probInput.max = "100";
       probInput.step = "1";
-      probInput.placeholder = "未设置";
-      probInput.title = "期望发言概率（1-100，留空回退全局默认）";
+      probInput.placeholder = "如 30";
+      probInput.title = "期望发言概率（1-100，软性期望；留空回退全局默认）";
+      probInput.setAttribute("aria-label", "期望发言概率");
       if (group.speak_probability !== null && group.speak_probability !== undefined) {
         probInput.value = String(group.speak_probability);
       }
@@ -179,6 +184,7 @@ HZ.views["policy"] = { init: function () {
 
       row.appendChild(info);
       row.appendChild(select);
+      row.appendChild(probLabel);
       row.appendChild(probInput);
       row.appendChild(removeBtn);
       groupsEl.appendChild(row);
