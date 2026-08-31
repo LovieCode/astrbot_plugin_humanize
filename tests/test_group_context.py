@@ -928,8 +928,8 @@ def test_chatter_compacts_like_any_other_entry(tmp_path: Path) -> None:
     asyncio.run(scenario())
 
 
-def test_chatter_summary_aggregates_duplicates_and_bare_images(tmp_path: Path) -> None:
-    """Duplicate chatter lines merge; bare [图片] only counts as omitted."""
+def test_chatter_summary_keeps_duplicate_messages_unmerged(tmp_path: Path) -> None:
+    """Duplicate chatter messages stay listed line by line, never merged."""
 
     async def scenario() -> None:
         window, _, _ = await _window(tmp_path)
@@ -939,7 +939,7 @@ def test_chatter_summary_aggregates_duplicates_and_bare_images(tmp_path: Path) -
                     index,
                     sender_id=f"user-{index}",
                     sender_name=f"成员{index}",
-                    user_text="该水群了" * 60 if index % 2 else "[图片]",
+                    user_text="该水群了" * 60,
                 ),
                 token_budget=256,
             )
@@ -950,9 +950,10 @@ def test_chatter_summary_aggregates_duplicates_and_bare_images(tmp_path: Path) -
             if item["role"] == "system"
         )
         assert "该水群了" in summary
-        assert "（×" in summary
-        assert "- Earlier turn: [图片]\n" not in summary
-        assert "已省略" in summary
+        # 重复的真实消息不做合并，逐条罗列（截断封顶是唯一保护）。
+        assert summary.count("- Earlier turn: ") >= 2
+        assert "（×" not in summary
+        assert "已省略" not in summary
 
     asyncio.run(scenario())
 

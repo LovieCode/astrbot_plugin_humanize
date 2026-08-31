@@ -1162,25 +1162,38 @@ class HumanizePlugin(Star):
         )
         if user_text.strip():
             prompt += f"\n用户当前消息：{user_text}"
-        try:
-            response = await provider.text_chat(
-                prompt=prompt,
-                session_id="",
-                image_urls=[image_path],
-                audio_urls=[],
-                func_tool=None,
-                contexts=[],
-                system_prompt="",
-                tool_calls_result=None,
-                model=None,
-                extra_user_content_parts=[],
-                request_max_retries=1,
-            )
-        except Exception as exc:
+        response = None
+        last_exc: Exception | None = None
+        for attempt in range(1, 4):
+            try:
+                response = await provider.text_chat(
+                    prompt=prompt,
+                    session_id="",
+                    image_urls=[image_path],
+                    audio_urls=[],
+                    func_tool=None,
+                    contexts=[],
+                    system_prompt="",
+                    tool_calls_result=None,
+                    model=None,
+                    extra_user_content_parts=[],
+                    request_max_retries=1,
+                )
+                break
+            except Exception as exc:
+                last_exc = exc
+                logger.warning(
+                    "[Humanize] image transcription attempt %s/3 failed: %s",
+                    attempt,
+                    exc,
+                )
+                if attempt < 3:
+                    await asyncio.sleep(attempt)
+        if response is None:
             logger.error(
-                "[Humanize] image transcription request failed: %s",
-                exc,
-                exc_info=True,
+                "[Humanize] image transcription request failed after 3 attempts: %s",
+                last_exc,
+                exc_info=last_exc is not None,
             )
             return ""
         text = str(getattr(response, "completion_text", "") or "").strip()
