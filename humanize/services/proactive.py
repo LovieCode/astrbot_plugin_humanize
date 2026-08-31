@@ -132,6 +132,34 @@ class ProactiveService:
         self._waits.pop(scope_id, None)
         await self._remember(scope_id, window_seconds=_REPLY_RESET_SECONDS)
 
+    async def on_wait_requested(
+        self, scope_id: str, *, event: Any = None, wait_seconds: int = 0
+    ) -> None:
+        """Schedule one window re-check after a normal group turn chose Wait.
+
+        常驻 Wait 的落点：普通回合里模型暂不回应时，把这次等待计入同一批
+        （与主动批共用 3 次上限），到点后触发一次 window 检查重新决定。
+        等待期间的新发言只更新模板、不打断计时，与窗口检查一致。
+
+        Args:
+            scope_id: Group session identifier (``unified_msg_origin``).
+            event: The triggering real message event, kept as the
+                construction template fallback for groups without chatter.
+            wait_seconds: Requested wait duration.
+        """
+        if self._closed:
+            return
+        if event is not None:
+            self._templates[scope_id] = event
+        waits = self._waits.get(scope_id, 0) + 1
+        if waits >= _MAX_WAITS_PER_BATCH:
+            logger.info("[Humanize] wait batch exhausted scope=%s", scope_id)
+            self._waits.pop(scope_id, None)
+            await self._stretch_window(scope_id)
+            return
+        self._waits[scope_id] = waits
+        self._schedule_window(scope_id, float(max(1, wait_seconds)), kind="window")
+
     async def shutdown(self) -> None:
         """Cancel every pending timer; called on plugin unload."""
         self._closed = True

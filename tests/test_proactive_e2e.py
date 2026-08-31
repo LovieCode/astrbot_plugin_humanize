@@ -265,8 +265,8 @@ def test_window_no_reply_cycle_stretches_and_keeps_history(
             assert synthetic.get_extra(_PROACTIVE_KIND_KEY) == "window"
             chain = synthetic.message_obj.message
             assert isinstance(chain[0], At) and str(chain[0].qq) == "bot-1"
-            # <Msg> 占位：本回合不附用户消息；情况说明走协议段
-            assert "没有附上用户消息" in chain[1].text
+            # <Msg> 占位：窗口检查的行动指引（用户定稿）；情况说明走协议段
+            assert "群里正在聊天" in chain[1].text
             assert "没有 @ 你" not in chain[1].text
 
             # 合成事件也要过入口钩子，但不得再记一条旁观。
@@ -281,9 +281,9 @@ def test_window_no_reply_cycle_stretches_and_keeps_history(
             injected = _injected_prompt(req)
             # 情况说明与 Wait 补充规则都在回复协议里，不在事件消息文本
             assert "没有 @ 你" in injected
-            assert "补充规则（仅本场景）" in injected
+            assert "话没说完" in injected
             # 通告走独立的 <SystemNotice> 标签：<Msg> 保留给真实用户消息
-            assert "<SystemNotice>（本条由系统触发" in req.prompt
+            assert "<SystemNotice>（群里正在聊天" in req.prompt
             assert "<Msg>" not in req.prompt
             assert "有群成员提到了你" not in req.prompt
 
@@ -396,6 +396,85 @@ def test_window_wait_cycle_defers_then_replies(
             )
             assert state["window_seconds"] == 1
             assert (await _load_window(plugin)).entry_count == 2
+        finally:
+            await plugin.terminate()
+
+    asyncio.run(scenario())
+
+
+def test_normal_turn_wait_schedules_window_recheck(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """常驻 Wait：普通 @ 回合模型等待 → 静默、不落窗口、到点补一次检查。"""
+
+    async def scenario() -> None:
+        queue: asyncio.Queue = asyncio.Queue()
+        plugin = _plugin(tmp_path, monkeypatch, queue)
+        try:
+            await plugin.initialize()
+            await plugin._container.repository.set_group_policy_mode(
+                scope_id="global", mode="full"
+            )
+            event = _group_event(text="等等，我话没说完", at_bot=True, message_id="m-1")
+            req, response = await _run_request(plugin, event, WAIT_RAW)
+            # Wait 规则随协议注入普通群聊回合
+            assert "话没说完" in _injected_prompt(req)
+            await _dispatch(plugin, event, response)
+
+            assert event.sent_chains == []
+            proactive = plugin._container.proactive
+            assert proactive._waits[SCOPE] == 1
+            assert SCOPE in proactive._window_timers
+            # 等待不落窗口：回合里没有可记录的发言
+            assert (await _load_window(plugin)).entry_count == 0
+
+            second = await asyncio.wait_for(queue.get(), timeout=5)
+            assert second.get_extra(_PROACTIVE_KIND_KEY) == "window"
+            second.is_at_or_wake_command = True
+            _req2, response2 = await _run_request(plugin, second, REPLY_RAW)
+            await _dispatch(plugin, second, response2)
+
+            assert [c.get_plain_text() for c in second.sent_chains] == [
+                "好呀，我也要去"
+            ]
+            assert SCOPE not in proactive._waits
+        finally:
+            await plugin.terminate()
+
+    asyncio.run(scenario())
+
+
+def test_normal_turn_waits_capped_per_batch(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """常驻 Wait 限次：普通回合与补查共用计数，一批最多等 3 次后不再补查。"""
+
+    async def scenario() -> None:
+        queue: asyncio.Queue = asyncio.Queue()
+        plugin = _plugin(tmp_path, monkeypatch, queue)
+        try:
+            await plugin.initialize()
+            await plugin._container.repository.set_group_policy_mode(
+                scope_id="global", mode="full"
+            )
+            # 第 1 次：普通 @ 回合等待。
+            event = _group_event(text="先别急", at_bot=True, message_id="m-1")
+            _req, response = await _run_request(plugin, event, WAIT_RAW)
+            await _dispatch(plugin, event, response)
+
+            # 第 2、3 次：两次补查都继续等待，第 3 次触顶。
+            for _ in range(2):
+                recheck = await asyncio.wait_for(queue.get(), timeout=5)
+                assert recheck.get_extra(_PROACTIVE_KIND_KEY) == "window"
+                recheck.is_at_or_wake_command = True
+                _req2, response2 = await _run_request(plugin, recheck, WAIT_RAW)
+                await _dispatch(plugin, recheck, response2)
+
+            proactive = plugin._container.proactive
+            assert SCOPE not in proactive._waits
+            assert SCOPE not in proactive._window_timers
+            with pytest.raises(asyncio.TimeoutError):
+                await asyncio.wait_for(queue.get(), timeout=0.5)
         finally:
             await plugin.terminate()
 

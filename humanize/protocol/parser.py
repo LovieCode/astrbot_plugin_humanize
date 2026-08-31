@@ -33,7 +33,9 @@ _IMAGECACHE_TAG_RE = re.compile(
 )
 _LEGACY_ACTION_PATTERN = re.compile(r"action\s*:\s*(?P<value>.*)", re.IGNORECASE)
 
-# 主动评估专用动作：<Action>Wait N</Action>，N 为 1..MAX_WAIT_SECONDS 的整数秒。
+# Wait N：<Action>Wait N</Action>，N 为 1..MAX_WAIT_SECONDS 的整数秒。
+# 群聊回合的常驻动作（话没说完/不便插话时暂不回应，稍后补一次决定）；
+# 仅在调用方明确允许时合法（私聊与关闭主动参与的群保持禁用）。
 MAX_WAIT_SECONDS = 29
 _WAIT_ACTION_RE = re.compile(r"^\s*Wait\s+(?P<seconds>\d{1,3})\s*$", re.IGNORECASE)
 
@@ -56,8 +58,9 @@ class ProtocolParser:
 
         Args:
             raw_output: Full model output.
-            allow_wait: Whether the proactive-only ``Wait N`` action is legal.
-                Normal reply turns must never defer, so they keep it disabled.
+            allow_wait: Whether the ``Wait N`` action is legal for this turn
+                (group turns with a landing spot for the delayed re-check).
+                Turns that could never re-evaluate keep it disabled.
 
         Returns:
             Parsed decision; ``wait_seconds`` is set only for ``Wait``.
@@ -82,7 +85,7 @@ class ProtocolParser:
             action = None
         wait_seconds = 0
         if action is Action.WAIT or wait_match is not None:
-            # ``Wait`` 只允许出现在主动评估调用里；缺秒数或超出上限都是格式错误。
+            # ``Wait`` 只在允许延迟重查的回合合法；缺秒数或超出上限都是格式错误。
             if wait_match is None:
                 raise ProtocolValidationError(
                     "invalid_wait_seconds",
@@ -91,7 +94,7 @@ class ProtocolParser:
             if not allow_wait:
                 raise ProtocolValidationError(
                     "wait_not_allowed",
-                    "Wait is only valid in proactive evaluations",
+                    "Wait is not allowed in this turn",
                 )
             seconds = int(wait_match.group("seconds"))
             if not 1 <= seconds <= MAX_WAIT_SECONDS:

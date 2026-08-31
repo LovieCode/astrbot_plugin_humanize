@@ -597,10 +597,10 @@ def test_plugin_builds_synthetic_event_from_template() -> None:
         chain = event.message_obj.message
         assert isinstance(chain[0], At) and str(chain[0].qq) == "bot-1"
         assert isinstance(chain[1], Plain)
-        # <Msg> 占位：主动回合不附用户消息，情况说明不进消息文本
-        assert "没有附上用户消息" in chain[1].text
-        # Wait 规则与情况说明跟随回复协议注入，不进入事件消息文本
-        assert "Wait" not in chain[1].text
+        # <Msg> 占位：窗口检查是行动指引（用户定稿），情况说明不进消息文本
+        assert "群里正在聊天" in chain[1].text
+        # Wait 规则本体仍跟随回复协议注入，不进入事件消息文本
+        assert "最多等待 3 次" not in chain[1].text
         assert "没有 @ 你" not in chain[1].text
         assert event.extras[_PROACTIVE_KIND_KEY] == "window"
         assert event.extras[_PROACTIVE_OUTCOME_CALLBACK_KEY] is outcome

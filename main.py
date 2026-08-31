@@ -111,6 +111,9 @@ _PROACTIVE_KIND_KEY = "_humanize_proactive_kind"
 _PROACTIVE_WAIT_KEY = "_humanize_proactive_wait_seconds"
 _PROACTIVE_OUTCOME_CALLBACK_KEY = "_humanize_proactive_outcome_callback"
 _PROACTIVE_OUTCOME_FIRED_KEY = "_humanize_proactive_outcome_fired"
+# Wait 规则注入与解析共用同一个标记：请求阶段算一次存进 event，
+# 响应阶段只读它，保证"通告了能等"和"接受 Wait"永不漂移。
+_WAIT_ALLOWED_KEY = "_humanize_wait_allowed"
 _PROVIDER_CAPTURE_TTL_SECONDS = 600.0
 _PROVIDER_CAPTURE_MAX_ENTRIES = 256
 _FIREWALL_PRIORITY = 100_000
@@ -690,11 +693,19 @@ class HumanizePlugin(Star):
             )
         try:
             proactive_kind = str(event.get_extra(_PROACTIVE_KIND_KEY, "") or "")
+            # 常驻 Wait：群聊回合可用（话没说完/不便插话时暂不回应）。
+            # 落点条件：主动回合自带补查；普通群聊回合要求群策略允许主动
+            # 参与（等待后的补查就是一次 window 检查）；私聊与沉默群没有。
+            wait_allowed = bool(proactive_kind) or (
+                message_context.scope_type == "group"
+                and policy_mode not in {"silent", "no_proactive"}
+            )
+            event.set_extra(_WAIT_ALLOWED_KEY, wait_allowed)
             prepared = await self._container.service.prepare_request(
                 message_context,
                 include_session_fallback=False,
-                # 主动回合：Wait 规则与情况说明跟随回复协议，<Msg> 是占位文本。
-                allow_wait=proactive_kind == "window",
+                # Wait 规则与（主动回合的）情况说明跟随回复协议，<Msg> 是占位文本。
+                allow_wait=wait_allowed,
                 proactive_situation=proactive_kind,
             )
         except Exception as exc:
@@ -1303,7 +1314,7 @@ class HumanizePlugin(Star):
                 duration_ms=duration_ms,
                 stage=f"proactive_{proactive_kind}" if proactive_kind else "final",
                 record_success=False,
-                allow_wait=proactive_kind == "window",
+                allow_wait=bool(event.get_extra(_WAIT_ALLOWED_KEY, False)),
                 response_snapshot=response_snapshot,
                 response_snapshot_complete=response_snapshot_complete,
             )
@@ -1350,8 +1361,9 @@ class HumanizePlugin(Star):
             return
 
         if outcome.action is Action.WAIT:
-            # Wait 不是消息：抑制发送、跳过历史写回，由服务按等待秒数
-            # 重新触发同一批；最终成功落账时按 Wait 记录。
+            # Wait 不是消息：抑制发送、跳过历史写回。主动回合由服务按等待
+            # 秒数重新触发；普通群聊回合在落账阶段调度一次 window 补查。
+            # 最终成功落账时按 Wait 记录。
             event.set_extra(_PROACTIVE_WAIT_KEY, int(outcome.wait_seconds or 0))
             event.set_extra(_VALIDATED_OUTPUT_KEY, raw_output)
             event.set_extra(_MESSAGES_KEY, ())
@@ -2560,6 +2572,23 @@ class HumanizePlugin(Star):
                     logger.exception(
                         "[Humanize] failed to notify the proactive service"
                     )
+        if (
+            not proactive_kind
+            and outcome_action is Action.WAIT
+            and context.scope_type == "group"
+        ):
+            # 常驻 Wait 的落点：普通群聊回合模型选择等待时，到点后补一次
+            # window 检查重新决定；这次等待计入同一批的 3 次上限。
+            proactive = getattr(self._container, "proactive", None)
+            if proactive is not None:
+                try:
+                    await proactive.on_wait_requested(
+                        context.scope_id,
+                        event=event,
+                        wait_seconds=int(wait_seconds_raw or 0),
+                    )
+                except Exception:
+                    logger.exception("[Humanize] failed to schedule the wait re-check")
         response_snapshot, response_snapshot_complete = (
             self._response_snapshot_for_record(event)
         )
@@ -3202,7 +3231,7 @@ class HumanizePlugin(Star):
             envelope = self._container.envelope if self._container else None
             if envelope is None:
                 return None
-            text = envelope.build_proactive_message_text()
+            text = envelope.build_proactive_message_text(situation=kind)
             self_id_getter = getattr(template, "get_self_id", None)
             self_id = str(self_id_getter() or "") if callable(self_id_getter) else ""
             if not self_id:

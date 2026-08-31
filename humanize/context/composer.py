@@ -74,7 +74,9 @@ class ContextComposer:
         if proactive_situation:
             # 主动回合没有真实用户消息：<Msg> 保留给最新用户消息，
             # current_message 段改为独立的 <SystemNotice> 通告。
-            message_xml = self._envelope.build_proactive_notice_xml()
+            message_xml = self._envelope.build_proactive_notice_xml(
+                situation=proactive_situation
+            )
         else:
             message_xml = self._envelope.build_message_xml(message_text)
         protocol_prompt = self._envelope.build_protocol_prompt(

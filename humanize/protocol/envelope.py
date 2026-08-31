@@ -23,23 +23,34 @@ _PROACTIVE_SITUATION_BRIEFS = {
     ),
 }
 
-# Wait 属于输出协议的一部分，跟随协议块注入（仅允许等待的主动窗口回合），
-# 不进入 <Msg> 消息文本，也不写入基础协议模板。
-_PROACTIVE_WAIT_RULE = (
-    "补充规则（仅本场景）：正在进行的对话不便插话时，"
+# Wait 是群聊回合的常驻动作（应对话没说完、分段发送、不便插话）：规则跟随
+# 协议块注入，不进入 <Msg> 消息文本，也不写入基础协议模板。私聊与关闭主动
+# 参与的群不注入（等待后的补查在那两种场景没有落点），解析器同样拒绝。
+_WAIT_RULE = (
+    "补充规则：对方话没说完、消息不完整，或者现在插话不合适时，"
     "可以输出 Wait N（N 为 1 到 "
-    f"{MAX_WAIT_SECONDS} 的整数秒）暂不决定；"
-    "之后系统会再触发一次回复，由你重新决定。同一批消息最多等待 3 次。"
+    f"{MAX_WAIT_SECONDS} 的整数秒）暂不回应；"
+    "之后系统会再触发一次同样的决定，由你重新判断。同一批消息最多等待 3 次。"
 )
 
 # 主动回合的系统通告文本：协议契约规定 <Msg> 只装"最新用户消息"，主动回合的
 # current_message 段改为独立的 <SystemNotice> 标签；合成平台事件的消息文本也用
-# 它（替换机制会把它换成 <SystemNotice> XML）。措辞只描述本次输入的结构
-# （系统触发、没附用户消息），不断言"群里没有新消息"——窗口路径明明有新发言、
-# 直呼路径的触发消息本身就在历史里，那是场景说明的事。
-_PROACTIVE_NOTICE_TEXT = (
-    "（本条由系统触发，这次没有附上用户消息；群里的最近发言见上方历史）"
-)
+# 它（替换机制会把它换成 <SystemNotice> XML）。两条路径分开措辞：窗口检查是
+# "要不要加入群聊"的开放决定（用户定稿的行动指引，含 Wait 提示）；直呼路径
+# 有人点名要回应，不能给"先旁观"的选项，只交代"没附用户消息、看上方历史"。
+_PROACTIVE_NOTICE_TEXTS = {
+    "window": (
+        "（群里正在聊天，根据你的人设决定是否发言加入对话或者先旁观一会（Wait动作））"
+    ),
+    "direct": ("（本条由系统触发，这次没有附上用户消息；提到你的发言见上方聊天历史）"),
+}
+
+
+def _proactive_notice(situation: str) -> str:
+    notice = _PROACTIVE_NOTICE_TEXTS.get(situation)
+    if notice is None:
+        raise ValueError(f"unsupported proactive situation: {situation}")
+    return notice
 
 
 class EnvelopeBuilder:
@@ -116,9 +127,11 @@ class EnvelopeBuilder:
 
         Args:
             context: Trusted current-message metadata.
-            allow_wait: Whether to append the proactive ``Wait N`` supplement
-                after the protocol block. Only the proactive window turn sets
-                it; the base protocol template never mentions ``Wait``.
+            allow_wait: Whether to append the group ``Wait N`` supplement
+                after the protocol block. Injected on group turns where a
+                delayed re-check has a landing spot (proactive turns and
+                groups with proactive participation enabled); the base
+                protocol template never mentions ``Wait``.
             proactive_situation: Proactive situation brief (``window`` or
                 ``direct``). Injected ahead of the protocol block so the
                 situation description never masquerades as a user message
@@ -146,7 +159,7 @@ class EnvelopeBuilder:
         )
         parts.append(protocol)
         if allow_wait:
-            parts.append(_PROACTIVE_WAIT_RULE)
+            parts.append(_WAIT_RULE)
         # 图片转述由系统在 <Msg> 内联注入（含缓存路径）；模型不再输出 ImageCache 标签
         return "\n\n".join(parts)
 
@@ -207,7 +220,7 @@ class EnvelopeBuilder:
             raise ValueError(f"unsupported proactive situation: {situation}")
         return brief
 
-    def build_proactive_message_text(self) -> str:
+    def build_proactive_message_text(self, *, situation: str) -> str:
         """Build the synthetic message text for one proactive event.
 
         The proactive turn has no real user message: the group's chatter is
@@ -216,13 +229,18 @@ class EnvelopeBuilder:
         ``<SystemNotice>`` block (see :meth:`build_proactive_notice_xml`), so
         the event text only needs to carry the notice.
 
-        Returns:
-            Notice text stating that this system-triggered turn carries no
-            attached user message.
-        """
-        return _PROACTIVE_NOTICE_TEXT
+        Args:
+            situation: One of ``window``, ``direct``.
 
-    def build_proactive_notice_xml(self) -> str:
+        Returns:
+            The per-situation notice text for this system-triggered turn.
+
+        Raises:
+            ValueError: If the situation is unknown.
+        """
+        return _proactive_notice(situation)
+
+    def build_proactive_notice_xml(self, *, situation: str) -> str:
         """Build the standalone ``<SystemNotice>`` block for one proactive turn.
 
         ``<Msg>`` is reserved for the newest real user message; a proactive
@@ -230,12 +248,17 @@ class EnvelopeBuilder:
         in its own tag instead of masquerading as the user message inside
         ``<Msg>``.
 
+        Args:
+            situation: One of ``window``, ``direct``.
+
         Returns:
-            ``<SystemNotice>`` XML with the no-attached-user-message notice,
-            XML-escaped.
+            ``<SystemNotice>`` XML with the per-situation notice, XML-escaped.
+
+        Raises:
+            ValueError: If the situation is unknown.
         """
         root = ET.Element("SystemNotice")
-        root.text = _PROACTIVE_NOTICE_TEXT
+        root.text = _proactive_notice(situation)
         return ET.tostring(root, encoding="unicode", short_empty_elements=True)
 
     def _build_rule(self, context: MessageContext) -> str:

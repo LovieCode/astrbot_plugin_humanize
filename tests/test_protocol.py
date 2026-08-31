@@ -374,21 +374,33 @@ def test_envelope_proactive_situation_lives_in_protocol_not_msg() -> None:
     with pytest.raises(ValueError):
         builder.build_protocol_prompt(_context(), proactive_situation="unknown")
 
-    placeholder = builder.build_proactive_message_text()
-    assert "由系统触发" in placeholder
-    assert "没有附上用户消息" in placeholder
-    assert "<Msg>" not in placeholder
+    # 通告按路径措辞：窗口是行动指引（含 Wait 提示），直呼保留结构说明
+    # （不能给"先旁观"的选项）。占位都不得伪装成 <Msg> 用户消息。
+    window_notice = builder.build_proactive_message_text(situation="window")
+    assert "群里正在聊天" in window_notice
+    assert "Wait动作" in window_notice
+    assert "<Msg>" not in window_notice
+
+    direct_notice = builder.build_proactive_message_text(situation="direct")
+    assert "由系统触发" in direct_notice
+    assert "没有附上用户消息" in direct_notice
+
+    direct_xml = builder.build_proactive_notice_xml(situation="direct")
+    assert direct_xml.startswith("<SystemNotice>")
+
+    with pytest.raises(ValueError):
+        builder.build_proactive_message_text(situation="unknown")
 
 
 def test_envelope_wait_rule_lives_in_the_response_protocol() -> None:
     builder = EnvelopeBuilder(PluginConfig())
 
     proactive = builder.build_protocol_prompt(_context(), allow_wait=True)
-    assert "补充规则（仅本场景）" in proactive
+    assert "话没说完" in proactive
     assert "Wait N" in proactive
     assert "最多等待 3 次" in proactive
     # 规则挂在协议块之后，仍与 <Protocol> 处于同一段注入内容
-    assert proactive.index("</Protocol>") < proactive.index("补充规则（仅本场景）")
+    assert proactive.index("</Protocol>") < proactive.index("话没说完")
 
     normal = builder.build_protocol_prompt(_context())
     assert "Wait" not in normal
