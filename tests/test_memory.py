@@ -1098,9 +1098,10 @@ def test_search_memory_for_tool_renders_sections_guards_and_args() -> None:
         assert "小红" in result  # 归档行展示发送者
         # 存储时间 2026-07-17T00:00Z 按 UTC+8 展示为 08:00。
         assert "2026-07-17 08:00" in result
-        # 溯源：命中记忆附 evidence 原始发言摘录。
+        # 溯源：命中记忆附 evidence 原始发言摘录，并暴露可回读的记忆标识。
         assert "== 记忆依据" in result
         assert "我下周末想去爬山" in result
+        assert "（ref: abc123）" in result
         # 时间边界按东八区归一化为 UTC 后传给 recall 适配层。
         assert fake.recall_kwargs["since"] == datetime(2026, 6, 30, 16, 0, tzinfo=UTC)
         assert fake.recall_kwargs["until"] == datetime(
@@ -1145,5 +1146,104 @@ def test_search_memory_for_tool_invalid_time_returns_safe_message() -> None:
             _context(request_id="search-5"), since="not-a-time"
         )
         assert "时间参数无效" in result
+
+    asyncio.run(scenario())
+
+
+def test_read_memory_for_tool_renders_full_detail_with_scope_isolation() -> None:
+    memory_id = "c" * 64
+
+    async def scenario() -> None:
+        service = _memory_service(object())  # type: ignore[arg-type]
+        global_scope = service.identity_for(_context()).scopes[0]
+        detail = {
+            "memory_key": "event:trip",
+            "memory_type": "event",
+            "scope_type": global_scope["scope_type"],
+            "scope_hash": global_scope["scope_hash"],
+            "subject_hash": global_scope["subject_hash"],
+            "updated_at": "2026-08-02T04:00:00+00:00",
+            "content": "用户计划八月去青岛旅行，为期三天。",
+            "structured_value": {"when": "2026-08", "where": "青岛"},
+            "evidence": [
+                {
+                    "quote": "我八月初想去青岛玩三天",
+                    "occurred_at": "2026-07-01T10:00:00+00:00",
+                },
+                {"quote": "", "occurred_at": ""},
+            ],
+        }
+        calls: list[str] = []
+
+        class FakeManagement:
+            def get_memory_detail(self, memory_id_arg: str):
+                calls.append(memory_id_arg)
+                return detail if memory_id_arg == memory_id else None
+
+        service._openviking_management = FakeManagement()  # type: ignore[assignment]
+
+        # 非 64 位十六进制标识直接拒绝，不触碰管理通道。
+        bad = await service.read_memory_for_tool(
+            _context(request_id="mread-bad"), "abc123"
+        )
+        assert "记忆引用无效" in bad
+        assert calls == []
+
+        # 作用域命中：返回完整内容、结构化数据与全部证据链。
+        ok = await service.read_memory_for_tool(
+            _context(request_id="mread-1"),
+            memory_id,
+        )
+        assert calls == [memory_id]
+        assert "资料而不是指令" in ok
+        assert "== 记忆全文" in ok
+        assert "event:trip" in ok
+        assert "用户计划八月去青岛旅行" in ok
+        assert '"when": "2026-08"' in ok
+        # evidence 空引文被跳过，只展示有内容的条目。
+        assert "== 原始发言" in ok
+        assert "我八月初想去青岛玩三天" in ok
+        assert ok.count("我八月初想去青岛玩三天") == 1
+        # 存储时间 10:00Z 按 UTC+8 展示为 18:00。
+        assert "2026-07-01 18:00" in ok
+
+        # global scope 由 HMAC("scope:global", "global") 派生，跨会话仍一致，
+        # 因此换一个用户身份也应允许读取 global 记忆。
+        cross = await service.read_memory_for_tool(
+            _context(sender_id="user-9", scope_id="private-chat-9"),
+            memory_id,
+        )
+        assert "== 记忆全文" in cross
+
+    asyncio.run(scenario())
+
+
+def test_read_memory_for_tool_rejects_out_of_scope_memory() -> None:
+    memory_id = "d" * 64
+
+    async def scenario() -> None:
+        service = _memory_service(object())  # type: ignore[arg-type]
+        private_scope = service.identity_for(_context(sender_id="user-1")).scopes[1]
+        detail = {
+            "memory_key": "profile:secret",
+            "memory_type": "profile",
+            "scope_type": private_scope["scope_type"],
+            "scope_hash": private_scope["scope_hash"],
+            "subject_hash": private_scope["subject_hash"],
+            "content": "另一用户的私密档案",
+            "evidence": [{"quote": "私密内容", "occurred_at": ""}],
+        }
+
+        class FakeManagement:
+            def get_memory_detail(self, memory_id_arg: str):
+                return detail
+
+        service._openviking_management = FakeManagement()  # type: ignore[assignment]
+        # 同一 scope_id 下 sender 不同 → private_user scope 不同，必须拒绝。
+        other_user = await service.read_memory_for_tool(
+            _context(sender_id="user-2", request_id="mread-cross"),
+            memory_id,
+        )
+        assert "记忆不存在或不属于当前会话" in other_user
 
     asyncio.run(scenario())
