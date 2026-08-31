@@ -32,11 +32,13 @@ _PROACTIVE_WAIT_RULE = (
     "之后系统会再触发一次回复，由你重新决定。同一批消息最多等待 3 次。"
 )
 
-# 主动回合的系统通告文本：协议契约规定 <Msg> 只装"最新用户消息"，主动回合
-# 没有真实用户消息，通告以独立的 <SystemNotice> 标签进入 current_message 段；
-# 合成平台事件的消息文本也用它（替换机制会把它换成 <SystemNotice> XML）。
+# 主动回合的系统通告文本：协议契约规定 <Msg> 只装"最新用户消息"，主动回合的
+# current_message 段改为独立的 <SystemNotice> 标签；合成平台事件的消息文本也用
+# 它（替换机制会把它换成 <SystemNotice> XML）。措辞只描述本次输入的结构
+# （系统触发、没附用户消息），不断言"群里没有新消息"——窗口路径明明有新发言、
+# 直呼路径的触发消息本身就在历史里，那是场景说明的事。
 _PROACTIVE_NOTICE_TEXT = (
-    "（本条由系统触发的主动发言检查，没有新的用户消息；群里的最近发言见上方历史）"
+    "（本条由系统触发，这次没有附上用户消息；群里的最近发言见上方历史）"
 )
 
 
@@ -215,7 +217,8 @@ class EnvelopeBuilder:
         the event text only needs to carry the notice.
 
         Returns:
-            Notice text stating there is no new user message.
+            Notice text stating that this system-triggered turn carries no
+            attached user message.
         """
         return _PROACTIVE_NOTICE_TEXT
 
@@ -223,11 +226,13 @@ class EnvelopeBuilder:
         """Build the standalone ``<SystemNotice>`` block for one proactive turn.
 
         ``<Msg>`` is reserved for the newest real user message; a proactive
-        turn has none, so the notice travels in its own tag instead of
-        masquerading as the user message inside ``<Msg>``.
+        turn attaches no user message in that slot, so the notice travels
+        in its own tag instead of masquerading as the user message inside
+        ``<Msg>``.
 
         Returns:
-            ``<SystemNotice>`` XML with the no-user-message notice, XML-escaped.
+            ``<SystemNotice>`` XML with the no-attached-user-message notice,
+            XML-escaped.
         """
         root = ET.Element("SystemNotice")
         root.text = _PROACTIVE_NOTICE_TEXT

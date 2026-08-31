@@ -3176,7 +3176,8 @@ class HumanizePlugin(Star):
         carry the template's session identity and real sender, so every
         downstream scope — scheduler config, managed window, chatter hook —
         resolves to the group the chatter came from. The message text is a
-        pure "no user message" placeholder; the situation brief rides with
+        placeholder explaining that this system-triggered turn attaches no
+        user message; the situation brief rides with
         the response protocol in ``on_llm_request`` and the group's chatter
         is already ordinary history. A fresh object is mandatory: pipeline
         stages stamp state onto the event instance, so a consumed event must

@@ -375,7 +375,8 @@ def test_envelope_proactive_situation_lives_in_protocol_not_msg() -> None:
         builder.build_protocol_prompt(_context(), proactive_situation="unknown")
 
     placeholder = builder.build_proactive_message_text()
-    assert "没有新的用户消息" in placeholder
+    assert "由系统触发" in placeholder
+    assert "没有附上用户消息" in placeholder
     assert "<Msg>" not in placeholder
 
 

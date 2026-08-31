@@ -597,8 +597,8 @@ def test_plugin_builds_synthetic_event_from_template() -> None:
         chain = event.message_obj.message
         assert isinstance(chain[0], At) and str(chain[0].qq) == "bot-1"
         assert isinstance(chain[1], Plain)
-        # <Msg> 占位：主动回合没有真实用户消息，情况说明不进消息文本
-        assert "没有新的用户消息" in chain[1].text
+        # <Msg> 占位：主动回合不附用户消息，情况说明不进消息文本
+        assert "没有附上用户消息" in chain[1].text
         # Wait 规则与情况说明跟随回复协议注入，不进入事件消息文本
         assert "Wait" not in chain[1].text
         assert "没有 @ 你" not in chain[1].text
@@ -610,7 +610,7 @@ def test_plugin_builds_synthetic_event_from_template() -> None:
             template, kind="direct", on_outcome=outcome
         )
         assert direct is not None
-        assert "没有新的用户消息" in direct.message_obj.message[1].text
+        assert "没有附上用户消息" in direct.message_obj.message[1].text
 
         # 没有模板时拒绝构造
         assert (

@@ -265,8 +265,8 @@ def test_window_no_reply_cycle_stretches_and_keeps_history(
             assert synthetic.get_extra(_PROACTIVE_KIND_KEY) == "window"
             chain = synthetic.message_obj.message
             assert isinstance(chain[0], At) and str(chain[0].qq) == "bot-1"
-            # <Msg> 占位：没有真实用户消息；情况说明走协议段
-            assert "没有新的用户消息" in chain[1].text
+            # <Msg> 占位：本回合不附用户消息；情况说明走协议段
+            assert "没有附上用户消息" in chain[1].text
             assert "没有 @ 你" not in chain[1].text
 
             # 合成事件也要过入口钩子，但不得再记一条旁观。
@@ -283,7 +283,7 @@ def test_window_no_reply_cycle_stretches_and_keeps_history(
             assert "没有 @ 你" in injected
             assert "补充规则（仅本场景）" in injected
             # 通告走独立的 <SystemNotice> 标签：<Msg> 保留给真实用户消息
-            assert "<SystemNotice>（本条由系统触发的主动发言检查" in req.prompt
+            assert "<SystemNotice>（本条由系统触发" in req.prompt
             assert "<Msg>" not in req.prompt
             assert "有群成员提到了你" not in req.prompt
 
