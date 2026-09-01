@@ -308,8 +308,9 @@ class HumanizePlugin(Star):
         self._provider_originals: list[tuple] = []
         self._provider_capture: dict[str, dict[str, Any]] = {}
         # 唤醒事件（@/私聊）从 prepare 到自己轮到 on_llm_request 之间可能
-        # 间隔一整个在途回合；这段时间里排队的主动评估应当让路。
-        self._wake_started_at: dict[str, float] = {}
+        # 间隔一整个在途回合；这段时间里排队的主动评估应当让路。按会话
+        # 记录「哪个事件置的标记」，别的事件收尾不得误清。
+        self._wake_started_at: dict[str, tuple[int, float]] = {}
 
     async def initialize(self) -> None:
         self._container = Container.build(
@@ -404,9 +405,7 @@ class HumanizePlugin(Star):
             and not event.get_extra(_PROACTIVE_KIND_KEY, False)
             and self._container is not None
         ):
-            self._wake_started_at[
-                str(getattr(event, "unified_msg_origin", "") or "")
-            ] = asyncio.get_running_loop().time()
+            self._arm_wake_pending(event)
         policy_mode = await self._policy_mode_for(
             str(getattr(event, "unified_msg_origin", "") or "")
         )
@@ -591,9 +590,9 @@ class HumanizePlugin(Star):
         umo = str(getattr(event, "unified_msg_origin", "") or "")
         is_proactive = bool(event.get_extra(_PROACTIVE_KIND_KEY))
         if not is_proactive:
-            # 真实唤醒/对话回合已经轮到自己的 LLM 阶段：清除唤醒让路标记，
-            # 之后它自己的回复序号变化负责挡住排队的主动评估。
-            self._wake_started_at.pop(umo, None)
+            # 真实唤醒/对话回合已经轮到自己的 LLM 阶段：只清自己置的
+            # 让路标记，之后它自己的回复序号变化负责挡住排队的主动评估。
+            self._clear_wake_pending(event)
         else:
             drop_reason = self._stale_proactive_reason(event, umo)
             if drop_reason:
@@ -794,15 +793,16 @@ class HumanizePlugin(Star):
             # Wait 再检查的第二道过期判定：触发时记录的窗口条目基线与当前
             # 一致（期间既没有新发言、也没有别的回合落账）说明模型想等的
             # 新内容根本没来，把同一段上下文再喂给模型一次只会得到重复
-            # 发言——直接丢弃；有新内容时才值得重新评估。戳缺失或无法
-            # 解析时 fail-open，不阻断这次评估。
+            # 发言——直接丢弃；有新内容时才值得重新评估。压缩把条目数
+            # 缩小也按过期处理（没有新发言，只是旧内容被折进摘要）。
+            # 戳缺失或无法解析时 fail-open，不阻断这次评估。
             try:
                 armed_entries = event.get_extra(_PROACTIVE_ARMED_ENTRIES_KEY)
                 wait_unchanged = (
                     armed_entries is not None
                     and int(armed_entries) >= 0
                     and context_window_active
-                    and int(armed_entries) == context_window_entry_count
+                    and context_window_entry_count <= int(armed_entries)
                 )
             except (TypeError, ValueError):
                 wait_unchanged = False
@@ -2616,12 +2616,9 @@ class HumanizePlugin(Star):
 
     @filter.on_decorating_result(priority=_DECORATION_FINALIZER_PRIORITY)
     async def finalize_decoration(self, event: AstrMessageEvent) -> None:
-        # 事件走到终态（回复/命令产物/主动评估结束）：唤醒让路标记完成
-        # 使命，立即清除，避免事件异常终止后长时间压制主动评估。异常
-        # 终止的事件靠 TTL 兜底。
-        self._wake_started_at.pop(
-            str(getattr(event, "unified_msg_origin", "") or ""), None
-        )
+        # 只清自己置的唤醒让路标记：命令或其他回合的 decorating 不得
+        # 抹掉仍在排队的真实 @。异常终止靠 TTL 兜底。
+        self._clear_wake_pending(event)
         state = event.get_extra(_STATE_KEY, EventState.INACTIVE.value)
         if state in {
             EventState.NO_REPLY.value,
@@ -3602,13 +3599,54 @@ class HumanizePlugin(Star):
                     return "bot_replied_since_armed"
             except (TypeError, ValueError):
                 pass
-        wake_started_at = self._wake_started_at.get(umo)
-        if wake_started_at is not None:
-            elapsed = asyncio.get_running_loop().time() - wake_started_at
+        pending = self._wake_started_at.get(umo)
+        if pending is not None:
+            _owner_id, started_at = pending
+            elapsed = asyncio.get_running_loop().time() - started_at
             if elapsed <= _WAKE_PENDING_TTL_SECONDS:
                 return "wake_turn_pending"
             self._wake_started_at.pop(umo, None)
         return None
+
+    @staticmethod
+    def _event_identity(event: AstrMessageEvent) -> int:
+        """Stable identity for one in-flight event instance.
+
+        Args:
+            event: The message event whose identity is recorded.
+
+        Returns:
+            ``id(event)``; used only as an in-process marker, never persisted.
+        """
+        return id(event)
+
+    def _arm_wake_pending(self, event: AstrMessageEvent) -> None:
+        """Mark one wake event as in-pipeline until its own LLM stage.
+
+        Args:
+            event: The non-proactive wake event entering the pipeline.
+        """
+        umo = str(getattr(event, "unified_msg_origin", "") or "")
+        if not umo:
+            return
+        self._wake_started_at[umo] = (
+            self._event_identity(event),
+            asyncio.get_running_loop().time(),
+        )
+
+    def _clear_wake_pending(self, event: AstrMessageEvent) -> None:
+        """Clear the wake-pending marker only if this event armed it.
+
+        Args:
+            event: The event that is finishing or reaching its LLM stage.
+        """
+        umo = str(getattr(event, "unified_msg_origin", "") or "")
+        pending = self._wake_started_at.get(umo)
+        if pending is None:
+            return
+        owner_id, _started_at = pending
+        if owner_id == self._event_identity(event):
+            self._wake_started_at.pop(umo, None)
 
     def _build_proactive_event(
         self,

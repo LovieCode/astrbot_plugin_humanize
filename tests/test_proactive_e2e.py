@@ -697,6 +697,52 @@ def test_wake_pending_defers_proactive_evaluation(
     asyncio.run(scenario())
 
 
+def test_foreign_event_does_not_clear_wake_pending(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """命令或其他回合的 decorating 不得抹掉仍在排队的真实 @ 让路标记。"""
+
+    async def scenario() -> None:
+        queue: asyncio.Queue = asyncio.Queue()
+        plugin = _plugin(tmp_path, monkeypatch, queue)
+        try:
+            await plugin.initialize()
+            await plugin._container.repository.set_group_policy_mode(
+                scope_id="global", mode="full"
+            )
+            await plugin.prepare_message_event(
+                _group_event(text="这局谁来指挥", message_id="m-1")
+            )
+            synthetic = await asyncio.wait_for(queue.get(), timeout=5)
+
+            wake = _group_event(text="bot 指挥是我", at_bot=True, message_id="m-2")
+            await plugin.prepare_message_event(wake)
+            assert SCOPE in plugin._wake_started_at
+
+            command = _group_event(text="/help", at_bot=True, message_id="m-cmd")
+            await plugin.finalize_decoration(command)
+            assert SCOPE in plugin._wake_started_at
+
+            req = ProviderRequest(
+                prompt=synthetic.message_str,
+                contexts=[],
+                system_prompt="",
+                conversation=SimpleNamespace(
+                    cid=_StubConversationManager.CONVERSATION_ID,
+                    persona_id=_StubConversationManager.PERSONA_ID,
+                ),
+            )
+            await plugin.on_llm_request(synthetic, req)
+            assert synthetic.is_stopped()
+            assert plugin._stale_proactive_reason(synthetic, SCOPE) == (
+                "wake_turn_pending"
+            )
+        finally:
+            await plugin.terminate()
+
+    asyncio.run(scenario())
+
+
 def test_wait_recheck_dropped_when_window_unchanged(
     tmp_path: Path, monkeypatch: pytest.MonkeyPatch
 ) -> None:
@@ -740,6 +786,59 @@ def test_wait_recheck_dropped_when_window_unchanged(
             assert recheck.is_stopped()
             assert req2.system_prompt == ""
             assert outcomes == []
+        finally:
+            await plugin.terminate()
+
+    asyncio.run(scenario())
+
+
+def test_wait_recheck_dropped_when_window_shrinks(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """压缩把条目数缩小也按过期处理：没有新发言，不值得再评估。"""
+
+    async def scenario() -> None:
+        queue: asyncio.Queue = asyncio.Queue()
+        plugin = _plugin(tmp_path, monkeypatch, queue)
+        try:
+            await plugin.initialize()
+            await plugin._container.repository.set_group_policy_mode(
+                scope_id="global", mode="full"
+            )
+            event = _group_event(text="等等，我话没说完", at_bot=True, message_id="m-1")
+            _req, response = await _run_request(plugin, event, WAIT_RAW)
+            await _dispatch(plugin, event, response)
+
+            recheck = await asyncio.wait_for(queue.get(), timeout=5)
+            assert recheck.get_extra(_PROACTIVE_KIND_KEY) == "wait"
+            recheck.set_extra("_humanize_proactive_armed_window_entries", 5)
+
+            original_load = plugin._container.context_window.load
+
+            async def _shrunk_load(*args: Any, **kwargs: Any):
+                loaded = await original_load(*args, **kwargs)
+                return loaded.__class__(
+                    available=loaded.available,
+                    contexts=loaded.contexts,
+                    entry_count=3,
+                    estimated_tokens=loaded.estimated_tokens,
+                    compacted=True,
+                )
+
+            plugin._container.context_window.load = _shrunk_load
+            req2 = ProviderRequest(
+                prompt=recheck.message_str,
+                contexts=[],
+                system_prompt="",
+                conversation=SimpleNamespace(
+                    cid=_StubConversationManager.CONVERSATION_ID,
+                    persona_id=_StubConversationManager.PERSONA_ID,
+                ),
+            )
+            await plugin.prepare_message_event(recheck)
+            await plugin.on_llm_request(recheck, req2)
+            assert recheck.is_stopped()
+            assert req2.system_prompt == ""
         finally:
             await plugin.terminate()
 
