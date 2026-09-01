@@ -275,9 +275,9 @@ def test_lower_confidence_memory_keeps_content_but_records_diff(tmp_path: Path) 
     assert '"confidence": 0.45' in content
     assert '"importance": 0.8' in content
     assert '"status": "active"' in content
-    # 结构化字段级合并：新证据里的字段生效（同 key 新值覆盖旧值）。
-    assert '"like": "低置信度冲突"' in content
-    assert '"like": "无糖乌龙茶"' not in content
+    # 矛盾反证只进证据链：冲突 key 保留旧值，避免盘上自相矛盾。
+    assert '"like": "无糖乌龙茶"' in content
+    assert '"like": "低置信度冲突"' not in content
     assert '"valid_until": ""' in content
     assert "错误摘要" not in content
     assert "错误概览" not in content

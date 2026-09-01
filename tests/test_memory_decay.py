@@ -170,6 +170,8 @@ def test_upsert_contradiction_penalizes_kept_memory(tmp_path: Path) -> None:
     assert detail is not None
     assert detail["content"] == "用户喜欢乌龙茶"
     assert detail["confidence"] == 0.45  # 0.9 × 0.5 反例惩罚
+    # 矛盾反证只进证据链：冲突 key 保留旧值，正文与结构化自洽。
+    assert detail["structured_value"] == {"like": "乌龙茶"}
 
 
 def test_upsert_rephrasing_without_conflict_does_not_penalize(
@@ -203,6 +205,81 @@ def test_upsert_rephrasing_without_conflict_does_not_penalize(
     assert detail is not None
     assert detail["confidence"] == 0.9  # 未被打折
     assert detail["structured_value"]["note"] == "也喝咖啡"  # 字段级合并仍生效
+
+
+def _preference_key(sentiment: str, value: str) -> str:
+    import hashlib
+
+    suffix = hashlib.sha256(value.casefold().encode("utf-8")).hexdigest()[:12]
+    return f"preference:{sentiment}:{suffix}"
+
+
+def test_upsert_opposite_preference_twin_is_penalized(tmp_path: Path) -> None:
+    """规则偏好的正反是两条不同 key 的记忆：低置信反证要打到对立孪生上。"""
+    workspace, adapter = _workspace(tmp_path)
+    management = OpenVikingManagementAdapter(adapter, workspace)
+    dislike_key = _preference_key("dislike", "乌龙茶")
+    like_key = _preference_key("like", "乌龙茶")
+    _write(
+        adapter,
+        _candidate_for(
+            dislike_key,
+            "我讨厌乌龙茶",
+            confidence=0.9,
+            structured={"dislike": "乌龙茶"},
+        ),
+    )
+    # 高置信新偏好：正常语义切换，孪生不打折。
+    _write(
+        adapter,
+        _candidate_for(
+            like_key,
+            "我其实喜欢乌龙茶了",
+            confidence=0.95,
+            structured={"like": "乌龙茶"},
+        ),
+        commit="e",
+    )
+    dislike_detail = management.get_memory_detail(
+        adapter.memory_uri_for(
+            agent_id="default",
+            scope_type=_SCOPE[0],
+            scope_hash=_SCOPE[1],
+            subject_hash=_SCOPE[2],
+            memory_type="preference",
+            memory_key=dislike_key,
+        ).rsplit("/", 1)[-1]
+    )
+    assert dislike_detail is not None
+    assert dislike_detail["confidence"] == 0.9  # 未打折
+
+    # 低置信反证：孪生（dislike）被证伪一次。
+    _write(
+        adapter,
+        _candidate_for(
+            like_key,
+            "我现在喜欢乌龙茶",
+            confidence=0.4,
+            occurred_at="2026-08-25T00:00:00+00:00",
+            structured={"like": "乌龙茶"},
+        ),
+        commit="f",
+    )
+    dislike_detail = management.get_memory_detail(
+        adapter.memory_uri_for(
+            agent_id="default",
+            scope_type=_SCOPE[0],
+            scope_hash=_SCOPE[1],
+            subject_hash=_SCOPE[2],
+            memory_type="preference",
+            memory_key=dislike_key,
+        ).rsplit("/", 1)[-1]
+    )
+    assert dislike_detail is not None
+    assert dislike_detail["confidence"] == 0.45  # 0.9 × 0.5
+    assert dislike_detail["content"] == "我讨厌乌龙茶"  # 内容不动
+    # 孪生记忆的 updated_at 不被重置（时间衰减继续走旧时钟）。
+    assert dislike_detail["updated_at"] == "2026-07-17 00:00:00+00:00"
 
 
 def test_upsert_related_links_same_batch_memories(tmp_path: Path) -> None:

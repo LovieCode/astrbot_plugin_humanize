@@ -216,7 +216,7 @@ class OpenVikingManagementAdapter:
             "audit": audit,
             "decayed_confidence": decayed_confidence(
                 item.get("confidence"),
-                item.get("updated_at"),
+                item.get("updated_at") or item.get("created_at"),
                 half_life_days=self._decay_half_life_days,
             ),
             "evidence": evidence,

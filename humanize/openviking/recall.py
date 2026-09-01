@@ -506,7 +506,7 @@ class OpenVikingRecallAdapter:
                         for value in (confidence, importance)
                     ):
                         continue
-                    updated_at = fields.get("updated_at")
+                    updated_at = fields.get("updated_at") or fields.get("created_at")
                     decayed = decayed_confidence(
                         confidence,
                         (

@@ -116,7 +116,8 @@ def test_window_refresh_summary_replaces_text_and_rearms_on_compaction(
         assert await window.refresh_summary(_context(99)) is False
         assert len(summarizer.seen) == 1
 
-        # 新一轮压缩追加确定性行 → llm 复位，可再次刷新（滚动重消化）。
+        # 新一轮压缩追加确定性行 → 只对新行做摘要，已摘要旧文本冻结保留
+        # （避免「摘要的摘要」逐轮丢细节）。
         for index in range(31, 61):
             await window.append_chatter(
                 _context(index, sender_id=f"user-{index}", sender_name="小红"),
@@ -127,11 +128,16 @@ def test_window_refresh_summary_replaces_text_and_rearms_on_compaction(
         loaded = await window.load(_context(99), token_budget=30_000)
         summary = str(loaded.contexts[0].get("content"))
         assert "第二次摘要" in summary
-        assert "合并后的摘要" not in summary
+        assert "合并后的摘要" in summary  # 冻结部分不重压缩
+        assert "小红" in summarizer.seen[1]  # digest 输入是新增行
 
         # CAS 失配：expected 不匹配时不写。
         applied = await asyncio.to_thread(
-            window._apply_summary_sync, _context(99), "stale-text", "[x] 新文本"
+            window._apply_summary_sync,
+            _context(99),
+            "stale-text",
+            "",
+            "[x] 新文本",
         )
         assert applied is False
 
@@ -163,3 +169,61 @@ def test_container_attaches_summarizer_only_with_provider(
         None,
     )
     assert disabled.context_window._summarizer is None
+
+
+def test_window_pending_stays_aligned_with_pruned_summary(
+    tmp_path: Path,
+) -> None:
+    """预算裁剪丢最旧行时，pending 同步对齐，已裁行不「复活」。
+
+    无 provider 期间多次压缩会让确定性行累积到 pending；若裁剪不同步
+    对齐，已裁掉的旧行仍留在 pending——下次 refresh 的 digest 输入会
+    把它们带回来，且 pending 无限膨胀。
+    """
+    import json
+
+    async def scenario() -> None:
+        window, _, _ = await _window(tmp_path)
+
+        def long_body(index: int) -> str:
+            return f"消息{index}：" + "很长很长的正文内容。" * 30
+
+        # 两批超长消息：两次压缩都在预算内反复裁掉最旧的行。
+        for batch in range(2):
+            for index in range(batch * 60, batch * 60 + 60):
+                await window.append_chatter(
+                    _context(
+                        index,
+                        sender_id=f"user-{index}",
+                        sender_name="小红",
+                        user_text=long_body(index),
+                    ),
+                    token_budget=256,
+                )
+        _, _, session_directory = window._session_info(_context(99))
+        state_path = session_directory / "context_window.json"
+        with window._workspace.transaction() as transaction:
+            raw = json.loads(transaction.read_bytes(state_path).decode("utf-8"))
+        summary = raw["summary"]
+        pending = [str(item) for item in summary.get("pending") or []]
+        text_lines = str(summary.get("text") or "").splitlines()
+        assert pending  # 未挂摘要器：确实累积了待消化行
+        # pending 严格是 text 尾部的行：被预算裁掉的旧行不会留在里面。
+        assert all(line in text_lines for line in pending)
+        assert len(pending) <= len(text_lines)
+
+        # 挂上摘要器后：digest 输入只含仍可见的确定性行。
+        class _FakeSummarizer:
+            def __init__(self) -> None:
+                self.seen: list[str] = []
+
+            async def digest(self, text: str) -> str:
+                self.seen.append(text)
+                return "[小红 · 07-19 12:00] 已消化"
+
+        summarizer = _FakeSummarizer()
+        window.attach_summarizer(summarizer)  # type: ignore[arg-type]
+        assert await window.refresh_summary(_context(99)) is True
+        assert summarizer.seen[0].splitlines() == pending
+
+    asyncio.run(scenario())

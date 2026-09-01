@@ -4,6 +4,7 @@ from __future__ import annotations
 
 import hashlib
 import json
+import math
 import re
 from dataclasses import dataclass
 from datetime import UTC, datetime
@@ -24,6 +25,10 @@ from .workspace import OpenVikingWorkspace, WorkspaceTransaction
 _DIGEST_PATTERN = re.compile(r"^[0-9a-f]{64}$")
 _SCOPE_TYPES = frozenset({"global", "private_user", "group", "group_member"})
 _CONTEXT_REF_PATTERN = re.compile(r"^ctx-[A-Z2-7]{8}$")
+# 规则抽取的偏好 key 形如 preference:like:<sha256(对象)前12位>；同一对象的
+# 正反偏好 hash 相同、情感前缀相反，是两条不同记忆，需要跨 key 互斥检测。
+_PREFERENCE_KEY_PATTERN = re.compile(r"^preference:(like|dislike):([0-9a-f]{12})$")
+_OPPOSITE_SENTIMENT = {"like": "dislike", "dislike": "like"}
 
 
 def _merge_structured(old: object, new: object, *, _depth: int = 0) -> dict[str, Any]:
@@ -46,8 +51,8 @@ def _merge_structured(old: object, new: object, *, _depth: int = 0) -> dict[str,
     return merged
 
 
-def _structured_conflict(old: object, new: object) -> bool:
-    """Return whether two structured values contradict on any shared key.
+def _conflict_keys(old: object, new: object) -> list[str]:
+    """Return structured keys whose scalar value differs between old and new.
 
     Only scalar (non-dict) values on the same key count as a conflict;
     missing or identical values do not. This keeps the contradiction
@@ -55,7 +60,8 @@ def _structured_conflict(old: object, new: object) -> bool:
     the same field is not treated as counter-evidence.
     """
     if not isinstance(old, dict) or not isinstance(new, dict):
-        return False
+        return []
+    conflicts: list[str] = []
     for key, new_value in new.items():
         if key not in old:
             continue
@@ -63,8 +69,8 @@ def _structured_conflict(old: object, new: object) -> bool:
         if isinstance(old_value, dict) or isinstance(new_value, dict):
             continue
         if str(old_value) != str(new_value):
-            return True
-    return False
+            conflicts.append(key)
+    return conflicts
 
 
 def normalize_openviking_agent_id(value: object) -> str:
@@ -647,16 +653,19 @@ class OpenVikingMemoryAdapter:
             # 反例判定：仅当旧证据被保留（新置信度更低）、内容不同且
             # 结构化字段在同一 key 上直接冲突时，才把新证据当作“证伪”
             # 打一次折。同义改写或补充（没有同 key 冲突）不触发惩罚。
+            old_structured = (
+                old_file.extra_fields.get("structured_value", {})
+                if old_file is not None
+                else {}
+            )
+            conflict_keys = _conflict_keys(
+                old_structured, normalized["structured_value"]
+            )
             contradicted = bool(
                 old_file is not None
                 and not should_replace
                 and str(normalized["content"]) != old_content
-                and _structured_conflict(
-                    old_file.extra_fields.get("structured_value", {})
-                    if old_file is not None
-                    else {},
-                    normalized["structured_value"],
-                )
+                and bool(conflict_keys)
             )
             effective_confidence = (
                 apply_contradiction_penalty(old_confidence, contradiction_penalty)
@@ -676,11 +685,15 @@ class OpenVikingMemoryAdapter:
                 else normalized["status"]
             )
             effective_structured_value = _merge_structured(
-                old_file.extra_fields.get("structured_value", {})
-                if old_file is not None
-                else {},
-                normalized["structured_value"],
+                old_structured, normalized["structured_value"]
             )
+            if contradicted:
+                # 矛盾反证只进证据链，不覆盖正文：冲突 key 保留旧值，避免
+                # 盘上 content（旧事实）与 structured（新值）自相矛盾。
+                for key in conflict_keys:
+                    effective_structured_value[key] = old_structured.get(
+                        key, effective_structured_value.get(key)
+                    )
             effective_valid_until = (
                 old_file.extra_fields.get("valid_until", normalized["valid_until"])
                 if keep_existing
@@ -752,6 +765,13 @@ class OpenVikingMemoryAdapter:
                 {"uri": uri, "weight": weight}
                 for uri, weight in sorted(related_by_uri.items())[:20]
             ]
+            if normalized["memory_type"] == "preference":
+                # 规则抽取的正反偏好是两条不同 key 的记忆（同对象 hash、
+                # 情感前缀相反），同 key 冲突检查看不到它们——这里显式把
+                # 低置信反证应用到对立孪生记忆上。
+                self._penalize_opposite_preference(
+                    transaction, normalized, contradiction_penalty
+                )
             abstract_source = (
                 old_file.extra_fields.get("abstract", "")
                 if keep_existing
@@ -791,6 +811,13 @@ class OpenVikingMemoryAdapter:
                 "source_commit_ids": list(commit_ids),
                 "version": version,
             }
+            # 反例证伪不算“更新”：保留旧 updated_at，时间衰减不被重置，
+            # 争议事实才会持续向遗忘边界下滑。
+            effective_updated_at = (
+                str(old_file.extra_fields.get("updated_at") or occurred_at)
+                if contradicted
+                else occurred_at
+            )
             extra_fields = {
                 "abstract": abstract,
                 "agent_id": normalized["agent_id"],
@@ -812,7 +839,7 @@ class OpenVikingMemoryAdapter:
                 "status": effective_status,
                 "structured_value": effective_structured_value,
                 "subject_hash": normalized["subject_hash"],
-                "updated_at": occurred_at,
+                "updated_at": effective_updated_at,
                 "valid_from": effective_valid_from,
                 "valid_until": effective_valid_until,
                 "version": version,
@@ -874,14 +901,96 @@ class OpenVikingMemoryAdapter:
                         )
                         or ""
                     ),
-                    str(memory_key)[:256],
+                    str(memory_key).strip()[:256],
                 )
             ).encode()
         ).hexdigest()
         return (
             f"viking://agent/{normalize_openviking_agent_id(agent_id)}/"
             f"memories/{scope_type}/{scope_hash}/"
-            f"{subject_segment}/{memory_type}/{memory_id}"
+            f"{subject_segment}/{str(memory_type).strip()}/{memory_id}"
+        )
+
+    def _penalize_opposite_preference(
+        self,
+        transaction: WorkspaceTransaction,
+        normalized: dict[str, Any],
+        penalty: float,
+    ) -> None:
+        """Apply the contradiction penalty to the opposite-sentiment twin.
+
+        Rule-extracted preferences live under ``preference:<like|dislike>:
+        <sha256(对象)前12位>``; the positive and negative twin share the
+        object hash but differ in the sentiment prefix, so they are two
+        different memories that a same-key conflict check never sees. A
+        low-confidence opposite claim marks the existing twin as
+        contradicted — its confidence shrinks (updated_at untouched) while
+        its content and evidence stay intact.
+
+        Args:
+            transaction: Active workspace transaction (both files update
+                atomically).
+            normalized: Normalized candidate being written.
+            penalty: Contradiction penalty factor.
+        """
+        match = _PREFERENCE_KEY_PATTERN.match(str(normalized.get("memory_key") or ""))
+        if not match:
+            return
+        sentiment, object_hash = match.group(1), match.group(2)
+        opposite_key = f"preference:{_OPPOSITE_SENTIMENT[sentiment]}:{object_hash}"
+        subject_segment = str(normalized["subject_hash"] or "global")
+        opposite_uri = self.memory_uri_for(
+            agent_id=str(normalized["agent_id"]),
+            scope_type=str(normalized["scope_type"]),
+            scope_hash=str(normalized["scope_hash"]),
+            subject_hash=str(normalized["subject_hash"]),
+            memory_type="preference",
+            memory_key=opposite_key,
+        )
+        opposite_path = (
+            Path("memories")
+            / str(normalized["agent_id"])
+            / str(normalized["scope_type"])
+            / str(normalized["scope_hash"])
+            / subject_segment
+            / "preference"
+            / f"{opposite_uri.rsplit('/', 1)[-1]}.md"
+        )
+        if not transaction.is_file(opposite_path):
+            return
+        try:
+            twin = MemoryFileUtils.read(
+                transaction.read_bytes(opposite_path).decode("utf-8"),
+                uri=opposite_uri,
+            )
+        except (OSError, UnicodeDecodeError, ValueError):
+            return
+        fields = twin.extra_fields
+        if str(fields.get("status") or "") != "active":
+            return
+        try:
+            twin_confidence = float(fields.get("confidence") or 0.0)
+        except (TypeError, ValueError):
+            return
+        if not math.isfinite(twin_confidence) or not 0.0 <= twin_confidence <= 1.0:
+            return
+        if twin_confidence <= float(normalized["confidence"]):
+            # 新证据不弱于旧记忆：属于正常语义切换，不是低置信反例。
+            return
+        updated = dict(fields)
+        updated["confidence"] = apply_contradiction_penalty(twin_confidence, penalty)
+        transaction.atomic_write(
+            opposite_path,
+            MemoryFileUtils.write(
+                MemoryFile(
+                    uri=opposite_uri,
+                    content=twin.content,
+                    links=twin.links,
+                    backlinks=twin.backlinks,
+                    memory_type=str(twin.memory_type or "preference"),
+                    extra_fields=updated,
+                )
+            ),
         )
 
     def _normalize_memory_candidate(self, candidate: dict[str, Any]) -> dict[str, Any]:

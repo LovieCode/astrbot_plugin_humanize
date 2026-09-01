@@ -233,18 +233,19 @@ class ContextWindowService:
         self._summarizer = summarizer
 
     async def refresh_summary(self, context: MessageContext) -> bool:
-        """Digest the rolling summary through the attached summarizer.
+        """Digest the pending summary lines through the attached summarizer.
 
         压缩路径始终先写确定性逐行摘要（PLAN 第 5 步的第一阶段）；本方法
-        是第二阶段：后台把该文本改写为更短的 LLM 摘要。写回前比对快照
-        文本（field-level CAS）：期间若发生新的压缩或已写入别的摘要，本次
+        是第二阶段：后台把**尚未消化**的确定性行改写为更短的 LLM 摘要。
+        已摘要的旧文本冻结、不再送 digest——避免「摘要的摘要」逐轮丢细节。
+        写回前比对快照文本（field-level CAS）：期间若发生新的压缩，本次
         结果作废，等待下一次触发。任何失败都保留确定性版本。
 
         Args:
             context: Trusted metadata for the conversation to refresh.
 
         Returns:
-            Whether an LLM digest replaced the deterministic summary.
+            Whether new pending lines were replaced by an LLM digest.
         """
         summarizer = self._summarizer
         if summarizer is None or not self._ready:
@@ -252,50 +253,66 @@ class ContextWindowService:
         snapshot = await asyncio.to_thread(self._summary_snapshot_sync, context)
         if snapshot is None:
             return False
-        key, text = snapshot
+        key, full_text, frozen_text, pending_text = snapshot
         if key in self._summary_pending:
             return False
         self._summary_pending.add(key)
         try:
-            digest = await summarizer.digest(text)
+            digest = await summarizer.digest(pending_text)
             if not digest:
                 return False
             return await asyncio.to_thread(
-                self._apply_summary_sync, context, text, digest
+                self._apply_summary_sync,
+                context,
+                full_text,
+                frozen_text,
+                digest,
             )
         finally:
             self._summary_pending.discard(key)
 
-    def _summary_snapshot_sync(self, context: MessageContext) -> tuple[str, str] | None:
-        """Read the pending deterministic summary text, if any."""
+    def _summary_snapshot_sync(
+        self, context: MessageContext
+    ) -> tuple[str, str, str, str] | None:
+        """Read the pending deterministic lines and the frozen prefix, if any."""
         identity, agent_id, session_directory = self._session_info(context)
         state_path = session_directory / "context_window.json"
         with self._workspace.transaction() as transaction:
             state = self._read_state(transaction, state_path, identity, agent_id)
             summary = state["summary"]
             text = str(summary.get("text") or "").strip()
-            if not text or summary.get("llm"):
+            pending = [
+                str(item) for item in summary.get("pending") or [] if str(item).strip()
+            ]
+            if not pending or not text:
                 return None
-            return str(session_directory), text
+            # 冻结部分 = 全文减去末尾的 pending 行（新增行总是在尾部）。
+            lines = text.splitlines()
+            pending_count = min(len(pending), len(lines))
+            frozen = "\n".join(lines[:-pending_count]) if pending_count else text
+            return str(session_directory), text, frozen, "\n".join(pending)
 
     def _apply_summary_sync(
         self,
         context: MessageContext,
         expected: str,
+        frozen: str,
         digest: str,
     ) -> bool:
-        """Replace the summary only when it still matches the snapshot."""
+        """Replace only the pending tail when the full text still matches."""
         identity, agent_id, session_directory = self._session_info(context)
         state_path = session_directory / "context_window.json"
         with self._workspace.transaction() as transaction:
             state = self._read_state(transaction, state_path, identity, agent_id)
             summary = state["summary"]
             current = str(summary.get("text") or "").strip()
-            if current != expected or summary.get("llm"):
+            if current != expected:
                 return False
+            joined = "\n".join(part for part in (frozen, digest) if part.strip())
             state["summary"] = {
-                "text": self._clip(str(digest or "").strip(), _SUMMARY_MAX_CHARS),
+                "text": self._clip(joined, _SUMMARY_MAX_CHARS),
                 "llm": True,
+                "pending": [],
             }
             transaction.atomic_write(state_path, self._serialize(state))
             return True
@@ -712,15 +729,25 @@ class ContextWindowService:
         summary = raw.get("summary")
         summary_text = ""
         summary_llm = False
+        summary_pending: list[str] = []
         if isinstance(summary, dict):
             summary_text = self._clip(
                 str(summary.get("text") or ""), _SUMMARY_MAX_CHARS
             )
             summary_llm = bool(summary.get("llm"))
+            raw_pending = summary.get("pending")
+            if isinstance(raw_pending, list):
+                summary_pending = [
+                    str(item) for item in raw_pending if str(item).strip()
+                ]
         state = self._empty_state(expected)
         state["refs"] = refs
         state["entries"] = entries
-        state["summary"] = {"text": summary_text, "llm": summary_llm}
+        state["summary"] = {
+            "text": summary_text,
+            "llm": summary_llm,
+            "pending": summary_pending,
+        }
         return state
 
     @staticmethod
@@ -730,7 +757,7 @@ class ContextWindowService:
             **expected,
             "entries": [],
             "refs": {},
-            "summary": {"text": "", "llm": False},
+            "summary": {"text": "", "llm": False, "pending": []},
         }
 
     def _compact_state(
@@ -761,13 +788,15 @@ class ContextWindowService:
             return False
         # 逐条摘要，不做任何聚合合并：同一条真实消息重复出现就重复罗列，
         # 由 _clip 兜底截断（真实消息不该被偷偷合并掉）。
+        new_lines: list[str] = []
         summary_lines: list[str] = []
         previous = str(state["summary"].get("text") or "").strip()
         if previous:
             summary_lines.extend(line for line in previous.splitlines() if line.strip())
         for entry in evicted:
             detail = self._read_l2(transaction, session_directory, entry["context_ref"])
-            summary_lines.extend(self._summary_line(entry, detail).splitlines())
+            new_lines.extend(self._summary_line(entry, detail).splitlines())
+        summary_lines.extend(new_lines)
         # 超预算时优先丢最旧的行：最新被淘汰的内容保持可见，方向与
         # entries 的淘汰语义一致（旧的先让位）。
         while summary_lines and len("\n".join(summary_lines)) > _SUMMARY_MAX_CHARS:
@@ -775,8 +804,22 @@ class ContextWindowService:
         text = "\n".join(summary_lines)
         if len(text) > _SUMMARY_MAX_CHARS:
             text = self._clip(text, _SUMMARY_MAX_CHARS)
-        # 新增了未消化的确定性行：LLM 摘要标记复位，refresh_summary 会接管。
-        state["summary"] = {"text": text, "llm": False}
+        # pending 累积「尚未被 LLM 摘要消化」的确定性行；refresh_summary
+        # 只对这些行做 digest，已摘要的旧文本冻结不再重压缩（摘要的摘要
+        # 会逐轮丢细节，必须避免）。pending 必须与裁剪后的 text 尾部对齐：
+        # 预算裁掉的最旧行不再等待摘要，否则无 provider 期间会无限累积、
+        # 已裁行还会在下次 digest 时「复活」。
+        combined = [*list(state["summary"].get("pending") or []), *new_lines]
+        tail = text.splitlines()
+        matched: list[str] = []
+        while tail and combined and combined[-1] == tail[-1]:
+            matched.append(combined.pop())
+            tail.pop()
+        state["summary"] = {
+            "text": text,
+            "llm": False,
+            "pending": list(reversed(matched)),
+        }
         return True
 
     def _render_contexts(
