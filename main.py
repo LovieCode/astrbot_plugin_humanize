@@ -1742,6 +1742,7 @@ class HumanizePlugin(Star):
 
         raw_output = str(event.get_extra(_RAW_OUTPUT_KEY, ""))
         clean_text = response.completion_text if response else ""
+        send_failed_reason = ""
         if state in {EventState.FINAL_BLOCKED.value, EventState.NO_REPLY.value}:
             clean_text = ""
             if state == EventState.FINAL_BLOCKED.value:
@@ -1762,6 +1763,7 @@ class HumanizePlugin(Star):
             user_index=user_index,
             raw_output=raw_output,
             clean_text=clean_text,
+            annotate_failure=bool(send_failed_reason),
         )
         event.set_extra(_ASSISTANT_MESSAGE_KEY, assistant)
 
@@ -4453,6 +4455,7 @@ class HumanizePlugin(Star):
         user_index: int,
         raw_output: str,
         clean_text: str,
+        annotate_failure: bool = False,
     ) -> Any | None:
         messages = getattr(run_context, "messages", None)
         if not isinstance(messages, list):
@@ -4466,11 +4469,23 @@ class HumanizePlugin(Star):
                     continue
             elif index != len(messages) - 1:
                 continue
+            elif (
+                cls._assistant_message_text(message)
+                or getattr(message, "tool_calls", None) is not None
+            ):
+                # raw_output 为空（如 empty_output）时只允许处理完全空白的
+                # 占位 assistant：不误伤末位带内容或带工具调用的消息。
+                break
             if not clean_text:
                 messages.pop(index)
                 return None
             cls._set_assistant_message_text(message, clean_text)
             return message
+        if clean_text and annotate_failure:
+            logger.warning(
+                "[Humanize] send-failure annotation did not match any "
+                "assistant message in the native history"
+            )
         return None
 
     @staticmethod

@@ -2321,10 +2321,15 @@ def test_failed_turn_persists_annotated_history_via_context_window() -> None:
         event.set_extra("_humanize_context_window_pending_messages", ())
         event.set_extra("_humanize_context_window_pending_action", "No Reply")
         event.set_extra("_humanize_send_failed_reason", "missing_action")
-        event.set_extra(
-            "_humanize_send_failed_messages",
-            ("〔发送失败：missing_action〕\nAction: Reply\n普通正文",),
+        # 夹具直接取真实生产者产物，保证落账载荷与线上标注格式一致。
+        annotated = HumanizePlugin._failed_turn_message(
+            "missing_action", "Action: Reply\n普通正文"
         )
+        assert annotated == (
+            "〔发送失败：输出缺少 Action 控制头（missing_action）〕\n"
+            "Action: Reply\n普通正文"
+        )
+        event.set_extra("_humanize_send_failed_messages", (annotated,))
 
         await plugin._persist_context_window(event)
 
@@ -2332,9 +2337,7 @@ def test_failed_turn_persists_annotated_history_via_context_window() -> None:
         call = window.calls[0]
         assert call["action"] == "No Reply"
         assert call["send_failed_reason"] == "missing_action"
-        assert call["final_messages"] == (
-            "〔发送失败：missing_action〕\nAction: Reply\n普通正文",
-        )
+        assert call["final_messages"] == (annotated,)
         # 提交给 OpenViking 的消息不包含被拒绝的输出。
         assert committer.calls == [
             {"action": "No Reply", "messages": (), "context_ref": "ctx-1"}
@@ -2418,6 +2421,71 @@ def test_send_failed_native_history_keeps_annotated_assistant() -> None:
         assert len(plain_run_context.messages) == 1
 
     asyncio.run(scenario())
+
+
+def test_send_failed_empty_output_never_rewrites_nonempty_assistant() -> None:
+    """empty_output 失败：非空白/带工具调用的末位 assistant 不被标注改写。"""
+    annotated = HumanizePlugin._failed_turn_message("empty_output", "  ")
+    assert annotated == "〔发送失败：模型没有输出任何内容（empty_output）〕"
+
+    # 末位是带工具调用的 assistant（前面还有 tool 结果）：保持原样。
+    tool_context = SimpleNamespace(
+        messages=[
+            Message(role="user", content="hello"),
+            Message(
+                role="assistant",
+                content="",
+                tool_calls=[{"id": "call-1", "type": "function"}],
+            ),
+            Message(role="tool", content="tool result"),
+        ]
+    )
+    assistant = HumanizePlugin._replace_current_assistant_message(
+        tool_context,
+        user_index=0,
+        raw_output="",
+        clean_text=annotated,
+        annotate_failure=True,
+    )
+    assert assistant is None
+    assert len(tool_context.messages) == 3
+    assert tool_context.messages[1].tool_calls is not None
+
+    # 末位是带正文的 assistant：同样保持原样。
+    text_context = SimpleNamespace(
+        messages=[
+            Message(role="user", content="hello"),
+            Message(role="assistant", content="previous text"),
+        ]
+    )
+    assert (
+        HumanizePlugin._replace_current_assistant_message(
+            text_context,
+            user_index=0,
+            raw_output="",
+            clean_text=annotated,
+            annotate_failure=True,
+        )
+        is None
+    )
+    assert text_context.messages[1].content == "previous text"
+
+    # 末位是完全空白的占位 assistant：允许替换为失败标注。
+    placeholder_context = SimpleNamespace(
+        messages=[
+            Message(role="user", content="hello"),
+            Message(role="assistant", content=""),
+        ]
+    )
+    replaced = HumanizePlugin._replace_current_assistant_message(
+        placeholder_context,
+        user_index=0,
+        raw_output="",
+        clean_text=annotated,
+        annotate_failure=True,
+    )
+    assert replaced is placeholder_context.messages[1]
+    assert replaced.content == annotated
 
 
 def test_firewall_preparation_handler_runs_first() -> None:
