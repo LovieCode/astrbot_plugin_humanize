@@ -136,14 +136,15 @@ _IMAGE_TRANSCRIPTION_PROMPT = (
     "控制在 2~4 句话，直接输出转述，不要开场白和解释。"
 )
 _STICKER_TRANSCRIPTION_PROMPT = (
-    "你是群聊的表情包解读助手，看转述的人完全看不到原图。这是一张 QQ 表情包，"
-    "请用中文解读：1）画面里的形象或角色、表情动作，图上配的文字按原样转写；"
+    "你是群聊的表情包解读助手，看转述的人完全看不到原图。这是一张 QQ 表情包"
+    "（不是普通图片或截图），请按表情包解读而不是按普通图片描述："
+    "1）画面里的形象或角色、表情动作，图上配的文字按原样转写；"
     "2）这张表情包通常用来表达什么情绪或意思（如无语、开心、阴阳怪气等）。"
     "控制在 1~3 句话，直接输出解读，不要开场白和解释。"
 )
 
 
-def _direct_image_kinds(event: AstrMessageEvent) -> list[str]:
+def _direct_image_kinds(event: AstrMessageEvent) -> list[tuple[str, str]]:
     """Classify direct message images in raw segment order.
 
     napcat 的 image 段携带 ``sub_type`` 与 ``summary``：0 且无 summary 是
@@ -154,13 +155,16 @@ def _direct_image_kinds(event: AstrMessageEvent) -> list[str]:
         event: Incoming message event with a OneBot ``raw_message``.
 
     Returns:
-        One kind per direct image segment, ``'sticker'`` or ``'image'``.
+        One ``(kind, summary)`` pair per direct image segment, in segment
+        order; ``kind`` is ``'sticker'`` or ``'image'``, ``summary`` is the
+        raw segment summary (``''`` for plain images and the ``[图片]``
+        placeholder).
     """
     raw = getattr(getattr(event, "message_obj", None), "raw_message", None)
     segments = raw.get("message") if isinstance(raw, dict) else None
     if not isinstance(segments, list):
         return []
-    kinds: list[str] = []
+    kinds: list[tuple[str, str]] = []
     for segment in segments:
         if not isinstance(segment, dict) or segment.get("type") != "image":
             continue
@@ -175,7 +179,7 @@ def _direct_image_kinds(event: AstrMessageEvent) -> list[str]:
             sub_type = int(data.get("sub_type", data.get("subType")) or 0)
         except (TypeError, ValueError):
             sub_type = 0
-        kinds.append("sticker" if (summary or sub_type != 0) else "image")
+        kinds.append(("sticker" if (summary or sub_type != 0) else "image", summary))
     return kinds
 
 
@@ -389,6 +393,7 @@ class HumanizePlugin(Star):
         # 全程 fail-open：缓存失败时保留原路径。
         cache_paths: list[str] = []
         cache_kinds: list[str] = []
+        cache_summaries: list[str] = []
         components: list[Any] = []
         message_obj = getattr(getattr(event, "message_obj", None), "message", []) or []
         components.extend(message_obj)
@@ -408,12 +413,10 @@ class HumanizePlugin(Star):
                 if type(component).__name__ != "Image":
                     continue
                 kind = "image"
+                summary = ""
                 if id(component) in direct_image_ids:
-                    kind = (
-                        direct_kinds[direct_index]
-                        if direct_index < len(direct_kinds)
-                        else "image"
-                    )
+                    if direct_index < len(direct_kinds):
+                        kind, summary = direct_kinds[direct_index]
                     direct_index += 1
                 convert = getattr(component, "convert_to_file_path", None)
                 if not callable(convert):
@@ -433,6 +436,7 @@ class HumanizePlugin(Star):
                     scope_type="",
                     scope_id=str(getattr(event, "unified_msg_origin", "") or ""),
                     kind=kind,
+                    summary=summary,
                 )
                 if cached.cached:
                     try:
@@ -446,6 +450,7 @@ class HumanizePlugin(Star):
                         )
                 cache_paths.append(cached.file_path)
                 cache_kinds.append(kind)
+                cache_summaries.append(summary)
         except Exception:
             logger.exception("[Humanize] image cache interception failed")
         event.set_extra(_EVENT_IMAGE_CACHE_PATHS_KEY, tuple(cache_paths))
@@ -456,13 +461,14 @@ class HumanizePlugin(Star):
             user_text = str(
                 event.get_message_str() if hasattr(event, "get_message_str") else ""
             )
-            for path, kind in zip(cache_paths, cache_kinds):
+            for path, kind, summary in zip(cache_paths, cache_kinds, cache_summaries):
                 try:
                     transcriptions.append(
                         await self._transcribe_one_image(
                             path,
                             user_text,
                             kind=kind,
+                            summary=summary,
                         )
                     )
                 except Exception:
@@ -1124,17 +1130,23 @@ class HumanizePlugin(Star):
         user_text: str,
         *,
         kind: str = "image",
+        summary: str = "",
     ) -> str:
         """Transcribe one image with the multimodal provider, in context.
 
         表情包（kind='sticker'）的转述按内容 hash 长期缓存：命中直接返回，
         未命中转述后回写；普通图片每次现转。缓存查找以缓存路径反查索引，
-        因此引用消息里的表情包同样能命中。
+        因此引用消息里的表情包同样能命中。表情包的段 summary（如
+        ``[动画表情]``、商城表情名）会随提示词传给转述模型，让模型明确
+        知道这是表情包而不是普通图片；引用/常驻工具路径没有段 summary
+        时回退到索引行里存的 summary。
 
         Args:
             image_path: Local path of the image to transcribe.
             user_text: Current user message text, for contextual reading.
             kind: Classified kind from the raw segment; refined by the index.
+            summary: Raw segment summary (sticker name); falls back to the
+                index entry when empty.
 
         Returns:
             The transcription text, empty on failure.
@@ -1152,6 +1164,8 @@ class HumanizePlugin(Star):
                 )
         if entry and str(entry.get("kind") or "") == "sticker":
             kind = "sticker"
+        if not summary and entry:
+            summary = str(entry.get("summary") or "").strip()
         if kind == "sticker" and entry:
             cached_text = str(entry.get("transcription") or "").strip()
             if cached_text:
@@ -1170,6 +1184,8 @@ class HumanizePlugin(Star):
             if kind == "sticker"
             else _IMAGE_TRANSCRIPTION_PROMPT
         )
+        if kind == "sticker" and summary:
+            prompt += f"\n表情包名称：{summary[:64]}"
         if user_text.strip():
             prompt += f"\n用户当前消息：{user_text}"
         # 重试与聊天请求同策略：request_max_retries 传 None（不压成 1），

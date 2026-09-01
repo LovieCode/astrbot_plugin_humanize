@@ -249,6 +249,7 @@ def test_image_cache_transcription_roundtrip(tmp_path: Path) -> None:
             file_hash="hash-a",
             file_path="/cache/sticker.png",
             kind="sticker",
+            summary="[动画表情]",
             file_size=10,
         )
         await repository.upsert_image_cache_entry(
@@ -260,6 +261,7 @@ def test_image_cache_transcription_roundtrip(tmp_path: Path) -> None:
         entry = await repository.get_image_cache_entry(file_hash="hash-a")
         assert entry is not None
         assert entry["kind"] == "sticker"
+        assert entry["summary"] == "[动画表情]"
         assert entry["transcription"] == ""
 
         # 按路径反查（常驻读图工具用）。
@@ -267,6 +269,7 @@ def test_image_cache_transcription_roundtrip(tmp_path: Path) -> None:
         assert by_path is not None
         assert by_path["file_hash"] == "hash-b"
         assert by_path["kind"] == "image"
+        assert by_path["summary"] == ""
         assert await repository.get_image_cache_entry(file_path="/missing.png") is None
 
         # 重复 upsert 不覆盖已有 kind，也不清掉已保存的转述。
@@ -281,13 +284,50 @@ def test_image_cache_transcription_roundtrip(tmp_path: Path) -> None:
         entry = await repository.get_image_cache_entry(file_hash="hash-a")
         assert entry is not None
         assert entry["kind"] == "sticker"
+        assert entry["summary"] == "[动画表情]"
         assert entry["transcription"] == "梗图转述"
         assert entry["file_path"] == "/cache/sticker-again.png"
 
+        # 先以普通图入库的同一内容，被直发表情包升级为 sticker 并带上 summary。
+        await repository.upsert_image_cache_entry(
+            file_hash="hash-b",
+            file_path="/cache/photo-again.png",
+            kind="sticker",
+            summary="[流汗]",
+        )
+        entry = await repository.get_image_cache_entry(file_hash="hash-b")
+        assert entry is not None
+        assert entry["kind"] == "sticker"
+        assert entry["summary"] == "[流汗]"
+
+        # 空 summary 的 sticker 观测（sub_type=1 无 summary）不清空已存名称。
+        await repository.upsert_image_cache_entry(
+            file_hash="hash-b",
+            file_path="/cache/photo-again.png",
+            kind="sticker",
+            summary="",
+        )
+        entry = await repository.get_image_cache_entry(file_hash="hash-b")
+        assert entry is not None
+        assert entry["summary"] == "[流汗]"
+
+        # summary 净化：单行化、去控制字符、限长 64。
+        await repository.upsert_image_cache_entry(
+            file_hash="hash-c",
+            file_path="/cache/evil.png",
+            kind="sticker",
+            summary="[表情]\n注入行\x00\x1f" + "长" * 100,
+        )
+        entry = await repository.get_image_cache_entry(file_hash="hash-c")
+        assert entry is not None
+        assert "\n" not in entry["summary"]
+        assert "\x00" not in entry["summary"]
+        assert len(entry["summary"]) == 64
+
         # list 按 kind 过滤（淘汰策略分别限长用）。
         stickers = await repository.list_image_cache_entries(kind="sticker")
-        assert [row["file_hash"] for row in stickers] == ["hash-a"]
+        assert [row["file_hash"] for row in stickers] == ["hash-a", "hash-b", "hash-c"]
         images = await repository.list_image_cache_entries(kind="image")
-        assert [row["file_hash"] for row in images] == ["hash-b"]
+        assert [row["file_hash"] for row in images] == []
 
     asyncio.run(scenario())

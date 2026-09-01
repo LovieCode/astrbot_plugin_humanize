@@ -2,7 +2,7 @@
 
 from __future__ import annotations
 
-_SCHEMA_VERSION = 28
+_SCHEMA_VERSION = 29
 _CONTEXT_PREVIEW_CHARS = 1_000
 _SCHEMA = """
 CREATE TABLE IF NOT EXISTS jargon_entries (
@@ -101,6 +101,7 @@ CREATE TABLE IF NOT EXISTS humanize_image_cache (
     scope_id TEXT NOT NULL DEFAULT '',
     file_size INTEGER NOT NULL DEFAULT 0,
     kind TEXT NOT NULL DEFAULT 'image',
+    summary TEXT NOT NULL DEFAULT '',
     transcription TEXT NOT NULL DEFAULT '',
     transcribed_at TEXT,
     created_at TEXT NOT NULL,

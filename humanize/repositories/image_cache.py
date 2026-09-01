@@ -9,6 +9,16 @@ from .base import _now
 
 __all__ = ["ImageCacheRepository"]
 
+# summary 来自平台上报的原始段数据（不可信输入）：只应是一段短名称，
+# 单行化、去控制字符并限长，避免换行/注入内容进入转述提示词或落库。
+_MAX_SUMMARY_CHARS = 64
+
+
+def _sanitize_summary(value: Any) -> str:
+    text = str(value or "").strip()
+    text = "".join(ch for ch in text if ch >= " " and ch != "\x7f")
+    return text[:_MAX_SUMMARY_CHARS]
+
 
 class ImageCacheRepository:
     """Domain mixin: LRU image cache index. Files live on disk; only metadata
@@ -24,20 +34,37 @@ class ImageCacheRepository:
         scope_id: str = "",
         file_size: int = 0,
         kind: str = "image",
+        summary: str = "",
     ) -> None:
+        """Index one cached image, upgrading sticker identity on conflict.
+
+        ``kind`` is sticky: once an entry is a sticker it stays a sticker
+        (a later quoted re-store must not downgrade it), while a direct
+        sticker send upgrades an entry first seen as a plain image. The
+        sticker observation's ``summary`` (sticker name) is kept alongside;
+        an empty summary never clears a previously stored name.
+        """
+
         def operation(conn: sqlite3.Connection) -> None:
             now = _now()
             conn.execute(
                 """
                 INSERT INTO humanize_image_cache (
                     file_hash, file_path, message_id, scope_type, scope_id,
-                    file_size, kind, transcription, transcribed_at,
+                    file_size, kind, summary, transcription, transcribed_at,
                     created_at, last_hit_at
-                ) VALUES (?, ?, ?, ?, ?, ?, ?, '', NULL, ?, ?)
+                ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, '', NULL, ?, ?)
                 ON CONFLICT(file_hash) DO UPDATE SET
                     file_path = excluded.file_path,
                     message_id = excluded.message_id,
-                    last_hit_at = excluded.last_hit_at
+                    last_hit_at = excluded.last_hit_at,
+                    kind = CASE WHEN humanize_image_cache.kind = 'sticker'
+                                     OR excluded.kind = 'sticker'
+                                THEN 'sticker' ELSE 'image' END,
+                    summary = CASE WHEN excluded.kind = 'sticker'
+                                        AND excluded.summary != ''
+                                   THEN excluded.summary
+                                   ELSE humanize_image_cache.summary END
                 """,
                 (
                     file_hash,
@@ -47,6 +74,7 @@ class ImageCacheRepository:
                     scope_id,
                     max(0, int(file_size)),
                     kind,
+                    _sanitize_summary(summary),
                     now,
                     now,
                 ),
@@ -68,8 +96,8 @@ class ImageCacheRepository:
             file_path: Cached file path, used by the resident read tool.
 
         Returns:
-            The entry dict (file_hash, file_path, kind, transcription,
-            transcribed_at) or None when absent.
+            The entry dict (file_hash, file_path, kind, summary,
+            transcription, transcribed_at) or None when absent.
         """
         if not file_hash and not file_path:
             return None
@@ -77,13 +105,13 @@ class ImageCacheRepository:
         def operation(conn: sqlite3.Connection) -> dict[str, Any] | None:
             if file_hash:
                 row = conn.execute(
-                    "SELECT file_hash, file_path, kind, transcription, "
+                    "SELECT file_hash, file_path, kind, summary, transcription, "
                     "transcribed_at FROM humanize_image_cache WHERE file_hash = ?",
                     (file_hash,),
                 ).fetchone()
             else:
                 row = conn.execute(
-                    "SELECT file_hash, file_path, kind, transcription, "
+                    "SELECT file_hash, file_path, kind, summary, transcription, "
                     "transcribed_at FROM humanize_image_cache WHERE file_path = ?",
                     (file_path,),
                 ).fetchone()
@@ -143,8 +171,8 @@ class ImageCacheRepository:
         def operation(conn: sqlite3.Connection) -> list[dict[str, Any]]:
             sql = (
                 "SELECT id, file_hash, file_path, message_id, scope_type, "
-                "scope_id, file_size, kind, transcription, transcribed_at, "
-                "created_at, last_hit_at "
+                "scope_id, file_size, kind, summary, transcription, "
+                "transcribed_at, created_at, last_hit_at "
                 "FROM humanize_image_cache"
             )
             params: list[Any] = []

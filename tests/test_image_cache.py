@@ -79,6 +79,24 @@ def test_store_reports_cached_on_success(tmp_path: Path) -> None:
     asyncio.run(scenario())
 
 
+def test_store_passes_kind_and_summary_to_index(tmp_path: Path) -> None:
+    """表情包 kind 与段 summary 随索引行落库，供后续转述回退使用。"""
+
+    async def scenario() -> None:
+        source = tmp_path / "source.png"
+        source.write_bytes(b"image-bytes")
+        repository = _RepositoryStub()
+        store = _store(tmp_path, repository)
+
+        result = await store.store(str(source), kind="sticker", summary="[动画表情]")
+
+        assert result.cached is True
+        assert repository.entries[0]["kind"] == "sticker"
+        assert repository.entries[0]["summary"] == "[动画表情]"
+
+    asyncio.run(scenario())
+
+
 def test_store_reports_uncached_when_index_write_fails(tmp_path: Path) -> None:
     """A file that never reached the index must not be reported as cached.
 

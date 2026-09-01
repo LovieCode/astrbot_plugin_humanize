@@ -50,7 +50,7 @@ def _kind_event(raw_message: Any) -> Any:
 
 
 def test_direct_image_kinds_classifies_by_sub_type_and_summary() -> None:
-    """text 段不占位；直发图按段顺序得到 sticker/image 分类。"""
+    """text 段不占位；直发图按段顺序得到 (kind, summary) 分类。"""
     raw = {
         "message": [
             {"type": "text", "data": {"text": "看图"}},
@@ -58,7 +58,10 @@ def test_direct_image_kinds_classifies_by_sub_type_and_summary() -> None:
             dict(_PHOTO_SEGMENT),
         ]
     }
-    assert _direct_image_kinds(_kind_event(raw)) == ["sticker", "image"]
+    assert _direct_image_kinds(_kind_event(raw)) == [
+        ("sticker", "[动画表情]"),
+        ("image", ""),
+    ]
 
 
 def test_direct_image_kinds_edge_cases() -> None:
@@ -75,10 +78,10 @@ def test_direct_image_kinds_edge_cases() -> None:
         ]
     }
     assert _direct_image_kinds(_kind_event(raw)) == [
-        "sticker",
-        "image",
-        "sticker",
-        "image",
+        ("sticker", "[嫌弃]"),
+        ("image", ""),
+        ("sticker", ""),
+        ("image", ""),
     ]
     # 非 OneBot 平台没有段列表，全部退回普通图。
     assert _direct_image_kinds(_kind_event(None)) == []
@@ -99,7 +102,8 @@ class _ProviderStub:
 
 
 class _RepoStub:
-    """索引行模拟真实 upsert 语义：首次插入定 kind，重复写入只刷新路径。"""
+    """索引行模拟真实 upsert 语义：kind 一旦是 sticker 就保持，直发表情包
+    可把先以普通图入库的同一内容升级为 sticker，并带上表情包 summary。"""
 
     def __init__(self) -> None:
         self.rows: dict[str, dict[str, Any]] = {}
@@ -126,6 +130,7 @@ class _RepoStub:
         scope_id: str = "",
         file_size: int = 0,
         kind: str = "image",
+        summary: str = "",
     ) -> None:
         row = self.rows.get(file_hash)
         if row is None:
@@ -133,10 +138,15 @@ class _RepoStub:
                 "file_hash": file_hash,
                 "file_path": file_path,
                 "kind": kind,
+                "summary": str(summary or "").strip(),
                 "transcription": "",
             }
         else:
             row["file_path"] = file_path
+            if kind == "sticker" or row.get("kind") == "sticker":
+                row["kind"] = "sticker"
+                if kind == "sticker" and str(summary or "").strip():
+                    row["summary"] = str(summary or "").strip()
 
     async def get_image_cache_entry(
         self, *, file_hash: str = "", file_path: str = ""
@@ -366,6 +376,168 @@ def test_transcribe_one_image_truncates_long_text(
 
         assert len(text) == 600
         assert repository.saved[0]["transcription"] == text
+
+    asyncio.run(scenario())
+
+
+def test_transcribe_one_image_sticker_passes_summary_to_prompt(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """直发表情包的段 summary（表情名）随提示词传给转述模型。"""
+
+    async def scenario() -> None:
+        plugin = _plugin(tmp_path, monkeypatch, _RepoStub(), _ProviderStub())
+        provider = plugin.context.provider_manager
+        plugin._container.repository.rows["hash-1"] = {
+            "file_hash": "hash-1",
+            "file_path": str(tmp_path / "cache.png"),
+            "kind": "sticker",
+            "summary": "",
+            "transcription": "",
+        }
+
+        text = await plugin._transcribe_one_image(
+            str(tmp_path / "cache.png"),
+            "看这个",
+            kind="sticker",
+            summary="[动画表情]",
+        )
+
+        assert text == "一张图片的转述"
+        prompt = provider.calls[0]["prompt"]
+        assert prompt.startswith(_STICKER_TRANSCRIPTION_PROMPT)
+        assert "表情包名称：[动画表情]" in prompt
+        assert prompt.endswith("用户当前消息：看这个")
+
+    asyncio.run(scenario())
+
+
+def test_transcribe_one_image_sticker_summary_falls_back_to_index(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """引用/常驻工具路径没有段 summary 时，回退到索引行里存的 summary。"""
+
+    async def scenario() -> None:
+        plugin = _plugin(tmp_path, monkeypatch, _RepoStub(), _ProviderStub())
+        provider = plugin.context.provider_manager
+        plugin._container.repository.rows["hash-1"] = {
+            "file_hash": "hash-1",
+            "file_path": str(tmp_path / "cache.png"),
+            "kind": "sticker",
+            "summary": "[嫌弃]",
+            "transcription": "",
+        }
+
+        text = await plugin._transcribe_one_image(
+            str(tmp_path / "cache.png"), "", kind="image"
+        )
+
+        assert text == "一张图片的转述"
+        prompt = provider.calls[0]["prompt"]
+        assert prompt.startswith(_STICKER_TRANSCRIPTION_PROMPT)
+        assert "表情包名称：[嫌弃]" in prompt
+
+    asyncio.run(scenario())
+
+
+def test_transcribe_one_image_regular_image_ignores_summary(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """普通图片即使带 summary 也不拼表情包名称行。"""
+
+    async def scenario() -> None:
+        plugin = _plugin(tmp_path, monkeypatch, _RepoStub(), _ProviderStub())
+        provider = plugin.context.provider_manager
+
+        text = await plugin._transcribe_one_image(
+            str(tmp_path / "photo.png"), "", kind="image", summary="[图片]"
+        )
+
+        assert text == "一张图片的转述"
+        prompt = provider.calls[0]["prompt"]
+        assert prompt.startswith(_IMAGE_TRANSCRIPTION_PROMPT)
+        assert "表情包名称" not in prompt
+
+    asyncio.run(scenario())
+
+
+def test_prepare_direct_sticker_stores_summary_and_passes_to_prompt(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """直发表情包：summary 落进索引行，并随提示词传给转述模型。"""
+
+    async def scenario() -> None:
+        repository = _RepoStub()
+        provider = _ProviderStub()
+        plugin = _plugin(tmp_path, monkeypatch, repository, provider)
+
+        sticker = tmp_path / "sticker.png"
+        sticker.write_bytes(b"sticker-bytes")
+        event = _image_event(
+            segments=[dict(_STICKER_SEGMENT)], image_paths=[sticker], message_id="m-1"
+        )
+        await plugin.prepare_message_event(event)
+
+        row = next(iter(repository.rows.values()))
+        assert row["kind"] == "sticker"
+        assert row["summary"] == "[动画表情]"
+        prompt = provider.calls[0]["prompt"]
+        assert prompt.startswith(_STICKER_TRANSCRIPTION_PROMPT)
+        assert "表情包名称：[动画表情]" in prompt
+
+    asyncio.run(scenario())
+
+
+def test_transcribe_one_image_sticker_hit_ignores_current_summary(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """命中缓存直接返回，当前观测的 summary 不触发重新转述。"""
+
+    async def scenario() -> None:
+        plugin = _plugin(tmp_path, monkeypatch, _RepoStub(), _ProviderStub())
+        provider = plugin.context.provider_manager
+        plugin._container.repository.rows["hash-1"] = {
+            "file_hash": "hash-1",
+            "file_path": str(tmp_path / "cache.png"),
+            "kind": "sticker",
+            "summary": "[嫌弃]",
+            "transcription": "缓存里的表情包转述",
+        }
+
+        text = await plugin._transcribe_one_image(
+            str(tmp_path / "cache.png"), "", kind="sticker", summary="[动画表情]"
+        )
+
+        assert text == "缓存里的表情包转述"
+        assert provider.calls == []
+
+    asyncio.run(scenario())
+
+
+def test_transcribe_one_image_sticker_without_any_summary_omits_name_line(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """索引行与直发参数都没有 summary 时，提示词不拼表情包名称行。"""
+
+    async def scenario() -> None:
+        plugin = _plugin(tmp_path, monkeypatch, _RepoStub(), _ProviderStub())
+        provider = plugin.context.provider_manager
+        plugin._container.repository.rows["hash-1"] = {
+            "file_hash": "hash-1",
+            "file_path": str(tmp_path / "cache.png"),
+            "kind": "sticker",
+            "summary": "",
+            "transcription": "",
+        }
+
+        text = await plugin._transcribe_one_image(
+            str(tmp_path / "cache.png"), "", kind="sticker"
+        )
+
+        assert text == "一张图片的转述"
+        prompt = provider.calls[0]["prompt"]
+        assert prompt.startswith(_STICKER_TRANSCRIPTION_PROMPT)
+        assert "表情包名称" not in prompt
 
     asyncio.run(scenario())
 

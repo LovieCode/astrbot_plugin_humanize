@@ -68,6 +68,7 @@ class ImageCacheStore:
         scope_type: str = "",
         scope_id: str = "",
         kind: str = "image",
+        summary: str = "",
     ) -> CachedImage:
         """Copy one materialized image into the cache and index it.
 
@@ -78,6 +79,8 @@ class ImageCacheStore:
             scope_id: Conversation scope identifier for auditing.
             kind: Entry kind, ``'image'`` (LRU-evicted) or ``'sticker'``
                 (kept long-term under its own cap, carries the transcription).
+            summary: Raw segment summary (sticker name) for sticker entries;
+                passed to the transcription prompt on later reads.
 
         Returns:
             A :class:`CachedImage`. On any failure the original path is
@@ -99,6 +102,7 @@ class ImageCacheStore:
                 scope_id=scope_id,
                 file_size=result[2],
                 kind=kind,
+                summary=summary,
             )
             await self._evict()
         except Exception:
