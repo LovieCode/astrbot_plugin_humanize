@@ -447,9 +447,9 @@
       "context_summary_max_chars": {
         "description": "LLM 摘要字符上限",
         "type": "int",
-        "default": 2400,
+        "default": 1000,
         "minimum": 500,
-        "maximum": 6000,
+        "maximum": 1000,
         "condition": {
           "context_summary_enabled": true
         },

@@ -39,6 +39,9 @@ _DEFAULT_TOKEN_BUDGET = 6_000
 # 滚动摘要（system 历史块）的硬上限：上一轮摘要 + 新淘汰行 → LLM 选择性
 # 压缩成新摘要，逐轮有损耗是设计取舍（用户确认，2026-09）。
 _SUMMARY_MAX_CHARS = 1_000
+# 待消化行攒够这么多才值得一次 LLM 滚动压缩（摘要近满时例外），
+# 避免旁观份额触发的高频压缩变成逐条消息一次 LLM 调用。
+_SUMMARY_DIGEST_MIN_PENDING = 5
 _COLD_TEXT_CHARS = 700
 _COLD_TOOL_CHARS = 1_200
 _SUMMARY_LINE_CHARS = 180
@@ -275,8 +278,14 @@ class ContextWindowService:
         snapshot = await asyncio.to_thread(self._summary_snapshot_sync, context)
         if snapshot is None:
             return False
-        key, full_text = snapshot
+        key, full_text, pending_lines = snapshot
         if key in self._summary_pending:
+            return False
+        # 旁观份额让压缩高频触发：一次 LLM 压缩要物有所值——待消化行攒
+        # 到一定数量、或摘要已近满（再不压缩就要丢行）时才滚动。
+        if len(pending_lines) < _SUMMARY_DIGEST_MIN_PENDING and len(full_text) < int(
+            _SUMMARY_MAX_CHARS * 0.8
+        ):
             return False
         self._summary_pending.add(key)
         try:
@@ -292,8 +301,10 @@ class ContextWindowService:
         finally:
             self._summary_pending.discard(key)
 
-    def _summary_snapshot_sync(self, context: MessageContext) -> tuple[str, str] | None:
-        """Read the current summary text as the digest input, if pending."""
+    def _summary_snapshot_sync(
+        self, context: MessageContext
+    ) -> tuple[str, str, list[str]] | None:
+        """Read the current summary text and pending lines as digest input."""
         identity, agent_id, session_directory = self._session_info(context)
         state_path = session_directory / "context_window.json"
         with self._workspace.transaction() as transaction:
@@ -305,7 +316,7 @@ class ContextWindowService:
             ]
             if not pending or not text:
                 return None
-            return str(session_directory), text
+            return str(session_directory), text, pending
 
     def _apply_summary_sync(
         self,
@@ -448,6 +459,12 @@ class ContextWindowService:
                 session_directory / "context_l2" / f"{context_ref}.json",
                 self._serialize(record),
             )
+            # 旁观条目也注册 refs（turn_ref 为空）：摘要行与折叠提示里的
+            # ctx-ref 才能被 read_context / humanize_memory_search 回读。
+            state["refs"][context_ref] = {
+                "created_at": self._clip(str(context.occurred_at or ""), 64),
+                "turn_ref": "",
+            }
             state["entries"].append(
                 {
                     "action": _OBSERVED_ACTION,
@@ -456,6 +473,7 @@ class ContextWindowService:
                     "l0": record["l0"],
                     "message_id": record["message_id"],
                     "turn_ref": "",
+                    "chars": self._record_message_chars(record),
                 }
             )
             self._compact_state(
@@ -559,6 +577,9 @@ class ContextWindowService:
                     "created_at": canonical["created_at"],
                     "l0": canonical["l0"],
                     "turn_ref": turn_ref,
+                    # 写入时缓存消息字符数：压缩/加载的预算检查不再逐条
+                    # 重读 L2 文件（legacy 状态无该字段时回退重读）。
+                    "chars": self._record_message_chars(canonical),
                 }
             )
             compacted = self._compact_state(
@@ -705,7 +726,9 @@ class ContextWindowService:
                 if not isinstance(details, dict):
                     continue
                 turn_ref = str(details.get("turn_ref") or "")
-                if not re.fullmatch(r"[0-9a-f]{64}", turn_ref):
+                # 空 turn_ref 是旁观（Observed）条目的引用：注册只为
+                # read_context 回读；非空时必须是 64 位十六进制回合号。
+                if turn_ref and not re.fullmatch(r"[0-9a-f]{64}", turn_ref):
                     continue
                 refs[str(context_ref)] = {
                     "created_at": self._clip(str(details.get("created_at") or ""), 64),
@@ -722,8 +745,8 @@ class ContextWindowService:
                     continue
                 action = str(item.get("action") or "")
                 if action == _OBSERVED_ACTION:
-                    # Chatter entries are deduplicated by message id and keep
-                    # no turn ref, so they never appear in ``refs``.
+                    # Chatter entries are deduplicated by message id; their
+                    # refs (empty turn_ref) exist only for read-back.
                     message_id = str(item.get("message_id") or "").strip()
                     if not message_id:
                         continue
@@ -737,6 +760,7 @@ class ContextWindowService:
                             "l0": self._clip(str(item.get("l0") or ""), 160),
                             "message_id": self._clip(message_id, 128),
                             "turn_ref": "",
+                            "chars": self._entry_chars(item),
                         }
                     )
                     continue
@@ -750,6 +774,7 @@ class ContextWindowService:
                         "created_at": self._clip(str(item.get("created_at") or ""), 64),
                         "l0": self._clip(str(item.get("l0") or ""), 160),
                         "turn_ref": turn_ref,
+                        "chars": self._entry_chars(item),
                     }
                 )
         summary = raw.get("summary")
@@ -830,6 +855,10 @@ class ContextWindowService:
                 break
             evicted_entry = entries.pop(index)
             evicted.append(evicted_entry)
+            cached = self._entry_chars(evicted_entry)
+            if cached:
+                chatter_tokens = max(0, chatter_tokens - (cached + 3) // 4)
+                continue
             record = self._read_l2(
                 transaction, session_directory, evicted_entry["context_ref"]
             )
@@ -1292,6 +1321,35 @@ class ContextWindowService:
         return result
 
     @staticmethod
+    def _entry_chars(item: dict[str, Any]) -> int:
+        """Read the cached per-entry message-char estimate, 0 for legacy states.
+
+        Args:
+            item: Raw entry mapping from the persisted window state.
+
+        Returns:
+            Non-negative cached char estimate, or 0 when absent.
+        """
+        try:
+            return max(0, int(item.get("chars") or 0))
+        except (TypeError, ValueError):
+            return 0
+
+    @staticmethod
+    def _record_message_chars(record: dict[str, Any] | None) -> int:
+        """Measure one L2 record's message payload in serialized characters.
+
+        Args:
+            record: Parsed L2 record, or None when it is gone.
+
+        Returns:
+            Character count of the record's JSON-encoded message payload.
+        """
+        if not record:
+            return 0
+        return len(json.dumps(record.get("messages", []), ensure_ascii=False))
+
+    @staticmethod
     def _record_message_tokens(record: dict[str, Any] | None) -> int:
         """Estimate the token cost of one L2 record's messages, 4 chars/token.
 
@@ -1314,6 +1372,8 @@ class ContextWindowService:
     ) -> int:
         """Estimate the hot-zone token cost of Observed (chatter) entries.
 
+        优先用写入时缓存的 chars 估算（legacy 状态缺失时回退重读 L2）。
+
         Args:
             transaction: Workspace transaction for L2 reads.
             state: Parsed window state.
@@ -1325,6 +1385,10 @@ class ContextWindowService:
         tokens = 0
         for entry in state["entries"]:
             if entry.get("action") != _OBSERVED_ACTION:
+                continue
+            chars = self._entry_chars(entry)
+            if chars:
+                tokens += (chars + 3) // 4
                 continue
             record = self._read_l2(transaction, session_directory, entry["context_ref"])
             tokens += self._record_message_tokens(record)
@@ -1338,6 +1402,10 @@ class ContextWindowService:
     ) -> int:
         estimated_chars = len(str(state["summary"].get("text") or ""))
         for entry in state["entries"]:
+            cached = self._entry_chars(entry)
+            if cached:
+                estimated_chars += cached
+                continue
             record = self._read_l2(
                 transaction,
                 session_directory,

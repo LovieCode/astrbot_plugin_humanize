@@ -2,6 +2,7 @@ from __future__ import annotations
 
 import asyncio
 import json
+import re
 from pathlib import Path
 from types import SimpleNamespace
 
@@ -842,6 +843,32 @@ def test_chatter_sticker_renders_sticker_marker(tmp_path: Path) -> None:
         ]
         assert any("[表情包 1: 一只柴犬歪头微笑，表达敷衍]" in c for c in user_contents)
         assert not any("[图片 1:" in c for c in user_contents)
+
+    asyncio.run(scenario())
+
+
+def test_chatter_context_ref_is_readable_after_eviction(tmp_path: Path) -> None:
+    """旁观条目注册 refs：折叠进摘要后 ctx-ref 仍可回读全文。"""
+
+    async def scenario() -> None:
+        window, _, _ = await _window(tmp_path)
+        for index in range(1, 46):
+            await window.append_chatter(
+                _context(
+                    index,
+                    sender_id=f"user-{index}",
+                    sender_name="碎心",
+                    user_text=f"约好{index}号下午爬山",
+                ),
+            )
+        # 45 条旁观触发容量压缩：最早一批折进摘要并带 ctx-ref。
+        loaded = await window.load(_context(99, user_text="@bot"), token_budget=256)
+        summary = str(loaded.contexts[0].get("content"))
+        refs = re.findall(r"（(ctx-[A-Z2-7]{8})）", summary)
+        assert refs  # 摘要里保留了可回读的 ctx 引用
+        detail = await window.read_context(_context(200), refs[-1])
+        assert "约好" in detail
+        assert "Context reference" in detail
 
     asyncio.run(scenario())
 

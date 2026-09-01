@@ -185,8 +185,6 @@ def test_window_rolling_digest_includes_previous_summary(tmp_path: Path) -> None
 
     asyncio.run(scenario())
 
-    asyncio.run(scenario())
-
 
 def test_container_attaches_summarizer_only_with_provider(
     tmp_path: Path, monkeypatch
