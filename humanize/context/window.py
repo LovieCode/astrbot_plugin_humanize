@@ -136,6 +136,7 @@ class ContextWindowService:
         token_budget: int = _DEFAULT_TOKEN_BUDGET,
         current_user_prompt: str = "",
         assistant_only: bool = False,
+        send_failed_reason: str = "",
     ) -> ContextWindowAppend:
         """Persist one complete logical turn and compact it when required.
 
@@ -143,7 +144,8 @@ class ContextWindowService:
             context: Trusted current-message metadata.
             action: Validated terminal action.
             run_messages: Complete agent-run message sequence including tools.
-            final_messages: User-visible validated final messages.
+            final_messages: User-visible validated final messages. For a send
+                failure this carries the single failure-annotated raw output.
             image_cache: Optional same-turn image descriptions produced by the model.
             image_count: Number of current-request image attachments.
             token_budget: Maximum approximate history tokens before compaction.
@@ -158,6 +160,10 @@ class ContextWindowService:
                 the final reply are kept. For turns that have no real user
                 message (proactive checks): the injected notice must never
                 masquerade as a user entry in history.
+            send_failed_reason: Non-empty protocol failure code marking this
+                turn as a failed send. Requires the ``No Reply`` action and
+                keeps the failure-annotated assistant output in history
+                instead of stripping it.
 
         Returns:
             Idempotent persistence result with the safe short context reference.
@@ -173,6 +179,9 @@ class ContextWindowService:
             raise ValueError("unsupported context-window action")
         if assistant_only and action != "Reply":
             raise ValueError("assistant-only persistence requires a Reply action")
+        send_failed_reason = str(send_failed_reason or "").strip()
+        if send_failed_reason and action != "No Reply":
+            raise ValueError("send-failed annotation requires the No Reply action")
         return await asyncio.to_thread(
             self._append_sync,
             context,
@@ -184,6 +193,7 @@ class ContextWindowService:
             token_budget,
             str(current_user_prompt or ""),
             bool(assistant_only),
+            send_failed_reason,
         )
 
     async def read_context(
@@ -531,6 +541,7 @@ class ContextWindowService:
         token_budget: int,
         current_user_prompt: str = "",
         assistant_only: bool = False,
+        send_failed_reason: str = "",
     ) -> ContextWindowAppend:
         identity, agent_id, session_directory = self._session_info(context)
         turn_ref = self._memory.turn_ref_for(context)
@@ -563,6 +574,7 @@ class ContextWindowService:
                 image_count=image_count,
                 current_user_prompt=current_user_prompt,
                 assistant_only=assistant_only,
+                send_failed_reason=send_failed_reason,
             )
             l2_path = session_directory / "context_l2" / f"{context_ref}.json"
             transaction.atomic_write(l2_path, self._serialize(canonical))
@@ -1008,6 +1020,7 @@ class ContextWindowService:
         image_count: int,
         current_user_prompt: str = "",
         assistant_only: bool = False,
+        send_failed_reason: str = "",
     ) -> dict[str, Any]:
         if assistant_only:
             # 主动回合没有真实用户消息：不插入占位用户条目，但保留 run 里的
@@ -1063,7 +1076,19 @@ class ContextWindowService:
             image_count,
             current_user_prompt=current_user_prompt,
         )
-        if action == "No Reply":
+        if action == "No Reply" and send_failed_reason and final_messages:
+            # 发送失败的回合：保留 Bot 的输出（main 侧已预置失败标注），
+            # 让后续轮次知道这条回复没有发送成功以及原因。
+            visible = "\n".join(
+                self._clip(item, _L2_MESSAGE_MAX_CHARS) for item in final_messages
+            )
+            for message in reversed(normalized):
+                if message["role"] == "assistant" and not message.get("tool_calls"):
+                    message["content"] = visible
+                    break
+            else:
+                normalized.append({"role": "assistant", "content": visible})
+        elif action == "No Reply":
             normalized = [
                 message
                 for message in normalized

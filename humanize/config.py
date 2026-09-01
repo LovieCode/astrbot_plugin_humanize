@@ -79,7 +79,6 @@ class PluginConfig:
     message_interval_seconds: float = 0.8
     protocol_enabled: bool = True
     protocol_injection_mode: str = "user"
-    protocol_repair_retry_enabled: bool = True
     protocol_raw_log_chars: int = 4_000
     protocol_log_retention_days: int = 7
     max_unknown_terms: int = 8
@@ -156,9 +155,6 @@ class PluginConfig:
             ),
             protocol_enabled=_as_bool(data.get("protocol_enabled"), True),
             protocol_injection_mode=protocol_injection_mode,
-            protocol_repair_retry_enabled=_as_bool(
-                data.get("protocol_repair_retry_enabled"), True
-            ),
             protocol_raw_log_chars=_as_int(
                 data.get("protocol_raw_log_chars"), 4_000, 256, 20_000
             ),
@@ -294,7 +290,6 @@ class PluginConfig:
             "message_interval_seconds": self.message_interval_seconds,
             "protocol_enabled": self.protocol_enabled,
             "protocol_injection_mode": self.protocol_injection_mode,
-            "protocol_repair_retry_enabled": self.protocol_repair_retry_enabled,
             "protocol_log_retention_days": self.protocol_log_retention_days,
             "max_messages_per_reply": self.max_messages_per_reply,
             "no_reply_enabled": self.no_reply_enabled,

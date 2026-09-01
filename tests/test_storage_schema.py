@@ -143,11 +143,9 @@ def test_schema_upgrade_drops_legacy_memory_and_control_tables(
         assert version == _SCHEMA_VERSION
         assert stored["templates"]["rule"] == "rule"
         assert stored["templates"]["protocol"] == "protocol"
-        assert stored["templates"]["repair"] == ("<Action>{{required_action}}</Action>")
         assert set(stored["templates"]) == {
             "rule",
             "protocol",
-            "repair",
             "memory_extraction",
             "reply_examples",
         }

@@ -11,10 +11,8 @@ from astrbot_plugin_humanize.humanize.config import PluginConfig
 from astrbot_plugin_humanize.humanize.domain.models import MessageContext
 from astrbot_plugin_humanize.humanize.domain.prompts import (
     DEFAULT_PROTOCOL_TEMPLATE,
-    DEFAULT_REPAIR_TEMPLATE,
     DEFAULT_RULE_TEMPLATE,
     LEGACY_PROTOCOL_TEMPLATE,
-    LEGACY_REPAIR_TEMPLATE,
     LEGACY_RULE_TEMPLATE,
     PromptTemplates,
 )
@@ -84,7 +82,6 @@ def test_prompt_templates_persist_with_dedicated_audit(tmp_path: Path) -> None:
         assert set(defaults["templates"]) == {
             "rule",
             "protocol",
-            "repair",
             "memory_extraction",
             "reply_examples",
         }
@@ -135,7 +132,6 @@ def test_envelope_renders_only_declared_double_brace_variables() -> None:
                 '{"word":"x","guess":"y","confidence":1,"reason":"z"}'
                 "]</UnknownTerms>"
             ),
-            "repair": "<Action>{{required_action}}</Action>",
             "memory_extraction": "只输出 JSON 数组",
             "reply_examples": "<Examples>{{examples}}</Examples>",
         }
@@ -143,17 +139,10 @@ def test_envelope_renders_only_declared_double_brace_variables() -> None:
     builder = EnvelopeBuilder(PluginConfig(max_message_chars=10), templates)
 
     prompt = builder.build_protocol_prompt(_context())
-    repair, _ = builder.build_protocol_repair_request(
-        _context(),
-        error_code="invalid_control_header",
-        invalid_header_preview="bad",
-        required_action="Reply",
-    )
 
     assert "<Rule>QQ群聊天|管理员|10001<Rule/>" in prompt
     assert "长度 10" in prompt
     assert '{"word":"x","guess":"y","confidence":1,"reason":"z"}' in prompt
-    assert repair == "<Action>Reply</Action>"
     assert templates.render("memory_extraction", {}) == "只输出 JSON 数组"
     assert templates.render("reply_examples", {"examples": "<Example />"}) == (
         "<Examples><Example /></Examples>"
@@ -171,12 +160,8 @@ def test_migration_updates_only_unmodified_legacy_protocol_templates(
         with sqlite3.connect(db_path) as connection:
             connection.execute(
                 "UPDATE humanize_prompt_templates "
-                "SET protocol_content = ?, repair_content = ?, rule_content = ?",
-                (
-                    LEGACY_PROTOCOL_TEMPLATE,
-                    LEGACY_REPAIR_TEMPLATE,
-                    LEGACY_RULE_TEMPLATE,
-                ),
+                "SET protocol_content = ?, rule_content = ?",
+                (LEGACY_PROTOCOL_TEMPLATE, LEGACY_RULE_TEMPLATE),
             )
             connection.execute("PRAGMA user_version = 21")
             connection.commit()
@@ -187,20 +172,16 @@ def test_migration_updates_only_unmodified_legacy_protocol_templates(
             "protocol"
         ] == DEFAULT_PROTOCOL_TEMPLATE
         assert (await upgraded.get_prompt_templates())["templates"][
-            "repair"
-        ] == DEFAULT_REPAIR_TEMPLATE
-        assert (await upgraded.get_prompt_templates())["templates"][
             "rule"
         ] == DEFAULT_RULE_TEMPLATE
 
         custom_protocol = "自定义协议 {{max_chars}}"
-        custom_repair = "自定义修复 {{required_action}}"
         custom_rule = "自定义规则 {{scene}}"
         with sqlite3.connect(db_path) as connection:
             connection.execute(
                 "UPDATE humanize_prompt_templates "
-                "SET protocol_content = ?, repair_content = ?, rule_content = ?",
-                (custom_protocol, custom_repair, custom_rule),
+                "SET protocol_content = ?, rule_content = ?",
+                (custom_protocol, custom_rule),
             )
             connection.execute("PRAGMA user_version = 21")
             connection.commit()
@@ -210,9 +191,6 @@ def test_migration_updates_only_unmodified_legacy_protocol_templates(
         assert (await preserved.get_prompt_templates())["templates"][
             "protocol"
         ] == custom_protocol
-        assert (await preserved.get_prompt_templates())["templates"]["repair"] == (
-            custom_repair
-        )
         assert (await preserved.get_prompt_templates())["templates"]["rule"] == (
             custom_rule
         )
@@ -270,13 +248,12 @@ def test_migration_replaces_customized_templates_still_using_version_variable(
         await repository.initialize()
 
         custom_protocol = "自定义协议 {{version}} 上限 {{max_chars}}"
-        custom_repair = "自定义修复 {{version}} 目标 {{required_action}}"
         custom_rule = "自定义规则 {{scene}}"
         with sqlite3.connect(db_path) as connection:
             connection.execute(
                 "UPDATE humanize_prompt_templates "
-                "SET protocol_content = ?, repair_content = ?, rule_content = ?",
-                (custom_protocol, custom_repair, custom_rule),
+                "SET protocol_content = ?, rule_content = ?",
+                (custom_protocol, custom_rule),
             )
             connection.execute("PRAGMA user_version = 24")
             connection.commit()
@@ -285,7 +262,6 @@ def test_migration_replaces_customized_templates_still_using_version_variable(
         await upgraded.initialize()
         templates = (await upgraded.get_prompt_templates())["templates"]
         assert templates["protocol"] == DEFAULT_PROTOCOL_TEMPLATE
-        assert templates["repair"] == DEFAULT_REPAIR_TEMPLATE
         assert templates["rule"] == custom_rule
 
     asyncio.run(scenario())
@@ -317,7 +293,7 @@ def test_prompt_template_validation_rejects_unsafe_placeholders() -> None:
     with pytest.raises(ValueError, match="unsupported variable"):
         PromptTemplates.from_mapping({"protocol": "{{unknown}}"})
 
-    with pytest.raises(ValueError, match="requires"):
+    with pytest.raises(ValueError, match="unsupported prompt template"):
         PromptTemplates.from_mapping({"repair": "只输出控制头"})
 
     with pytest.raises(ValueError, match="requires"):
@@ -345,13 +321,12 @@ def test_web_api_supports_get_save_bulk_update_and_reset(
         assert [item["key"] for item in data["items"]] == [
             "rule",
             "protocol",
-            "repair",
             "memory_extraction",
             "reply_examples",
         ]
         assert "{{max_chars}}" in data["items"][1]["variables"]
-        assert data["items"][3]["variables"] == []
-        assert data["items"][4]["required_variables"] == ["{{examples}}"]
+        assert data["items"][2]["variables"] == []
+        assert data["items"][3]["required_variables"] == ["{{examples}}"]
 
         custom_protocol = 'CUSTOM {{max_chars}} 自定义 {"json":true}'
         monkeypatch.setattr(
@@ -381,14 +356,14 @@ def test_web_api_supports_get_save_bulk_update_and_reset(
                 body={
                     "templates": {
                         "rule": "<Rule>bulk {{scene}}<Rule/>",
-                        "repair": "<Action>{{required_action}}</Action>",
+                        "memory_extraction": "bulk 只输出 JSON 数组",
                     },
                     "reason": "bulk save",
                 },
             ),
         )
         bulk = _payload(await api.dispatch("prompt-templates"))["data"]
-        assert bulk["updated"] == ["rule", "repair"]
+        assert bulk["updated"] == ["rule", "memory_extraction"]
         assert "<Rule>bulk QQ群聊天<Rule/>" in envelope.build_protocol_prompt(
             _context()
         )

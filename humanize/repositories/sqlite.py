@@ -8,9 +8,7 @@ from typing import Any, TypeVar
 from ..domain.prompts import (
     LEGACY_MESSAGES_PROTOCOL_TEMPLATE,
     LEGACY_PROTOCOL_TEMPLATE,
-    LEGACY_REPAIR_TEMPLATE,
     LEGACY_RULE_TEMPLATE,
-    LEGACY_VERSIONED_REPAIR_TEMPLATE,
     PromptTemplates,
 )
 from ..jargon.normalizer import normalize_term
@@ -315,7 +313,6 @@ class SQLiteRepository(
                 "id": 1,
                 "rule_content": defaults.rule,
                 "protocol_content": defaults.protocol,
-                "repair_content": defaults.repair,
                 "memory_extraction_content": defaults.memory_extraction,
                 "reply_examples_content": defaults.reply_examples,
                 "updated_at": now,
@@ -325,6 +322,9 @@ class SQLiteRepository(
                 "archive_l0_user_content",
                 "archive_l1_system_content",
                 "archive_l1_user_content",
+                # 协议修复功能已移除；旧库的 repair_content 列为
+                # NOT NULL 且无默认值，插入时必须补空值。
+                "repair_content",
             ):
                 if legacy_column in table_columns:
                     values[legacy_column] = ""
@@ -355,13 +355,6 @@ class SQLiteRepository(
                     "WHERE protocol_content = ?",
                     (PromptTemplates().protocol, now, LEGACY_PROTOCOL_TEMPLATE),
                 )
-            if version < 23:
-                conn.execute(
-                    "UPDATE humanize_prompt_templates "
-                    "SET repair_content = ?, updated_at = ? "
-                    "WHERE repair_content = ?",
-                    (PromptTemplates().repair, now, LEGACY_REPAIR_TEMPLATE),
-                )
             if version < 24:
                 # 新版协议：去掉版本号、<Messages> 必填、No Reply 写原因；
                 # 只替换未修改过的旧默认，自定义模板保留原样。
@@ -375,16 +368,6 @@ class SQLiteRepository(
                         LEGACY_MESSAGES_PROTOCOL_TEMPLATE,
                     ),
                 )
-                conn.execute(
-                    "UPDATE humanize_prompt_templates "
-                    "SET repair_content = ?, updated_at = ? "
-                    "WHERE repair_content = ?",
-                    (
-                        PromptTemplates().repair,
-                        now,
-                        LEGACY_VERSIONED_REPAIR_TEMPLATE,
-                    ),
-                )
             if version < 25:
                 # 新版基础规则：距离感表述更明确，并新增口语化要求；
                 # 只替换未修改过的旧默认，自定义模板保留原样。
@@ -394,7 +377,7 @@ class SQLiteRepository(
                     "WHERE rule_content = ?",
                     (PromptTemplates().rule, now, LEGACY_RULE_TEMPLATE),
                 )
-                # v2 移除了 {{version}} 变量：任何仍引用它的协议/修复模板
+                # v2 移除了 {{version}} 变量：任何仍引用它的协议模板
                 # （含用户改过的旧版本）必然校验失效并被读取回退为默认。
                 # 这里直接以新默认替换，使自愈落库、告警止息；
                 # 不含 {{version}} 的自定义内容不受影响。
@@ -403,12 +386,6 @@ class SQLiteRepository(
                     "SET protocol_content = ?, updated_at = ? "
                     "WHERE protocol_content LIKE '%{{version}}%'",
                     (PromptTemplates().protocol, now),
-                )
-                conn.execute(
-                    "UPDATE humanize_prompt_templates "
-                    "SET repair_content = ?, updated_at = ? "
-                    "WHERE repair_content LIKE '%{{version}}%'",
-                    (PromptTemplates().repair, now),
                 )
             if version < 28:
                 # 新版基础规则：加入 {{speak_expectation}} 占位（期望发言概率）；

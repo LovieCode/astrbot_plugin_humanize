@@ -170,40 +170,6 @@ class EnvelopeBuilder:
         # 图片转述由系统在 <Msg> 内联注入（含缓存路径）；模型不再输出 ImageCache 标签
         return "\n\n".join(parts)
 
-    def build_protocol_repair_request(
-        self,
-        context: MessageContext,
-        *,
-        error_code: str,
-        invalid_header_preview: str,
-        required_action: str,
-    ) -> tuple[str, str]:
-        """Build an isolated header-only repair request.
-
-        Args:
-            context: Trusted metadata and the original user message.
-            error_code: Deterministic validation failure from the first attempt.
-            invalid_header_preview: Bounded preview of the malformed control lines.
-            required_action: Trusted action that the repair must preserve.
-
-        Returns:
-            System prompt and XML-escaped user payload for the repair call.
-        """
-        root = ET.Element("RepairInput")
-        ET.SubElement(root, "ErrorCode").text = error_code
-        ET.SubElement(root, "RequiredAction").text = required_action
-        ET.SubElement(root, "UserMessage").text = context.user_text
-        ET.SubElement(root, "InvalidHeaderPreview").text = invalid_header_preview
-        return (
-            self._templates.render(
-                "repair",
-                {
-                    "required_action": required_action,
-                },
-            ),
-            ET.tostring(root, encoding="unicode", short_empty_elements=False),
-        )
-
     def build_proactive_prompt(self, *, situation: str) -> str:
         """Build the situation brief of one synthetic proactive event.
 

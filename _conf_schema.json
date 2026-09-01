@@ -116,16 +116,6 @@
         },
         "hint": "从合法 <UnknownTerms> 标签内的 JSON 中记录候选词。"
       },
-      "protocol_repair_retry_enabled": {
-        "description": "协议控制头修复重试",
-        "type": "bool",
-        "default": true,
-        "condition": {
-          "protocol_enabled": true
-        },
-        "collapsed": true,
-        "hint": "首次控制头非法时最多额外调用模型一次，只修复标签控制头；原回复正文不会交给模型重写。"
-      },
       "protocol_log_retention_days": {
         "description": "协议日志保留天数",
         "type": "int",

@@ -124,7 +124,6 @@ CREATE TABLE IF NOT EXISTS humanize_prompt_templates (
     id INTEGER PRIMARY KEY CHECK (id = 1),
     rule_content TEXT NOT NULL,
     protocol_content TEXT NOT NULL,
-    repair_content TEXT NOT NULL,
     memory_extraction_content TEXT NOT NULL,
     reply_examples_content TEXT NOT NULL,
     updated_at TEXT NOT NULL

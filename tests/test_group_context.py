@@ -928,6 +928,105 @@ def test_assistant_only_turn_keeps_tools_and_drops_user_entry(tmp_path: Path) ->
     asyncio.run(scenario())
 
 
+def test_send_failed_turn_keeps_annotated_assistant_in_history(
+    tmp_path: Path,
+) -> None:
+    """发送失败的回合：No Reply 历史保留带标注的 Bot 输出，供后续轮次知悉。"""
+
+    async def scenario() -> None:
+        window, _, _ = await _window(tmp_path)
+        context = _context(1, user_text="在吗")
+        await window.append(
+            context,
+            action="No Reply",
+            run_messages=[
+                {"role": "user", "content": "在吗"},
+                {"role": "assistant", "content": "Action: Reply\n普通正文"},
+            ],
+            final_messages=("〔发送失败：missing_action〕\nAction: Reply\n普通正文",),
+            token_budget=30_000,
+            send_failed_reason="missing_action",
+        )
+        loaded = await window.load(_context(2), token_budget=30_000)
+        rendered = loaded.contexts
+        # 失败标注 + 原始输出进入历史（带 Bot 前缀）
+        assert any(
+            item["role"] == "assistant"
+            and "〔发送失败：missing_action〕" in str(item["content"])
+            and "Action: Reply\n普通正文" in str(item["content"])
+            for item in rendered
+        )
+        # 用户侧照常保留
+        assert any(
+            item["role"] == "user" and "在吗" in str(item["content"])
+            for item in rendered
+        )
+
+        # 对照组：普通 No Reply 仍然剥离 assistant 输出
+        await window.append(
+            _context(2, user_text="不回也行"),
+            action="No Reply",
+            run_messages=[
+                {"role": "user", "content": "不回也行"},
+                {
+                    "role": "assistant",
+                    "content": "<Messages><Message>不说</Message></Messages>",
+                },
+            ],
+            final_messages=(),
+            token_budget=30_000,
+        )
+        reloaded = await window.load(_context(3), token_budget=30_000)
+        assert not any(
+            item["role"] == "assistant" and "不说" in str(item["content"])
+            for item in reloaded.contexts
+        )
+
+    asyncio.run(scenario())
+
+
+def test_send_failed_reason_requires_no_reply_action(tmp_path: Path) -> None:
+    """send_failed_reason 只允许配合 No Reply 使用；其它组合保持既有约束。"""
+
+    async def scenario() -> None:
+        window, _, _ = await _window(tmp_path)
+        context = _context(1)
+
+        with pytest.raises(ValueError, match="send-failed annotation"):
+            await window.append(
+                context,
+                action="Reply",
+                run_messages=[{"role": "user", "content": "hi"}],
+                final_messages=("hello",),
+                send_failed_reason="missing_action",
+            )
+
+        with pytest.raises(ValueError, match="assistant-only"):
+            await window.append(
+                context,
+                action="No Reply",
+                run_messages=[{"role": "assistant", "content": "x"}],
+                final_messages=(),
+                assistant_only=True,
+                send_failed_reason="missing_action",
+            )
+
+        # 未标注时（默认空串）Reply 正常落账
+        result = await window.append(
+            context,
+            action="Reply",
+            run_messages=[
+                {"role": "user", "content": "hi"},
+                {"role": "assistant", "content": "hello"},
+            ],
+            final_messages=("hello",),
+            token_budget=30_000,
+        )
+        assert result.duplicate is False
+
+    asyncio.run(scenario())
+
+
 def _rendered_text(items: list[dict[str, object]]) -> str:
     return "\n".join(str(item.get("content") or "") for item in items)
 

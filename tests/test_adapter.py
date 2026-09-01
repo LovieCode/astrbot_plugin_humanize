@@ -6,7 +6,6 @@ from types import SimpleNamespace
 
 from astrbot_plugin_humanize import main as humanize_main
 from astrbot_plugin_humanize.humanize.config import PluginConfig
-from astrbot_plugin_humanize.humanize.domain.errors import ProtocolValidationError
 from astrbot_plugin_humanize.humanize.domain.models import (
     Action,
     ContextSection,
@@ -313,9 +312,7 @@ def test_residual_tool_fields_do_not_bypass_response_firewall() -> None:
 
     async def scenario() -> None:
         service = Service()
-        plugin = HumanizePlugin(
-            SimpleNamespace(), {"protocol_repair_retry_enabled": False}
-        )
+        plugin = HumanizePlugin(SimpleNamespace(), {})
         plugin._container = SimpleNamespace(service=service)
         event = _FakeEvent()
         event.set_extra("_humanize_state", EventState.REQUESTED.value)
@@ -2134,189 +2131,213 @@ def test_request_wraps_only_exact_user_segment_and_restores_full_prompt() -> Non
     asyncio.run(scenario())
 
 
-def test_invalid_header_is_repaired_once_without_rewriting_body() -> None:
-    body = "<Messages><Message>第一行</Message><Message>第二行</Message></Messages>"
-    raw_output = f"Action: Reply\r\nUnknownTerms: []\r\n{body}"
+def test_invalid_final_output_is_blocked_with_notice_and_annotation() -> None:
+    raw_output = (
+        "Action: Reply\nUnknownTerms: []\n<Messages><Message>正文</Message></Messages>"
+    )
 
-    class Service:
-        def __init__(self) -> None:
-            self.calls: list[str] = []
-            self.parser = ProtocolParser(PluginConfig())
-
-        async def process_final_response(self, context, raw, **kwargs):
-            self.calls.append(raw)
-            try:
-                decision = self.parser.parse(raw)
-            except ProtocolValidationError as exc:
-                return FinalOutcome(
-                    valid=False, error_code=exc.code, error_detail=exc.detail
-                )
-            return FinalOutcome(
-                valid=True,
-                action=decision.action,
-                messages=decision.messages,
-                unknown_terms=decision.unknown_terms,
-            )
-
-    class Provider:
-        def __init__(self) -> None:
-            self.calls: list[dict] = []
-
-        async def text_chat(self, **kwargs):
-            self.calls.append(kwargs)
-            return LLMResponse(
-                role="assistant",
-                completion_text=(
-                    "<Action>Reply</Action>\n<UnknownTerms>[]</UnknownTerms>"
-                ),
-            )
-
-    async def scenario() -> None:
-        service = Service()
-        provider = Provider()
-        plugin = HumanizePlugin(
-            SimpleNamespace(get_using_provider=lambda umo: provider), {}
-        )
-        plugin._container = SimpleNamespace(service=service)
-        event = _FakeEvent()
-        event.set_extra("_humanize_state", EventState.REQUESTED.value)
-        event.set_extra("_humanize_context", _context())
-        event.set_extra("_humanize_history_sync_required", False)
-        response = LLMResponse(role="assistant", completion_text=raw_output)
-
-        await plugin.enforce_response_protocol(event, response)
-
-        assert response.completion_text == ""
-        assert not event.stopped
-        await plugin.synchronize_agent_history(
-            event, SimpleNamespace(messages=[]), response
-        )
-
-        assert not event.stopped
-        assert response.completion_text == "第一行\n第二行"
-        assert event.get_extra("_humanize_state") == EventState.FINAL_VALID.value
-        assert len(provider.calls) == 1
-        call = provider.calls[0]
-        assert call["func_tool"] is None
-        assert call["contexts"] == []
-        assert call["tool_calls_result"] is None
-        assert call["extra_user_content_parts"] == []
-        assert call["request_max_retries"] == 1
-        assert service.calls[0] == raw_output
-        assert service.calls[1].endswith(body)
-
-    asyncio.run(scenario())
-
-
-def test_protocol_repair_provider_failure_is_fail_closed() -> None:
-    class Service:
-        def __init__(self) -> None:
-            self.failures: list[dict] = []
-
-        async def process_final_response(self, context, raw, **kwargs):
-            return FinalOutcome(
-                valid=False,
-                error_code="invalid_control_header",
-                error_detail="missing header",
-            )
-
-        async def record_protocol_failure(self, context, **kwargs):
-            self.failures.append(kwargs)
-            return True
-
-    class Provider:
-        async def text_chat(self, **kwargs):
-            raise RuntimeError("provider unavailable")
-
-    async def scenario() -> None:
-        service = Service()
-        plugin = HumanizePlugin(
-            SimpleNamespace(get_using_provider=lambda umo: Provider()), {}
-        )
-        plugin._container = SimpleNamespace(service=service)
-        event = _FakeEvent()
-        event.set_extra("_humanize_state", EventState.REQUESTED.value)
-        event.set_extra("_humanize_context", _context())
-        response = LLMResponse(
-            role="assistant",
-            completion_text="Action: Reply\nUnknownTerms: []\n普通正文",
-        )
-
-        await plugin.enforce_response_protocol(event, response)
-        await plugin.synchronize_agent_history(
-            event, SimpleNamespace(messages=[]), response
-        )
-
-        assert event.stopped
-        assert response.completion_text == ""
-        assert (
-            event.get_extra("_humanize_protocol_error")
-            == "protocol_repair_request_failed"
-        )
-        assert len(service.failures) == 1
-        assert service.failures[0]["error_code"] == "protocol_repair_request_failed"
-        assert (
-            service.failures[0]["error_detail"]
-            == "Header repair provider request failed"
-        )
-        assert (
-            service.failures[0]["raw_output"]
-            == "Action: Reply\nUnknownTerms: []\n普通正文"
-        )
-        assert service.failures[0]["model"] == ""
-        assert service.failures[0]["stage"] == "final"
-        assert service.failures[0]["response_snapshot_complete"] is True
-        assert (
-            service.failures[0]["response_snapshot"]["final_response"]["response"][
-                "fields"
-            ]["completion_text"]
-            == "Action: Reply\nUnknownTerms: []\n普通正文"
-        )
-        assert service.failures[0]["duration_ms"] >= 0
-
-    asyncio.run(scenario())
-
-
-def test_protocol_repair_never_reverses_a_valid_no_reply_action() -> None:
     class Service:
         async def process_final_response(self, context, raw, **kwargs):
             return FinalOutcome(
                 valid=False,
-                error_code="no_reply_has_text",
-                error_detail="No Reply requires an empty response body",
+                error_code="missing_action",
+                error_detail="Response must contain an <Action> tag",
             )
 
-    class Provider:
-        calls = 0
+    class NotifyingContext:
+        def __init__(self) -> None:
+            self.notices: list[tuple[str, str]] = []
 
-        async def text_chat(self, **kwargs):
-            self.calls += 1
-            raise AssertionError("conflicting Action must not be repaired")
+        async def send_message(self, umo, chain):
+            self.notices.append((umo, chain.get_plain_text()))
 
     async def scenario() -> None:
-        provider = Provider()
-        plugin = HumanizePlugin(
-            SimpleNamespace(get_using_provider=lambda umo: provider), {}
-        )
+        context = NotifyingContext()
+        plugin = HumanizePlugin(context, {})
         plugin._container = SimpleNamespace(service=Service())
         event = _FakeEvent()
         event.set_extra("_humanize_state", EventState.REQUESTED.value)
         event.set_extra("_humanize_context", _context())
+        response = LLMResponse(role="assistant", completion_text=raw_output)
+
+        await plugin.enforce_response_protocol(event, response)
+
+        assert event.stopped
+        assert response.completion_text == ""
+        assert event.get_extra("_humanize_state") == EventState.FINAL_BLOCKED.value
+        assert event.get_extra("_humanize_protocol_error") == "missing_action"
+        assert context.notices == [
+            (
+                "group-1",
+                "〔系统通知〕这条回复发送失败了：输出缺少 Action 控制头（missing_action）",
+            )
+        ]
+        assert event.get_extra("_humanize_send_failed_reason") == "missing_action"
+        assert event.get_extra("_humanize_send_failed_messages") == (
+            f"〔发送失败：missing_action〕\n{raw_output}",
+        )
+
+    asyncio.run(scenario())
+
+
+def test_invalid_final_output_truncates_long_body_in_annotation() -> None:
+    long_body = "超长正文" * 800  # 3200 chars, above the 2000-char history cap
+
+    class Service:
+        async def process_final_response(self, context, raw, **kwargs):
+            return FinalOutcome(
+                valid=False,
+                error_code="missing_messages",
+                error_detail="Reply requires at least one <Message>",
+            )
+
+    async def scenario() -> None:
+        raw_output = (
+            f"<Action>Reply</Action>\n<UnknownTerms>[]</UnknownTerms>\n{long_body}"
+        )
+        annotated = HumanizePlugin._failed_turn_message("missing_messages", raw_output)
+
+        assert annotated == (
+            "〔发送失败：missing_messages〕\n" + raw_output.strip()[:2000] + "…"
+        )
+        assert long_body[:2000] not in annotated  # 正文整体未保留，只截到上限
+
+        # 无正文的空输出也要有可读的失败标注。
+        assert HumanizePlugin._failed_turn_message("empty_output", "  ") == (
+            "〔发送失败：empty_output〕"
+        )
+
+    asyncio.run(scenario())
+
+
+def test_proactive_failure_stays_silent_but_still_annotates() -> None:
+    class Service:
+        async def process_final_response(self, context, raw, **kwargs):
+            return FinalOutcome(
+                valid=False,
+                error_code="invalid_unknown_terms",
+                error_detail="UnknownTerms must be a JSON array",
+            )
+
+    class NotifyingContext:
+        def __init__(self) -> None:
+            self.notices: list[str] = []
+
+        async def send_message(self, umo, chain):
+            self.notices.append(chain.get_plain_text())
+
+    class BrokenContext:
+        async def send_message(self, umo, chain):
+            raise RuntimeError("platform send failed")
+
+    async def scenario() -> None:
+        # 主动回合：不发通告（无人等待），但仍标注失败输出并阻断。
+        notifying = NotifyingContext()
+        plugin = HumanizePlugin(notifying, {})
+        plugin._container = SimpleNamespace(service=Service())
+        event = _FakeEvent()
+        event.set_extra("_humanize_state", EventState.REQUESTED.value)
+        event.set_extra("_humanize_context", _context())
+        event.set_extra("_humanize_proactive_kind", "window")
         response = LLMResponse(
             role="assistant",
-            completion_text=(
-                "<Action>No Reply</Action>\n"
-                "<UnknownTerms>[]</UnknownTerms>\n"
-                "<Messages><Message>不得发送</Message></Messages>"
-            ),
+            completion_text="<Action>Reply</Action>\n<UnknownTerms>oops</UnknownTerms>",
         )
 
         await plugin.enforce_response_protocol(event, response)
 
         assert event.stopped
-        assert provider.calls == 0
-        assert response.completion_text == ""
-        assert event.get_extra("_humanize_protocol_error") == "no_reply_has_text"
+        assert notifying.notices == []
+        assert event.get_extra("_humanize_send_failed_reason") == (
+            "invalid_unknown_terms"
+        )
+        assert event.get_extra("_humanize_send_failed_messages") == (
+            "〔发送失败：invalid_unknown_terms〕\n"
+            "<Action>Reply</Action>\n<UnknownTerms>oops</UnknownTerms>",
+        )
+
+        # 通告发送失败是 fail-open 的：阻断行为不受影响。
+        broken = BrokenContext()
+        plugin_broken = HumanizePlugin(broken, {})
+        plugin_broken._container = SimpleNamespace(service=Service())
+        broken_event = _FakeEvent()
+        broken_event.set_extra("_humanize_state", EventState.REQUESTED.value)
+        broken_event.set_extra("_humanize_context", _context())
+        broken_response = LLMResponse(
+            role="assistant",
+            completion_text="<Action>Reply</Action>\n<UnknownTerms>oops</UnknownTerms>",
+        )
+
+        await plugin_broken.enforce_response_protocol(broken_event, broken_response)
+
+        assert broken_event.stopped
+        assert broken_response.completion_text == ""
+        assert (
+            broken_event.get_extra("_humanize_protocol_error")
+            == "invalid_unknown_terms"
+        )
+
+    asyncio.run(scenario())
+
+
+def test_failed_turn_persists_annotated_history_via_context_window() -> None:
+    class Service:
+        async def process_final_response(self, context, raw, **kwargs):
+            return FinalOutcome(
+                valid=False,
+                error_code="missing_action",
+                error_detail="Response must contain an <Action> tag",
+            )
+
+    class Committer:
+        def __init__(self) -> None:
+            self.calls: list[dict] = []
+
+        async def commit_context_turn(self, context, **kwargs):
+            self.calls.append(kwargs)
+            return True
+
+    class RecordingWindow:
+        def __init__(self) -> None:
+            self.calls: list[dict] = []
+
+        async def append(self, context, **kwargs):
+            self.calls.append(kwargs)
+            return SimpleNamespace(
+                context_ref="ctx-1", compacted=False, duplicate=False
+            )
+
+    async def scenario() -> None:
+        window = RecordingWindow()
+        committer = Committer()
+        container = SimpleNamespace(context_window=window, memory=committer)
+        plugin = HumanizePlugin(SimpleNamespace(), {})
+        plugin._container = container
+        event = _FakeEvent()
+        event.set_extra("_humanize_context", _context())
+        event.set_extra("_humanize_context_window_active", True)
+        event.set_extra("_humanize_context_window_pending_messages", ())
+        event.set_extra("_humanize_context_window_pending_action", "No Reply")
+        event.set_extra("_humanize_send_failed_reason", "missing_action")
+        event.set_extra(
+            "_humanize_send_failed_messages",
+            ("〔发送失败：missing_action〕\nAction: Reply\n普通正文",),
+        )
+
+        await plugin._persist_context_window(event)
+
+        assert len(window.calls) == 1
+        call = window.calls[0]
+        assert call["action"] == "No Reply"
+        assert call["send_failed_reason"] == "missing_action"
+        assert call["final_messages"] == (
+            "〔发送失败：missing_action〕\nAction: Reply\n普通正文",
+        )
+        # 提交给 OpenViking 的消息不包含被拒绝的输出。
+        assert committer.calls == [
+            {"action": "No Reply", "messages": (), "context_ref": "ctx-1"}
+        ]
+        assert event.get_extra("_humanize_context_turn_ref") == "ctx-1"
 
     asyncio.run(scenario())
 

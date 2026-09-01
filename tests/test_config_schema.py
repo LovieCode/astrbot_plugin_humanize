@@ -72,10 +72,7 @@ def test_schema_keeps_common_controls_visible_and_details_collapsed() -> None:
     reply_control = _items(schema, "reply_control")
     memory = _items(schema, "memory")
     reply_examples = _nested_items(memory, "reply_examples")
-    advanced_fields = (
-        "protocol_repair_retry_enabled",
-        "min_confidence_for_injection",
-    )
+    advanced_fields = ("min_confidence_for_injection",)
 
     assert reply_control["protocol_injection_mode"]["labels"] == [
         "仅用户消息（推荐）",

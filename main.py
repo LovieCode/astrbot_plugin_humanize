@@ -26,7 +26,6 @@ from astrbot.core.provider.provider import Provider as _ProviderBase
 
 from .humanize.config import PluginConfig
 from .humanize.container import Container, context_window_token_budget
-from .humanize.domain.errors import ProtocolValidationError
 from .humanize.domain.models import (
     Action,
     EventState,
@@ -41,9 +40,7 @@ from .humanize.llm_proxy import (
 )
 from .humanize.prompt_cache import PromptCacheTracker
 from .humanize.protocol.envelope import EnvelopeBuilder
-from .humanize.protocol.parser import ProtocolParser
 from .humanize.provider_observability import (
-    fingerprint,
     provider_identity,
     usage_dict,
     usage_observed,
@@ -93,11 +90,8 @@ _SEND_GATE_KEY = "_humanize_send_gate_installed"
 _SEND_GATE_ERROR_KEY = "_humanize_send_gate_error"
 _ORIGINAL_SEND_KEY = "_humanize_original_send"
 _SEND_GATE_OWNER_KEY = "_humanize_send_gate_owner"
-_REPAIR_PENDING_KEY = "_humanize_protocol_repair_pending"
-_REPAIR_BODY_KEY = "_humanize_protocol_repair_body"
-_REPAIR_ACTION_KEY = "_humanize_protocol_repair_action"
-_REPAIR_ERROR_KEY = "_humanize_protocol_repair_error"
-_REPAIR_ATTEMPTED_KEY = "_humanize_protocol_repair_attempted"
+_SEND_FAILED_REASON_KEY = "_humanize_send_failed_reason"
+_SEND_FAILED_MESSAGES_KEY = "_humanize_send_failed_messages"
 _NO_REPLY_REASON_KEY = "_humanize_no_reply_reason"
 _FINAL_LOG_PENDING_KEY = "_humanize_final_protocol_log_pending"
 _RESPONSE_SNAPSHOTS_KEY = "_humanize_response_snapshots"
@@ -132,6 +126,24 @@ _DISPATCH_PRIORITY = -1_000_000
 _DECORATION_FINALIZER_PRIORITY = -1_000_001
 _FINALIZER_PRIORITY = -100_000
 _NO_REPLY_SENTINEL = " "
+# 最终协议校验失败时，向会话发送的系统通告文案（中文原因 + 稳定错误码）。
+# 键为 parser/服务层的全部确定性错误码；未知码走兜底文案。
+_PROTOCOL_FAILURE_REASONS = {
+    "empty_output": "模型没有输出任何内容",
+    "missing_action": "输出缺少 Action 控制头",
+    "invalid_action": "Action 控制头取值无效",
+    "invalid_wait_seconds": "Wait 等待时长无效",
+    "wait_not_allowed": "当前回合不允许 Wait 等待",
+    "missing_messages": "Reply 缺少 Messages 消息块",
+    "empty_message": "Reply 消息块里存在空 Message",
+    "too_many_messages": "单次回复拆条超出上限",
+    "no_reply_disabled": "静默不回复未启用",
+    "invalid_unknown_terms": "UnknownTerms 陌生词字段无效",
+    "invalid_unknown_terms_json": "UnknownTerms 不是有效的 JSON 数组",
+}
+_PROTOCOL_FAILURE_FALLBACK_REASON = "输出协议校验未通过"
+# 发送失败的原始输出保存进历史时的长度上限。
+_MAX_FAILED_TURN_CHARS = 2_000
 _CONTROL_TAG_PATTERN = re.compile(
     r"(?:<|&lt;)\s*/?\s*"
     r"(?:Action|UnknownTerms|ImageCache|Messages|Reply|Message)"
@@ -280,7 +292,6 @@ class HumanizePlugin(Star):
         self.context = context
         self._plugin_config = PluginConfig.from_mapping(config)
         self._container: Container | None = None
-        self._protocol_parser = ProtocolParser(self._plugin_config)
         self._envelope_builder = EnvelopeBuilder(self._plugin_config)
         self._prompt_cache_tracker = PromptCacheTracker()
         # Provider 调用拦截：在真实请求发生处捕获完整上下文（含 persona/KB/
@@ -288,9 +299,6 @@ class HumanizePlugin(Star):
         self._provider_hooks_installed = False
         self._provider_originals: list[tuple] = []
         self._provider_capture: dict[str, dict[str, Any]] = {}
-        # 协议修复频率监控：近端时间窗口内 repair 触发次数，用于向管理员告警
-        self._repair_timestamps: list[float] = []
-        self._repair_warned_at: float = 0.0
 
     async def initialize(self) -> None:
         self._container = Container.build(
@@ -1004,11 +1012,8 @@ class HumanizePlugin(Star):
         event.set_extra(_CONTEXT_READ_CALLS_KEY, 0)
         event.set_extra(_IMAGE_CACHE_KEY, ())
         event.set_extra(_TOOL_HISTORY_KEY, {})
-        event.set_extra(_REPAIR_PENDING_KEY, False)
-        event.set_extra(_REPAIR_BODY_KEY, "")
-        event.set_extra(_REPAIR_ACTION_KEY, "")
-        event.set_extra(_REPAIR_ERROR_KEY, "")
-        event.set_extra(_REPAIR_ATTEMPTED_KEY, False)
+        event.set_extra(_SEND_FAILED_REASON_KEY, "")
+        event.set_extra(_SEND_FAILED_MESSAGES_KEY, ())
         event.set_extra(_FINAL_LOG_PENDING_KEY, False)
         event.set_extra(_RESPONSE_SNAPSHOTS_KEY, [])
         event.set_extra(_FINAL_RESPONSE_SNAPSHOT_KEY, None)
@@ -1497,7 +1502,7 @@ class HumanizePlugin(Star):
         assert self._container is not None
         context = event.get_extra(_CONTEXT_KEY)
         if not isinstance(context, MessageContext):
-            self._block_response(event, response, "missing_request_context")
+            await self._block_response(event, response, "missing_request_context")
             return
 
         raw_output = response.completion_text if response else ""
@@ -1561,7 +1566,7 @@ class HumanizePlugin(Star):
                 "response_handling_failed",
                 "Final response handling raised an exception",
             )
-            self._block_response(event, response, "response_handling_failed")
+            await self._block_response(event, response, "response_handling_failed")
             return
 
         if not outcome.valid:
@@ -1570,28 +1575,12 @@ class HumanizePlugin(Star):
                 outcome.error_code,
                 outcome.error_detail,
             )
-            event.set_extra(_ERROR_KEY, outcome.error_code)
-            if (
-                self._plugin_config.protocol_repair_retry_enabled
-                and response is not None
-                and response.role == "assistant"
-                and not event.get_extra(_REPAIR_ATTEMPTED_KEY, False)
-            ):
-                repair_candidate = self._protocol_parser.extract_repair_candidate(
-                    raw_output
-                )
-                if repair_candidate is not None and (
-                    repair_candidate[0].strip() or self._plugin_config.no_reply_enabled
-                ):
-                    repair_body, repair_action = repair_candidate
-                    event.set_extra(_REPAIR_PENDING_KEY, True)
-                    event.set_extra(_REPAIR_BODY_KEY, repair_body)
-                    event.set_extra(_REPAIR_ACTION_KEY, repair_action)
-                    event.set_extra(_REPAIR_ERROR_KEY, outcome.error_code)
-                    event.set_extra(_REPAIR_ATTEMPTED_KEY, True)
-                    self._set_response_text(response, "")
-                    return
-            self._block_response(event, response, outcome.error_code)
+            await self._fail_protocol_response(
+                event,
+                response,
+                outcome.error_code,
+                raw_output,
+            )
             return
 
         if outcome.action is Action.WAIT:
@@ -1647,16 +1636,13 @@ class HumanizePlugin(Star):
             self._capture_llm_response_snapshot(event, response)
             if not event.get_extra(_RAW_OUTPUT_KEY, ""):
                 event.set_extra(_RAW_OUTPUT_KEY, response.completion_text or "")
-        if event.get_extra(_REPAIR_PENDING_KEY, False):
-            await self._attempt_protocol_repair(event, response)
-            state = event.get_extra(_STATE_KEY, EventState.INACTIVE.value)
         if state in {EventState.REQUESTED.value, EventState.TOOL_RUNNING.value}:
             await self._record_final_protocol_failure(
                 event,
                 "response_firewall_not_applied",
                 "No validated final response reached the agent completion hook",
             )
-            self._block_response(event, response, "response_firewall_not_applied")
+            await self._block_response(event, response, "response_firewall_not_applied")
             state = EventState.FINAL_BLOCKED.value
         if state not in {
             EventState.FINAL_VALID.value,
@@ -1732,7 +1718,7 @@ class HumanizePlugin(Star):
                 "missing_history_context",
                 "Validated response could not be synchronized to history",
             )
-            self._block_response(event, response, "missing_history_context")
+            await self._block_response(event, response, "missing_history_context")
             return
 
         user_index = self._restore_current_user_message(
@@ -1745,7 +1731,9 @@ class HumanizePlugin(Star):
                 "current_user_message_not_found",
                 "Current user message was not found in agent history",
             )
-            self._block_response(event, response, "current_user_message_not_found")
+            await self._block_response(
+                event, response, "current_user_message_not_found"
+            )
             return
 
         self._sanitize_tool_assistant_messages(
@@ -2271,6 +2259,18 @@ class HumanizePlugin(Star):
             assistant_only = False
         if not isinstance(messages, tuple):
             messages = ()
+        # 发送失败的回合：把失败标注的原始输出作为 final_messages 传入，
+        # 历史（No Reply 语义）里保留一条带失败标注的 assistant 消息；
+        # 提交给 OpenViking 的消息仍取 _MESSAGES_KEY（阻断回合为空），
+        # 被拒绝的输出不进入长期记忆抽取。
+        send_failed_reason = str(event.get_extra(_SEND_FAILED_REASON_KEY, "") or "")
+        final_messages = tuple(event.get_extra(_MESSAGES_KEY, ()))
+        if send_failed_reason:
+            annotated = event.get_extra(_SEND_FAILED_MESSAGES_KEY, ())
+            if isinstance(annotated, (tuple, list)):
+                final_messages = tuple(
+                    str(item) for item in annotated if str(item).strip()
+                )
         try:
             image_cache = tuple(event.get_extra(_IMAGE_CACHE_KEY, ()))
             # Temporary ImageCache fallback: in tool transcription mode the
@@ -2299,7 +2299,7 @@ class HumanizePlugin(Star):
                 context,
                 action=action,
                 run_messages=messages,
-                final_messages=tuple(event.get_extra(_MESSAGES_KEY, ())),
+                final_messages=final_messages,
                 image_cache=image_cache,
                 image_count=int(
                     event.get_extra(_CONTEXT_WINDOW_IMAGE_COUNT_KEY, 0) or 0
@@ -2314,6 +2314,7 @@ class HumanizePlugin(Star):
                     )
                 ),
                 assistant_only=assistant_only,
+                send_failed_reason=send_failed_reason,
             )
             event.set_extra(_CONTEXT_TURN_REF_KEY, result.context_ref)
             if result.compacted:
@@ -2406,7 +2407,7 @@ class HumanizePlugin(Star):
                     "decorated_response_control_tag_leak",
                     "A result decorator exposed protocol control tags",
                 )
-                self._block_response(
+                await self._block_response(
                     event,
                     None,
                     "decorated_response_control_tag_leak",
@@ -2434,7 +2435,9 @@ class HumanizePlugin(Star):
                         "decorated_response_text_changed",
                         "A result decorator changed validated response text",
                     )
-                    self._block_response(event, None, "decorated_response_text_changed")
+                    await self._block_response(
+                        event, None, "decorated_response_text_changed"
+                    )
                     return
                 outbound = self._without_tool_duplicates(event, original_messages)
                 sent_media = event.get_extra(_TOOL_SENT_MEDIA_KEY, [])
@@ -2467,7 +2470,7 @@ class HumanizePlugin(Star):
                         "response_dispatch_failed",
                         "Validated media response could not be sent",
                     )
-                    self._block_response(event, None, "response_dispatch_failed")
+                    await self._block_response(event, None, "response_dispatch_failed")
                     return
                 finally:
                     event.clear_result()
@@ -2502,7 +2505,7 @@ class HumanizePlugin(Star):
                         "decorated_response_empty",
                         "A result decorator removed validated response text",
                     )
-                    self._block_response(event, None, "decorated_response_empty")
+                    await self._block_response(event, None, "decorated_response_empty")
                     return
                 event.clear_result()
                 await self._record_final_protocol_success(event)
@@ -2520,7 +2523,7 @@ class HumanizePlugin(Star):
                     "response_dispatch_failed",
                     "Validated response could not be sent",
                 )
-                self._block_response(event, None, "response_dispatch_failed")
+                await self._block_response(event, None, "response_dispatch_failed")
                 return
             finally:
                 event.clear_result()
@@ -2537,9 +2540,9 @@ class HumanizePlugin(Star):
             EventState.FINAL_BLOCKED.value,
         }:
             # A blocked turn still must persist its user side (message, tool
-            # calls, tool results) with No Reply semantics; only the rejected
-            # assistant reply is dropped. Idempotent via the turn reference,
-            # so a later repair-driven success write is unaffected.
+            # calls, tool results) with No Reply semantics; a send failure
+            # additionally keeps the annotated assistant output. Idempotent
+            # via the turn reference, so a repeated hook run never rewrites.
             if state == EventState.FINAL_BLOCKED.value and event.get_extra(
                 _CONTEXT_WINDOW_ACTIVE_KEY, False
             ):
@@ -2551,291 +2554,80 @@ class HumanizePlugin(Star):
                     )
             event.clear_result()
 
-    async def _warn_if_repair_frequent(self, event: AstrMessageEvent) -> None:
-        """私聊提醒管理员：协议修复在短时间窗口内频繁触发。
-
-        Args:
-            event: Active event whose platform/admins identify the warning target.
-        """
-        now = time.monotonic()
-        window_seconds = 600.0  # 10 分钟窗口
-        threshold = 3  # 窗口内触发 3 次视为频繁
-        self._repair_timestamps = [
-            stamp for stamp in self._repair_timestamps if now - stamp < window_seconds
-        ]
-        self._repair_timestamps.append(now)
-        if len(self._repair_timestamps) < threshold:
-            return
-        # 同窗口只告警一次，避免刷屏
-        if now - self._repair_warned_at < window_seconds:
-            return
-        self._repair_warned_at = now
-        admin_ids = self._plugin_config.admin_qq_ids
-        if not admin_ids:
-            logger.warning(
-                "[Humanize] protocol repair fired %d times in the last %ds "
-                "(no admin configured to notify)",
-                len(self._repair_timestamps),
-                window_seconds,
-            )
-            return
-        platform_name = event.get_platform_name()
-
-        message = (
-            f"[Humanize 警告] 协议修复在最近 {window_seconds // 60} 分钟内触发 "
-            f"{len(self._repair_timestamps)} 次，回复控制协议频繁校验失败。\n"
-            "可能原因：其他插件修改了回复文本、模型输出格式不稳定、或配置不当。\n"
-            "请检查 插件管理 → 协议日志 或上下文追踪页定位原因。"
-        )
-        for admin_id in admin_ids:
-            session = f"{platform_name}:FriendMessage:{admin_id}"
-            try:
-                await self.context.send_message(session, MessageChain([Plain(message)]))
-            except Exception:
-                logger.exception(
-                    "[Humanize] failed to notify admin %s about frequent repairs",
-                    admin_id,
-                )
-        logger.warning(
-            "[Humanize] protocol repair frequent (%d in %ds); admins notified",
-            len(self._repair_timestamps),
-            window_seconds,
-        )
-
-    async def _attempt_protocol_repair(
-        self, event: AstrMessageEvent, response: LLMResponse | None
-    ) -> None:
-        """Run one isolated model call that may replace only the control header.
-
-        Args:
-            event: Active message event containing the failed response metadata.
-            response: Mutable final LLM response from the original agent run.
-        """
-        await self._warn_if_repair_frequent(event)
-        event.set_extra(_REPAIR_PENDING_KEY, False)
-        if response is None or self._container is None:
-            await self._record_protocol_repair_failure(
-                event,
-                "protocol_repair_unavailable",
-                "Final response or plugin service is unavailable",
-            )
-            self._block_response(event, response, "protocol_repair_unavailable")
-            return
-
-        context = event.get_extra(_CONTEXT_KEY)
-        if not isinstance(context, MessageContext):
-            self._block_response(event, response, "missing_request_context")
-            return
-
-        original_body = event.get_extra(_REPAIR_BODY_KEY, "")
-        if not isinstance(original_body, str):
-            await self._record_protocol_repair_failure(
-                event,
-                "invalid_protocol_repair_body",
-                "Preserved response body is not text",
-            )
-            self._block_response(event, response, "invalid_protocol_repair_body")
-            return
-        required_action = str(event.get_extra(_REPAIR_ACTION_KEY, ""))
-        if required_action not in {Action.REPLY.value, Action.NO_REPLY.value}:
-            await self._record_protocol_repair_failure(
-                event,
-                "invalid_protocol_repair_action",
-                "No trustworthy Action is available for header repair",
-            )
-            self._block_response(event, response, "invalid_protocol_repair_action")
-            return
-        raw_output = str(event.get_extra(_RAW_OUTPUT_KEY, ""))
-        invalid_header_preview = "\n".join(raw_output.splitlines()[:2])[:2_000]
-        system_prompt, repair_prompt = (
-            self._envelope_builder.build_protocol_repair_request(
-                context,
-                error_code=str(event.get_extra(_REPAIR_ERROR_KEY, "")),
-                invalid_header_preview=invalid_header_preview,
-                required_action=required_action,
-            )
-        )
-
-        repair_started_at = time.perf_counter()
-        try:
-            provider = self.context.get_using_provider(event.unified_msg_origin)
-            if provider is None:
-                raise RuntimeError("no active chat provider")
-            repair_response = await provider.text_chat(
-                prompt=repair_prompt,
-                session_id="",
-                image_urls=[],
-                audio_urls=[],
-                func_tool=None,
-                contexts=[],
-                system_prompt=system_prompt,
-                tool_calls_result=None,
-                model=str(event.get_extra(_MODEL_KEY, "")) or None,
-                extra_user_content_parts=[],
-                request_max_retries=1,
-            )
-        except Exception as exc:
-            logger.error(
-                "[Humanize] protocol header repair request failed: %s",
-                exc,
-                exc_info=True,
-            )
-            await self._record_protocol_repair_failure(
-                event,
-                "protocol_repair_request_failed",
-                "Header repair provider request failed",
-            )
-            self._block_response(event, response, "protocol_repair_request_failed")
-            return
-
-        self._capture_llm_response_snapshot(event, repair_response, phase="repair")
-        repair_duration_ms = max(
-            0,
-            int((time.perf_counter() - repair_started_at) * 1_000),
-        )
-        await self._record_llm_usage_sample(
-            event,
-            repair_response,
-            stage="repair",
-            duration_ms=repair_duration_ms,
-            request_fingerprint=fingerprint(
-                {
-                    "system_prompt": system_prompt,
-                    "prompt": repair_prompt,
-                    "model": str(event.get_extra(_MODEL_KEY, "")),
-                },
-                namespace="humanize-provider-request-v1",
-            ),
-            prefix_fingerprint=fingerprint(
-                {
-                    "system_prompt": system_prompt,
-                    "model": str(event.get_extra(_MODEL_KEY, "")),
-                },
-                namespace="humanize-provider-prefix-v1",
-            ),
-        )
-        if (
-            not isinstance(repair_response, LLMResponse)
-            or repair_response.role != "assistant"
-            or repair_response.tools_call_name
-            or repair_response.tools_call_args
-            or repair_response.tools_call_ids
-        ):
-            await self._record_protocol_repair_failure(
-                event,
-                "invalid_protocol_repair_response",
-                "Header repair returned a non-assistant or tool response",
-            )
-            self._block_response(event, response, "invalid_protocol_repair_response")
-            return
-
-        try:
-            repaired_raw = self._protocol_parser.compose_repaired_response(
-                repair_response.completion_text,
-                original_body,
-            )
-        except ProtocolValidationError as exc:
-            logger.warning(
-                "[Humanize] rejected protocol header repair: %s (%s)",
-                exc.code,
-                exc.detail,
-            )
-            await self._record_protocol_repair_failure(event, exc.code, exc.detail)
-            self._block_response(event, response, exc.code)
-            return
-
-        started_at = event.get_extra(_START_KEY, time.perf_counter())
-        duration_ms = max(0, int((time.perf_counter() - started_at) * 1_000))
-        response_snapshot, response_snapshot_complete = (
-            self._response_snapshot_for_record(event)
-        )
-        try:
-            outcome = await self._container.service.process_final_response(
-                context,
-                repaired_raw,
-                model=str(event.get_extra(_MODEL_KEY, "")),
-                provider_id=str(event.get_extra(_PROVIDER_ID_KEY, "")),
-                duration_ms=duration_ms,
-                record_success=False,
-                response_snapshot=response_snapshot,
-                response_snapshot_complete=response_snapshot_complete,
-            )
-        except Exception as exc:
-            logger.error(
-                "[Humanize] repaired response handling failed: %s", exc, exc_info=True
-            )
-            await self._record_protocol_repair_failure(
-                event,
-                "response_handling_failed",
-                "Repaired response handling failed",
-            )
-            self._block_response(event, response, "response_handling_failed")
-            return
-
-        if not outcome.valid:
-            self._block_response(event, response, outcome.error_code)
-            return
-        event.set_extra(_ERROR_KEY, "")
-        event.set_extra(_VALIDATED_OUTPUT_KEY, repaired_raw)
-        event.set_extra(_IMAGE_CACHE_KEY, outcome.image_cache)
-        event.set_extra(_FINAL_LOG_PENDING_KEY, True)
-        # Persist the repaired success immediately: the repair runs inside the
-        # agent-done hook, where a subsequent stop_event may prevent the normal
-        # decorating-result dispatch from recording the success.
-        try:
-            await self._record_final_protocol_success(event)
-        except Exception:
-            logger.exception("[Humanize] failed to persist repaired protocol success")
-        if outcome.action is Action.NO_REPLY:
-            event.set_extra(_STATE_KEY, EventState.NO_REPLY.value)
-            event.set_extra(_MESSAGES_KEY, ())
-            event.set_extra(_NO_REPLY_REASON_KEY, outcome.no_reply_reason)
-            self._set_response_text(response, _NO_REPLY_SENTINEL)
-            return
-
-        clean_text = "\n".join(outcome.messages)
-        self._set_response_text(response, clean_text)
-        event.set_extra(_MESSAGES_KEY, outcome.messages)
-        event.set_extra(_STATE_KEY, EventState.FINAL_VALID.value)
-
-    async def _record_protocol_repair_failure(
+    async def _fail_protocol_response(
         self,
         event: AstrMessageEvent,
+        response: LLMResponse | None,
         error_code: str,
-        error_detail: str,
+        raw_output: str,
     ) -> None:
-        """Persist a terminal repair failure without affecting response blocking.
+        """Handle a terminal protocol-validation failure of one final response.
+
+        非主动回合先向会话发送一条系统通告（发送失败 + 中文原因），再把
+        失败标注的原始输出写入事件：阻断回合持久化时会作为带标注的
+        assistant 消息保存进托管历史。主动回合无人等待，保持既有沉默
+        语义，不发通告。
 
         Args:
-            event: Active event containing the request context and timing metadata.
-            error_code: Stable terminal failure code.
-            error_detail: Human-readable failure detail for the dashboard.
+            event: Active message event whose session receives the notice.
+            response: Mutable final LLM response to strip.
+            error_code: Deterministic validation failure code.
+            raw_output: Original rejected model output.
         """
-        if self._container is None:
-            return
-        context = event.get_extra(_CONTEXT_KEY)
-        recorder = getattr(self._container.service, "record_protocol_failure", None)
-        if not isinstance(context, MessageContext) or not callable(recorder):
-            return
-        started_at = event.get_extra(_START_KEY, time.perf_counter())
-        duration_ms = max(0, int((time.perf_counter() - started_at) * 1_000))
-        response_snapshot, response_snapshot_complete = (
-            self._response_snapshot_for_record(event)
+        if not event.get_extra(_PROACTIVE_KIND_KEY):
+            await self._send_failure_notice(event, error_code)
+        event.set_extra(_SEND_FAILED_REASON_KEY, error_code)
+        event.set_extra(
+            _SEND_FAILED_MESSAGES_KEY,
+            (self._failed_turn_message(error_code, raw_output),),
         )
+        await self._block_response(event, response, error_code)
+
+    async def _send_failure_notice(
+        self, event: AstrMessageEvent, error_code: str
+    ) -> None:
+        """Send one system notice about the failed response to the session.
+
+        通告是尽力而为的旁路：不经过发送闸门，也不计入已发送消息；失败
+        只记录告警，绝不影响既有的阻断流程。
+
+        Args:
+            event: Active message event identifying the target session.
+            error_code: Deterministic validation failure code.
+        """
+        reason = _PROTOCOL_FAILURE_REASONS.get(
+            error_code, _PROTOCOL_FAILURE_FALLBACK_REASON
+        )
+        text = f"〔系统通知〕这条回复发送失败了：{reason}（{error_code}）"
         try:
-            await recorder(
-                context,
-                error_code=error_code,
-                error_detail=error_detail,
-                raw_output=str(event.get_extra(_RAW_OUTPUT_KEY, "")),
-                response_snapshot=response_snapshot,
-                response_snapshot_complete=response_snapshot_complete,
-                model=str(event.get_extra(_MODEL_KEY, "")),
-                duration_ms=duration_ms,
-                stage="final",
+            await self.context.send_message(
+                event.unified_msg_origin,
+                MessageChain([Plain(text)]),
             )
-        except Exception:
-            logger.exception("[Humanize] failed to persist protocol repair failure")
+        except Exception as exc:
+            logger.warning(
+                "[Humanize] failed to deliver the send-failure notice: %s",
+                type(exc).__name__,
+            )
+
+    @staticmethod
+    def _failed_turn_message(error_code: str, raw_output: str) -> str:
+        """Build the failure-annotated history text for one rejected output.
+
+        Args:
+            error_code: Deterministic validation failure code.
+            raw_output: Original rejected model output.
+
+        Returns:
+            Annotation line plus the bounded original output.
+        """
+        body = str(raw_output or "").strip()
+        if len(body) > _MAX_FAILED_TURN_CHARS:
+            body = body[:_MAX_FAILED_TURN_CHARS] + "…"
+        annotated = f"〔发送失败：{error_code}〕"
+        if body:
+            annotated = f"{annotated}\n{body}"
+        return annotated
 
     async def _record_llm_usage_sample(
         self,
@@ -2853,9 +2645,9 @@ class HumanizePlugin(Star):
         Args:
             event: Active message event carrying request and scope metadata.
             response: Untouched provider response, when available.
-            stage: Provider call stage such as ``tool``, ``final`` or ``repair``.
+            stage: Provider call stage such as ``tool`` or ``final``.
             duration_ms: Measured provider-call duration.
-            request_fingerprint: Optional override for an isolated repair call.
+            request_fingerprint: Optional override for an isolated call.
             prefix_fingerprint: Optional prefix override for an isolated call.
             ttft_ms: Optional isolated-call time to first response.
         """
@@ -3888,7 +3680,7 @@ class HumanizePlugin(Star):
         Args:
             event: Active event used to retain snapshots until terminal logging.
             response: Untouched provider response received by the hook.
-            phase: Optional explicit phase such as ``repair``.
+            phase: Optional explicit phase label for auxiliary captures.
         """
         snapshot, complete = serialize_llm_response(response)
         has_tool_calls = bool(
@@ -4509,7 +4301,7 @@ class HumanizePlugin(Star):
         """Report one terminal outcome to the proactive service, at most once.
 
         ``action`` ``None`` means the output never resolved into a valid
-        action (blocked or repair-failed); the service treats it like No
+        action (blocked); the service treats it like No
         Reply for timing. Non-proactive events carry no callback and are
         silently ignored.
 
@@ -4530,7 +4322,7 @@ class HumanizePlugin(Star):
         except Exception:
             logger.exception("[Humanize] proactive outcome callback failed")
 
-    def _block_response(
+    async def _block_response(
         self,
         event: AstrMessageEvent,
         response: LLMResponse | None,
@@ -4543,7 +4335,7 @@ class HumanizePlugin(Star):
         event.stop_event()
         context = event.get_extra(_CONTEXT_KEY)
         if isinstance(context, MessageContext):
-            self._fire_proactive_outcome(event, context, action=None)
+            await self._fire_proactive_outcome(event, context, action=None)
 
     @staticmethod
     def _set_response_text(response: LLMResponse | None, text: str) -> None:

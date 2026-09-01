@@ -31,7 +31,6 @@ _IMAGECACHE_TAG_RE = re.compile(
     r"<\s*ImageCache\s*>(?P<value>[\s\S]*?)<\s*/\s*ImageCache\s*>",
     re.IGNORECASE | re.DOTALL,
 )
-_LEGACY_ACTION_PATTERN = re.compile(r"action\s*:\s*(?P<value>.*)", re.IGNORECASE)
 
 # Wait N：<Action>Wait N</Action>，N 为 1..MAX_WAIT_SECONDS 的整数秒。
 # 群聊回合的常驻动作（话没说完/不便插话时暂不回应，稍后补一次决定）；
@@ -117,7 +116,7 @@ class ProtocolParser:
         messages = self._extract_messages(raw)
 
         if action is Action.REPLY and not messages:
-            # 新协议要求 Reply 必填 <Messages>；缺失视为格式错误走修复流。
+            # 新协议要求 Reply 必填 <Messages>；缺失视为格式错误直接阻断。
             raise ProtocolValidationError(
                 "missing_messages",
                 "Reply requires at least one <Message> in a <Messages> block",
@@ -300,141 +299,3 @@ class ProtocolParser:
         if messages:
             return tuple(messages)
         return ()
-
-    # ---------- 修复辅助（新版宽松格式） ----------
-
-    @staticmethod
-    def extract_repair_body(raw_output: str) -> str | None:
-        """Extract the untouched body when a control header can be repaired safely.
-
-        Args:
-            raw_output: Original malformed model output.
-
-        Returns:
-            The exact original body, or None when a partial header cannot be split
-            safely from user-visible text.
-        """
-        candidate = ProtocolParser.extract_repair_candidate(raw_output)
-        return candidate[0] if candidate is not None else None
-
-    @staticmethod
-    def extract_repair_candidate(raw_output: str) -> tuple[str, str] | None:
-        """Extract an untouched body and a non-conflicting required action.
-
-        Args:
-            raw_output: Original malformed model output.
-
-        Returns:
-            The exact original body and required Action value, or None when a
-            recognizable Action conflicts with the body or the split is unsafe.
-        """
-        raw = raw_output or ""
-        action_match = _ACTION_TAG_RE.search(raw)
-        if action_match is not None:
-            action_value = action_match.group("value").strip()
-            try:
-                action = Action(action_value)
-            except ValueError:
-                return None
-            # No Reply / Wait 无法通过补头修复成正常回复：直接返回 None 让上层 block
-            if action is Action.NO_REPLY or action is Action.WAIT:
-                return None
-            # 去掉已识别的 Action / UnknownTerms 标签，其余为 body
-            body = raw[: action_match.start()] + raw[action_match.end() :]
-            unknown_match = _UNKNOWN_TERMS_TAG_RE.search(body)
-            if unknown_match is not None:
-                body = body[: unknown_match.start()] + body[unknown_match.end() :]
-            return body.strip(), action.value
-        legacy = _LEGACY_ACTION_PATTERN.search(raw)
-        if legacy is not None:
-            action_value = legacy.group("value").strip()
-            try:
-                action = Action(action_value)
-            except ValueError:
-                return None
-            if action is Action.NO_REPLY or action is Action.WAIT:
-                return None
-            body = raw[: legacy.start()] + raw[legacy.end() :]
-            legacy_unknown = re.search(r"(?im)^\s*unknownterms\s*:\s*[^\r\n]*", body)
-            if legacy_unknown is not None:
-                body = body[: legacy_unknown.start()] + body[legacy_unknown.end() :]
-            return body.strip(), action.value
-        return None
-
-    @staticmethod
-    def compose_repaired_response(repair_output: str, original_body: str) -> str:
-        """Combine a repair header with the untouched original body.
-
-        The repair output needs at least an Action tag (UnknownTerms optional);
-        the original body (Messages/ImageCache/whatever) is appended as-is.
-
-        Args:
-            repair_output: Model output expected to contain a valid Action tag.
-            original_body: Original body extracted before the repair call.
-
-        Returns:
-            A full response suitable for normal protocol validation.
-
-        Raises:
-            ProtocolValidationError: If the repair has no Action tag or carries
-                its own visible body.
-        """
-        action_match = _ACTION_TAG_RE.search(repair_output or "")
-        if action_match is None:
-            raise ProtocolValidationError(
-                "missing_action", "Protocol repair must contain an Action tag"
-            )
-        action_value = action_match.group("value").strip()
-        try:
-            Action(action_value)
-        except ValueError as exc:
-            raise ProtocolValidationError(
-                "invalid_action", f"Unsupported Action value: {action_value}"
-            ) from exc
-
-        unknown_match = _UNKNOWN_TERMS_TAG_RE.search(repair_output or "")
-        unknown_line = (
-            unknown_match.group(0)
-            if unknown_match is not None
-            else "<UnknownTerms>[]</UnknownTerms>"
-        )
-
-        # 重组：Action + UnknownTerms + 原 body
-        lines = [
-            action_match.group(0),
-            unknown_line,
-        ]
-        body = original_body.strip()
-        if body:
-            lines.append(ProtocolParser._normalize_repair_body(body))
-        return "\n".join(lines)
-
-    @staticmethod
-    def _normalize_repair_body(body: str) -> str:
-        """Shape a preserved body into the required output contract.
-
-        ImageCache tags are internal: re-emit them outside the visible messages.
-        A body without any Messages/Reply container is plain text (the common
-        missing-wrapper failure) and gets wrapped into a single Message.
-
-        Args:
-            body: Untouched original body extracted before the repair call.
-
-        Returns:
-            Body text satisfying the parser's message extraction.
-        """
-        cache_lines: list[str] = []
-
-        def _collect(match: re.Match[str]) -> str:
-            cache_lines.append(match.group(0))
-            return ""
-
-        body = _IMAGECACHE_TAG_RE.sub(_collect, body).strip()
-        if not body:
-            return "\n".join(cache_lines)
-        has_container = _MESSAGES_TAG_RE.search(body) or _REPLY_BLOCK_TAG_RE.search(
-            body
-        )
-        if has_container is None:
-            body = f"<Messages>\n<Message>{body}</Message>\n</Messages>"
-        return "\n".join([body, *cache_lines] if cache_lines else [body])

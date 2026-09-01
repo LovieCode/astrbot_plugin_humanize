@@ -9,14 +9,13 @@
   const KEY_LABEL = {
     rule: "基础规则",
     protocol: "回复协议",
-    repair: "修复指令",
     memory_extraction: "记忆提取",
     reply_examples: "回复样例",
   };
   HZ.renderSidebar("prompts");
   HZ.topbars["prompts"] = {
     title: "提示词模板",
-    sub: "5 个全局模板 · 修改立即生效并记录审计",
+    sub: "4 个全局模板 · 修改立即生效并记录审计",
     search: "",
     actions: [{ label: "全部重置", icon: "refresh", variant: "ghost" }],
     onRefresh: loadTemplates,

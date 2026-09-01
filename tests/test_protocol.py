@@ -148,15 +148,6 @@ def test_wait_seconds_upper_bound_accepted() -> None:
     assert decision.wait_seconds == 29
 
 
-def test_wait_action_is_not_repairable() -> None:
-    parser = ProtocolParser(PluginConfig())
-    body = "<Messages><Message>正文</Message></Messages>"
-
-    assert parser.extract_repair_candidate(f"<Action>Wait 15</Action>\n{body}") is None
-    assert parser.extract_repair_candidate(f"<Action>Wait</Action>\n{body}") is None
-    assert parser.extract_repair_candidate(f"action: Wait\n{body}") is None
-
-
 def test_action_tag_position_is_flexible() -> None:
     raw = (
         "<Messages><Message>第一条</Message></Messages>\n"
@@ -317,31 +308,6 @@ def test_reply_messages_over_limit_are_truncated() -> None:
 
     assert len(decision.messages) == 5
     assert decision.messages_over_limit is True
-
-
-def test_repair_compose_keeps_original_body() -> None:
-    parser = ProtocolParser(PluginConfig())
-    body = "<Messages><Message>第一行</Message></Messages>"
-    malformed = f"Action: Reply\nUnknownTerms: []\n{body}"
-
-    extracted = parser.extract_repair_body(malformed)
-    repaired = parser.compose_repaired_response(
-        "<Action>Reply</Action>\n<UnknownTerms>[]</UnknownTerms>",
-        extracted or "",
-    )
-
-    assert extracted == body
-    decision = parser.parse(repaired)
-    assert decision.messages == ("第一行",)
-
-
-def test_repair_requires_action_tag() -> None:
-    parser = ProtocolParser(PluginConfig())
-
-    with pytest.raises(ProtocolValidationError) as error:
-        parser.compose_repaired_response("UnknownTerms: []", "正文")
-
-    assert error.value.code == "missing_action"
 
 
 def test_unknown_term_text_fields_must_be_strings() -> None:

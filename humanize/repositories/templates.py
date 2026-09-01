@@ -61,7 +61,7 @@ class PromptTemplateRepository:
 
         def operation(conn: sqlite3.Connection) -> dict[str, Any]:
             row = conn.execute(
-                "SELECT rule_content, protocol_content, repair_content, "
+                "SELECT rule_content, protocol_content, "
                 "memory_extraction_content, reply_examples_content, updated_at "
                 "FROM humanize_prompt_templates WHERE id = 1"
             ).fetchone()
@@ -86,7 +86,8 @@ class PromptTemplateRepository:
         """Merge prompt templates and record a dedicated audit entry.
 
         Args:
-            value: Partial template content keyed by rule, protocol, or repair.
+            value: Partial template content keyed by rule, protocol,
+                memory_extraction, or reply_examples.
             actor: Audit actor label.
             reason: Audit reason.
             action: Audit action, either update or reset.
@@ -105,7 +106,7 @@ class PromptTemplateRepository:
 
         def operation(conn: sqlite3.Connection) -> dict[str, Any]:
             row = conn.execute(
-                "SELECT rule_content, protocol_content, repair_content, "
+                "SELECT rule_content, protocol_content, "
                 "memory_extraction_content, reply_examples_content "
                 "FROM humanize_prompt_templates WHERE id = 1"
             ).fetchone()
@@ -116,10 +117,12 @@ class PromptTemplateRepository:
             now = _now()
             conn.execute("BEGIN IMMEDIATE")
             try:
+                # repair_content 是历史遗留列（协议修复功能已移除），
+                # 不再读取也不再更新，仅保留原值满足 NOT NULL 约束。
                 conn.execute(
                     """
                     UPDATE humanize_prompt_templates
-                    SET rule_content = ?, protocol_content = ?, repair_content = ?,
+                    SET rule_content = ?, protocol_content = ?,
                         memory_extraction_content = ?, reply_examples_content = ?,
                         updated_at = ?
                     WHERE id = 1
@@ -127,7 +130,6 @@ class PromptTemplateRepository:
                     (
                         updated.rule,
                         updated.protocol,
-                        updated.repair,
                         updated.memory_extraction,
                         updated.reply_examples,
                         now,

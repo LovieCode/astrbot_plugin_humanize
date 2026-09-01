@@ -253,13 +253,13 @@
 ## 6. 提示词模板（prompts.html）
 
 - 后端：`GET prompt-templates`；`POST prompt-templates`（action=update/reset，key 或 all；body 可传 `templates` 整包或 `key+content`；必带 reason）。
-- 模板 key：`rule/protocol/repair/memory_extraction/reply_examples`；变量 `{{name}}`，required_variables 校验在后端（未知变量/缺必需变量会 400）。
+- 模板 key：`rule/protocol/memory_extraction/reply_examples`；变量 `{{name}}`，required_variables 校验在后端（未知变量/缺必需变量会 400）。
 - items 结构：`key/label/description/content/default_content/variables/required_variables/updated_at`
 
 ### P01 模板列表与编辑
 
 - [x] （已完成）
-- [ ] 调 `GET prompt-templates` 渲染 5 模板（items 顺序即展示顺序）。
+- [ ] 调 `GET prompt-templates` 渲染 4 模板（items 顺序即展示顺序）。
 - [ ] 变量芯片：从 variables 生成 `{{name}}` 可点击复制（已有 copy 图标）。
 - [ ] 字数统计（charCount）、脏标记（dirty）、保存按钮态。
 - [ ] 保存：`POST prompt-templates`（action=update，key+content+reason），成功后回写 items/updated_at，清 dirty。
@@ -277,7 +277,7 @@
 ## 7. 设置（settings.html）
 
 - 后端：`GET settings`（`PluginConfig.as_public_dict()`，只读）；**无保存接口**。
-- 配置 key 全表见 `humanize/config.py as_public_dict()`：enabled/default_rule_enabled/admin_name/admin_qq_ids/max_message_chars/message_interval_seconds/protocol_enabled/protocol_injection_mode(user|both)/protocol_version/protocol_repair_retry_enabled/protocol_log_retention_days/no_reply_enabled/jargon_enabled/min_confidence_for_injection/max_injected_jargons/memory_enabled/memory_auto_extract_enabled/memory_extraction_provider_id/memory_embedding_provider_id/memory_rerank_provider_id/memory_identity_secret_env/memory_recall_timeout_seconds/memory_auto_activate_confidence/memory_candidate_min_confidence/memory_recall_limit/memory_recall_score_threshold/memory_recall_max_chars/memory_extract_batch_turns/memory_extract_idle_seconds/memory_job_max_attempts/reply_examples_enabled/reply_examples_limit/reply_examples_max_chars/reply_examples_min_quality/reply_examples_recall_score_threshold
+- 配置 key 全表见 `humanize/config.py as_public_dict()`：enabled/default_rule_enabled/admin_name/admin_qq_ids/max_message_chars/message_interval_seconds/protocol_enabled/protocol_injection_mode(user|both)/protocol_version/protocol_log_retention_days/no_reply_enabled/jargon_enabled/min_confidence_for_injection/max_injected_jargons/memory_enabled/memory_auto_extract_enabled/memory_extraction_provider_id/memory_embedding_provider_id/memory_rerank_provider_id/memory_identity_secret_env/memory_recall_timeout_seconds/memory_auto_activate_confidence/memory_candidate_min_confidence/memory_recall_limit/memory_recall_score_threshold/memory_recall_max_chars/memory_extract_batch_turns/memory_extract_idle_seconds/memory_job_max_attempts/reply_examples_enabled/reply_examples_limit/reply_examples_max_chars/reply_examples_min_quality/reply_examples_recall_score_threshold
 
 ### S01 数据接入
 

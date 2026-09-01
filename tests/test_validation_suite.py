@@ -2,9 +2,8 @@
 
 Layers:
 1. Compliance corpus — ~35 parametric cases covering the full output space.
-2. Repair-flow pass rate — repairable cases go through extract → compose.
-3. End-to-end scenario conversations — jargon learning, scope isolation.
-4. Optional real-LLM probe — set HUMANIZE_VALIDATION_LLM=1 to activate.
+2. End-to-end scenario conversations — jargon learning, scope isolation.
+3. Optional real-LLM probe — set HUMANIZE_VALIDATION_LLM=1 to activate.
 
 Usage:
     pytest tests/test_validation_suite.py -v
@@ -51,7 +50,6 @@ class ResponseCase:
     expected_error_code: str = ""  # when expected_valid is False
     expected_action: str = ""  # when expected_valid is True
     expected_no_reply_reason: str = ""  # when expected_action is No Reply
-    repairable: bool = False  # repair flow recovers this failed case
     config_overrides: dict[str, Any] = field(default_factory=dict)
 
 
@@ -298,13 +296,12 @@ CORPUS: list[ResponseCase] = [
         expected_valid=False,
         expected_error_code="invalid_unknown_terms",
     ),
-    # --- Repairable: legacy header format ---
+    # --- Hard-invalid: legacy header format is no longer tolerated ---
     ResponseCase(
         description="legacy colon header with Messages body",
         raw="Action: Reply\nUnknownTerms: []\n<Messages><Message>正文</Message></Messages>",
         expected_valid=False,
         expected_error_code="missing_action",
-        repairable=True,
     ),
     ResponseCase(
         description="lowercase action colon with unknown terms and body",
@@ -315,14 +312,12 @@ CORPUS: list[ResponseCase] = [
         ),
         expected_valid=False,
         expected_error_code="missing_action",
-        repairable=True,
     ),
 ]
 
 # Split for easy filtering in assertions
 _VALID_CASES = [c for c in CORPUS if c.expected_valid]
 _INVALID_CASES = [c for c in CORPUS if not c.expected_valid]
-_REPAIRABLE_CASES = [c for c in CORPUS if c.repairable]
 
 # ---------------------------------------------------------------------------
 # Shared helpers
@@ -436,97 +431,6 @@ def test_invalid_corpus_rejection_rate_is_100_percent() -> None:
 
 
 # ---------------------------------------------------------------------------
-# 3. Repair-flow pass rate
-# ---------------------------------------------------------------------------
-
-
-def test_repairable_cases_survive_extract_compose_cycle() -> None:
-    """For every repairable corpus case the extract→compose→parse cycle succeeds."""
-    parser = _parser()
-    results: list[str] = []
-    for case in _REPAIRABLE_CASES:
-        # Step 1: direct parse must fail
-        with pytest.raises(ProtocolValidationError):
-            parser.parse(case.raw)
-
-        # Step 2: extract body + required action
-        candidate = ProtocolParser.extract_repair_candidate(case.raw)
-        if candidate is None:
-            results.append(f"EXTRACT_FAILED: {case.description!r}")
-            continue
-        body, required_action = candidate
-
-        # Step 3: simulate a repair response (what the LLM would return)
-        repair_response = (
-            f"<Action>{required_action}</Action>\n<UnknownTerms>[]</UnknownTerms>"
-        )
-
-        # Step 4: compose repaired full response
-        try:
-            repaired = ProtocolParser.compose_repaired_response(repair_response, body)
-        except ProtocolValidationError as exc:
-            results.append(f"COMPOSE_FAILED: {case.description!r} — {exc.code}")
-            continue
-
-        # Step 5: repaired response must parse cleanly
-        try:
-            decision = parser.parse(repaired)
-        except ProtocolValidationError as exc:
-            results.append(f"PARSE_FAILED: {case.description!r} — {exc.code}")
-            continue
-
-        assert decision.action.value == required_action, (
-            f"repaired action mismatch for {case.description!r}"
-        )
-
-    assert not results, (
-        f"{len(results)}/{len(_REPAIRABLE_CASES)} repair cases failed:\n"
-        + "\n".join(f"  • {r}" for r in results)
-    )
-
-
-def test_repair_combined_pass_rate_meets_threshold() -> None:
-    """Direct parses plus repairs must recover ≥ 90 % of the recoverable corpus.
-
-    The denominator is deliberately restricted to cases that carry a usable
-    reply body: valid cases plus repairable ones. Hard-invalid cases (empty
-    output, malformed UnknownTerms, ``No Reply`` with a body) carry nothing to
-    recover, so rejecting them is the desired outcome rather than a miss, and
-    counting them here would cap the achievable rate below any useful bar.
-    """
-    parser = _parser()
-    recoverable = [c for c in CORPUS if c.expected_valid or c.repairable]
-    missed: list[str] = []
-
-    for case in recoverable:
-        if case.expected_valid:
-            try:
-                parser.parse(case.raw)
-            except ProtocolValidationError as exc:
-                # Unexpected; test_valid_corpus_pass_rate_is_100_percent localizes it.
-                missed.append(f"DIRECT: {case.description!r} — {exc.code}")
-            continue
-
-        candidate = ProtocolParser.extract_repair_candidate(case.raw)
-        if candidate is None:
-            missed.append(f"EXTRACT: {case.description!r}")
-            continue
-        body, action = candidate
-        repair = f"<Action>{action}</Action>\n<UnknownTerms>[]</UnknownTerms>"
-        try:
-            parser.parse(ProtocolParser.compose_repaired_response(repair, body))
-        except ProtocolValidationError as exc:
-            missed.append(f"REPAIR: {case.description!r} — {exc.code}")
-
-    total = len(recoverable)
-    rate = (total - len(missed)) / total
-    assert rate >= 0.90, (
-        f"combined pass rate {rate:.1%} ({total - len(missed)}/{total}) "
-        "is below the 90 % threshold:\n" + "\n".join(f"  • {m}" for m in missed)
-    )
-
-
-# ---------------------------------------------------------------------------
 # 4. End-to-end scenario conversations
 # ---------------------------------------------------------------------------
 
@@ -622,14 +526,13 @@ def test_scenario_no_reply_suppresses_dispatch(tmp_path: Path) -> None:
     asyncio.run(run())
 
 
-def test_scenario_repair_flow_recovers_then_learns(tmp_path: Path) -> None:
-    """Simulate the full repair loop: bad → repair → valid with jargon."""
+def test_scenario_rejected_output_does_not_learn_until_valid(tmp_path: Path) -> None:
+    """Simulate the failure path: malformed → rejected → valid output learns."""
 
     async def run() -> None:
-        parser = ProtocolParser(PluginConfig())
         svc, repo = await _build_service(tmp_path / "val.db")
         ctx = _make_context(
-            "group-a", request_id="req-repair", user_text="你懂 yyds 吗"
+            "group-a", request_id="req-rejected", user_text="你懂 yyds 吗"
         )
         unknown_json = (
             '[{"word":"yyds","guess":"永远的神","confidence":0.9,"reason":"称赞"}]'
@@ -639,31 +542,26 @@ def test_scenario_repair_flow_recovers_then_learns(tmp_path: Path) -> None:
             "<Messages><Message>当然懂</Message></Messages>"
         )
 
-        # First attempt fails
+        # Malformed legacy header is rejected outright (no repair retry).
         outcome1 = await svc.process_final_response(
             ctx, malformed, model="test", duration_ms=8
         )
         assert not outcome1.valid
 
-        # Repair step: extract body, build repair prompt, simulate LLM repair response
-        candidate = parser.extract_repair_candidate(malformed)
-        assert candidate is not None
-        body, required_action = candidate
-        repair_llm_response = (
-            f"<Action>{required_action}</Action>\n"
-            f"<UnknownTerms>{unknown_json}</UnknownTerms>"
+        # The corrected, fully valid output succeeds and learns the jargon.
+        valid = (
+            "<Action>Reply</Action>\n"
+            f"<UnknownTerms>{unknown_json}</UnknownTerms>\n"
+            "<Messages><Message>当然懂</Message></Messages>"
         )
-        repaired = parser.compose_repaired_response(repair_llm_response, body)
-
-        # Second attempt with repaired response succeeds
         outcome2 = await svc.process_final_response(
-            ctx, repaired, model="test", duration_ms=12
+            ctx, valid, model="test", duration_ms=12
         )
         assert outcome2.valid
         assert outcome2.action is Action.REPLY
         assert outcome2.messages == ("当然懂",)
 
-        # Jargon was learned
+        # Jargon was learned only from the valid attempt
         jargons = await repo.list_jargons(
             search="", status="", scope_id="group-a", page=1, page_size=20
         )
@@ -836,7 +734,6 @@ def test_real_llm_protocol_compliance() -> None:
     system_prompt = envelope.build_protocol_prompt(dummy_ctx)
 
     passed = 0
-    repaired = 0
     failed: list[dict[str, str]] = []
     messages_to_test = (_LLM_TEST_MESSAGES * 4)[:_LLM_SAMPLES]
 
@@ -856,20 +753,6 @@ def test_real_llm_protocol_compliance() -> None:
             parser.parse(completion)
             passed += 1
         except ProtocolValidationError as parse_exc:
-            candidate = ProtocolParser.extract_repair_candidate(completion)
-            if candidate is not None:
-                body, action = candidate
-                sim_repair = (
-                    f"<Action>{action}</Action>\n<UnknownTerms>[]</UnknownTerms>"
-                )
-                try:
-                    parser.parse(
-                        ProtocolParser.compose_repaired_response(sim_repair, body)
-                    )
-                    repaired += 1
-                    continue
-                except ProtocolValidationError:
-                    pass
             failed.append(
                 {
                     "user": user_text,
@@ -878,17 +761,15 @@ def test_real_llm_protocol_compliance() -> None:
                 }
             )
 
-    total_evaluated = passed + repaired + len(failed)
+    total_evaluated = passed + len(failed)
     if total_evaluated == 0:
         pytest.skip("no responses were evaluated (all were tool calls or empty)")
 
     first_pass_rate = passed / total_evaluated
-    combined_rate = (passed + repaired) / total_evaluated
     print(
         f"\n[real-LLM] model={_LLM_MODEL} n={total_evaluated} "
-        f"pass={passed} repaired={repaired} failed={len(failed)}\n"
-        f"  first-pass  : {first_pass_rate:.1%}\n"
-        f"  after-repair: {combined_rate:.1%}"
+        f"pass={passed} failed={len(failed)}\n"
+        f"  first-pass: {first_pass_rate:.1%}"
     )
     for item in failed:
         print(f"  ✗ [{item['error']}] {item['user']!r} → {item['raw']!r}")
