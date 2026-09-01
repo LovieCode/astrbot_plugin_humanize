@@ -206,6 +206,236 @@ class ObservabilityRepository:
 
         await self._run(operation)
 
+    async def record_llm_call(
+        self,
+        *,
+        call_type: str,
+        scope_type: str = "",
+        scope_id: str = "",
+        conversation_id: str = "",
+        request_id: str = "",
+        provider_id: str = "",
+        provider_type: str = "",
+        model: str = "",
+        input_cached: int = 0,
+        input_other: int = 0,
+        output_tokens: int = 0,
+        usage_observed: bool = False,
+        duration_ms: int = 0,
+        status: str = "ok",
+        error: str = "",
+    ) -> None:
+        """Persist one proxied auxiliary LLM call with provider usage.
+
+        Args:
+            call_type: Stable call stage such as ``transcribe_sticker``,
+                ``extract`` or ``openviking``.
+            scope_type: Scope type when known at call time.
+            scope_id: Scope identifier when known.
+            conversation_id: Conversation identifier when known.
+            request_id: Pipeline request linkage when available.
+            provider_id: Non-secret provider instance ID.
+            provider_type: Provider adapter type.
+            model: Effective model name.
+            input_cached: Provider-reported cached input tokens.
+            input_other: Provider-reported uncached input tokens.
+            output_tokens: Provider-reported output tokens.
+            usage_observed: Whether the provider supplied a usage object.
+            duration_ms: Measured call duration in milliseconds.
+            status: ``ok`` or ``error`` outcome of the provider call.
+            error: Truncated error description for failed calls.
+        """
+        clean_call_type = str(call_type or "").strip()[:40] or "unknown"
+        clean_status = str(status or "ok").strip().lower()
+        if clean_status not in {"ok", "error"}:
+            clean_status = "error" if clean_status else "ok"
+        values = (
+            clean_call_type,
+            str(scope_type or "")[:120],
+            str(scope_id or "")[:300],
+            str(conversation_id or "")[:300],
+            str(request_id or "")[:200],
+            str(provider_id or "")[:160],
+            str(provider_type or "")[:160],
+            str(model or "")[:200],
+            max(0, int(input_cached)),
+            max(0, int(input_other)),
+            max(0, int(output_tokens)),
+            int(bool(usage_observed)),
+            max(0, int(duration_ms)),
+            clean_status,
+            str(error or "")[:500],
+            _now(),
+        )
+
+        def operation(conn: sqlite3.Connection) -> None:
+            conn.execute(
+                """
+                INSERT INTO humanize_llm_call_log (
+                    call_type, scope_type, scope_id, conversation_id,
+                    request_id, provider_id, provider_type, model,
+                    input_cached, input_other, output_tokens, usage_observed,
+                    duration_ms, status, error, created_at
+                ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+                """,
+                values,
+            )
+            conn.commit()
+
+        await self._run(operation)
+
+    async def get_usage_overview(self, *, days: int = 7) -> dict[str, Any]:
+        """Aggregate provider-reported usage across pipeline and auxiliary calls.
+
+        Args:
+            days: Trailing window size in days (1-90).
+
+        Returns:
+            Totals, per-model, per-call-type, daily and recent-call samples.
+            Tokens are provider-reported values only; never estimated.
+        """
+        window_days = max(1, min(int(days), 90))
+        start_date = datetime.now(UTC).date() - timedelta(days=window_days - 1)
+        since = f"{start_date.isoformat()}T00:00:00+00:00"
+
+        def operation(conn: sqlite3.Connection) -> dict[str, Any]:
+            union_sql = """
+                SELECT call_type, source, model, provider_id, scope_type,
+                       scope_id, request_id, input_cached,
+                       input_other, output_tokens, usage_observed,
+                       duration_ms, status, error, created_at
+                FROM (
+                    SELECT stage AS call_type, 'pipeline' AS source, model,
+                           provider_id, scope_type, scope_id, request_id,
+                           input_cached, input_other,
+                           output_tokens, usage_observed, duration_ms,
+                           'ok' AS status, '' AS error, created_at
+                    FROM humanize_llm_usage_samples
+                    WHERE created_at >= ?
+                    UNION ALL
+                    SELECT call_type, 'aux' AS source, model, provider_id,
+                           scope_type, scope_id, request_id,
+                           input_cached, input_other, output_tokens,
+                           usage_observed, duration_ms, status, error, created_at
+                    FROM humanize_llm_call_log
+                    WHERE created_at >= ?
+                )
+            """
+            params = (since, since)
+            totals = conn.execute(
+                f"""
+                SELECT COUNT(*) AS calls,
+                       SUM(usage_observed) AS observed,
+                       SUM(input_cached) AS input_cached,
+                       SUM(input_other) AS input_other,
+                       SUM(output_tokens) AS output_tokens,
+                       AVG(duration_ms) AS avg_duration_ms
+                FROM ({union_sql})
+                """,
+                params,
+            ).fetchone()
+            total_calls = int(totals["calls"] or 0)
+            total_cached = int(totals["input_cached"] or 0)
+            total_other = int(totals["input_other"] or 0)
+            total_output = int(totals["output_tokens"] or 0)
+            total_input = total_cached + total_other
+            cache_share = (
+                round(total_cached * 100 / total_input, 1) if total_input else None
+            )
+            by_model_rows = conn.execute(
+                f"""
+                SELECT model,
+                       COUNT(*) AS calls,
+                       SUM(usage_observed) AS observed,
+                       SUM(input_cached) AS input_cached,
+                       SUM(input_other) AS input_other,
+                       SUM(output_tokens) AS output_tokens,
+                       AVG(duration_ms) AS avg_duration_ms
+                FROM ({union_sql})
+                GROUP BY model
+                ORDER BY SUM(input_cached + input_other + output_tokens) DESC,
+                         calls DESC
+                LIMIT 12
+                """,
+                params,
+            ).fetchall()
+            by_call_type_rows = conn.execute(
+                f"""
+                SELECT call_type, source, COUNT(*) AS calls,
+                       SUM(CASE WHEN status = 'error' THEN 1 ELSE 0 END) AS errors,
+                       SUM(input_cached) AS input_cached,
+                       SUM(input_other) AS input_other,
+                       SUM(output_tokens) AS output_tokens,
+                       AVG(duration_ms) AS avg_duration_ms,
+                       MAX(created_at) AS last_seen_at
+                FROM ({union_sql})
+                GROUP BY call_type, source
+                ORDER BY calls DESC
+                """,
+                params,
+            ).fetchall()
+            daily_rows = conn.execute(
+                f"""
+                SELECT substr(created_at, 1, 10) AS day,
+                       COUNT(*) AS calls,
+                       SUM(input_cached) AS input_cached,
+                       SUM(input_other) AS input_other,
+                       SUM(output_tokens) AS output_tokens
+                FROM ({union_sql})
+                GROUP BY substr(created_at, 1, 10)
+                """,
+                params,
+            ).fetchall()
+            daily_by_date = {str(row["day"]): row for row in daily_rows}
+            daily = []
+            for offset in range(window_days):
+                day = start_date + timedelta(days=offset)
+                row = daily_by_date.get(day.isoformat())
+                daily.append(
+                    {
+                        "date": day.isoformat(),
+                        "label": day.strftime("%m-%d"),
+                        "calls": int(row["calls"] or 0) if row else 0,
+                        "input_cached": int(row["input_cached"] or 0) if row else 0,
+                        "input_other": int(row["input_other"] or 0) if row else 0,
+                        "output_tokens": int(row["output_tokens"] or 0) if row else 0,
+                    }
+                )
+            recent_rows = conn.execute(
+                f"""
+                SELECT call_type, source, model, provider_id, scope_type,
+                       scope_id, request_id, input_cached,
+                       input_other, output_tokens, usage_observed,
+                       duration_ms, status, error, created_at
+                FROM ({union_sql})
+                ORDER BY created_at DESC
+                LIMIT 12
+                """,
+                params,
+            ).fetchall()
+            return {
+                "days": window_days,
+                "totals": {
+                    "calls": total_calls,
+                    "usage_observed_calls": int(totals["observed"] or 0),
+                    "input_cached": total_cached,
+                    "input_other": total_other,
+                    "output_tokens": total_output,
+                    "avg_duration_ms": (
+                        round(float(totals["avg_duration_ms"] or 0), 1)
+                        if total_calls
+                        else None
+                    ),
+                    "cache_share": cache_share,
+                },
+                "by_model": [dict(row) for row in by_model_rows],
+                "by_call_type": [dict(row) for row in by_call_type_rows],
+                "daily": daily,
+                "recent": [dict(row) for row in recent_rows],
+            }
+
+        return await self._run(operation)
+
     async def get_latest_prompt_prefix_sample(
         self, *, scope_type: str, scope_id: str, conversation_id: str
     ) -> dict[str, Any] | None:

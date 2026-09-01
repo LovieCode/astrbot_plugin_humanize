@@ -16,7 +16,10 @@ HZ.views["dashboard"] = { init: function () {
       { label: "导出", icon: "export", variant: "ghost" },
       { label: "新建记忆", icon: "plus", variant: "primary" },
     ],
-    onRefresh: loadOverview,
+    onRefresh: () => {
+      loadOverview();
+      loadUsage();
+    },
   };
 HZ.renderTopbar(HZ.topbars["dashboard"]);
 
@@ -46,6 +49,9 @@ HZ.renderTopbar(HZ.topbars["dashboard"]);
       "statTrendOmitted", "statRuns", "statTrendBlocked", "statTokens",
       "actionRing", "actionNum", "actionReplyCount", "actionNoReplyCount",
       "trendChart", "scopeList", "pendingList",
+      "usageBadgeObserved", "usageCalls", "usageBadgeOutput", "usageTokens",
+      "usageBadgeCached", "usageCacheShare", "usageBadgeErrors", "usageAvgDuration",
+      "usageModelList", "usageTypeList", "usageTrend", "usageRecentList",
     ];
     ids.forEach((id) => {
       const el = document.getElementById(id);
@@ -311,6 +317,305 @@ HZ.renderTopbar(HZ.topbars["dashboard"]);
     });
   }
 
+  /* ---------- 用量监控（Provider 回报的真实用量） ---------- */
+  const CALL_TYPE_LABEL = {
+    final: "回复生成",
+    tool: "工具调用",
+    repair: "协议修复",
+    transcribe_image: "图片转述",
+    transcribe_sticker: "表情包转述",
+    extract: "记忆抽取",
+    openviking: "OpenViking",
+    unknown: "未知调用",
+  };
+  const SOURCE_LABEL = { pipeline: "回复链", aux: "辅助" };
+
+  function fmtTokens(n) {
+    const v = Number(n) || 0;
+    if (v >= 1e6) return (v / 1e6).toFixed(2) + "M";
+    if (v >= 1e3) return (v / 1e3).toFixed(1) + "k";
+    return String(Math.round(v));
+  }
+  function fmtDuration(ms) {
+    const v = Number(ms || 0);
+    if (!v) return "—";
+    return v >= 1000 ? (v / 1000).toFixed(1) + "s" : Math.round(v) + "ms";
+  }
+  function setUsageCount(el, value, decimal) {
+    if (!el) return;
+    const v = value == null ? 0 : value;
+    el.dataset.count = String(v);
+    el.dataset.decimal = String(decimal || 0);
+    el.textContent = decimal ? v.toFixed(decimal) : String(v);
+  }
+  function usageSub(row) {
+    const parts = [];
+    const input = (row.input_cached || 0) + (row.input_other || 0);
+    parts.push("输入 " + fmtTokens(input) + " / 输出 " + fmtTokens(row.output_tokens || 0));
+    if (row.avg_duration_ms != null && Number(row.avg_duration_ms) > 0) {
+      parts.push("均耗 " + fmtDuration(row.avg_duration_ms));
+    }
+    return parts.join(" · ");
+  }
+  function usageTypeSub(t) {
+    const parts = [];
+    if (Number(t.errors) > 0) parts.push("失败 " + t.errors);
+    parts.push(SOURCE_LABEL[t.source] || t.source || "");
+    if (t.last_seen_at) parts.push("最近 " + HZ.api.time(t.last_seen_at));
+    return parts.filter(Boolean).join(" · ") || "—";
+  }
+  function usageRecentSub(item) {
+    const parts = ["入 " + fmtTokens((item.input_cached || 0) + (item.input_other || 0))];
+    parts.push("出 " + fmtTokens(item.output_tokens || 0));
+    if (Number(item.duration_ms) > 0) parts.push(fmtDuration(item.duration_ms));
+    return parts.join(" / ");
+  }
+
+  function renderUsageModels(rows) {
+    const host = document.getElementById("usageModelList");
+    if (!host) return;
+    host.innerHTML = "";
+    const list = (rows || []).slice(0, 6);
+    if (!list.length) {
+      const empty = document.createElement("div");
+      empty.className = "trend-empty";
+      empty.textContent = "暂无用量数据";
+      host.appendChild(empty);
+      return;
+    }
+    const totalOf = (m) =>
+      (Number(m.input_cached) || 0) + (Number(m.input_other) || 0) + (Number(m.output_tokens) || 0);
+    const max = Math.max(...list.map((m) => totalOf(m)), 1);
+    list.forEach((m) => {
+      const total = totalOf(m);
+      const row = document.createElement("div");
+      row.className = "scope-row";
+      const top = document.createElement("div");
+      top.className = "scope-top";
+      const main = document.createElement("div");
+      main.className = "scope-main";
+      const name = document.createElement("div");
+      name.className = "scope-name";
+      name.textContent = m.model || "未知模型";
+      name.title = m.model || "未知模型";
+      const sub = document.createElement("div");
+      sub.className = "scope-sub";
+      sub.textContent = (m.calls || 0) + " 次 · " + usageSub(m);
+      main.appendChild(name);
+      main.appendChild(sub);
+      const cnt = document.createElement("span");
+      cnt.className = "scope-count";
+      cnt.textContent = fmtTokens(total) + " tk";
+      top.appendChild(main);
+      top.appendChild(cnt);
+      const bar = document.createElement("div");
+      bar.className = "scope-bar";
+      const i = document.createElement("i");
+      i.style.width = Math.max(3, Math.round((total / max) * 100)) + "%";
+      bar.appendChild(i);
+      row.appendChild(top);
+      row.appendChild(bar);
+      host.appendChild(row);
+    });
+  }
+
+  function renderUsageTypes(rows) {
+    const host = document.getElementById("usageTypeList");
+    if (!host) return;
+    host.innerHTML = "";
+    const list = (rows || []).slice(0, 6);
+    if (!list.length) {
+      const empty = document.createElement("div");
+      empty.className = "trend-empty";
+      empty.textContent = "暂无调用记录";
+      host.appendChild(empty);
+      return;
+    }
+    const max = Math.max(...list.map((t) => t.calls || 0), 1);
+    list.forEach((t) => {
+      const label = CALL_TYPE_LABEL[t.call_type] || t.call_type || "未知阶段";
+      const row = document.createElement("div");
+      row.className = "scope-row";
+      const top = document.createElement("div");
+      top.className = "scope-top";
+      const main = document.createElement("div");
+      main.className = "scope-main";
+      const name = document.createElement("div");
+      name.className = "scope-name";
+      name.textContent = label;
+      const sub = document.createElement("div");
+      sub.className = "scope-sub";
+      sub.textContent = usageTypeSub(t);
+      main.appendChild(name);
+      main.appendChild(sub);
+      const cnt = document.createElement("span");
+      cnt.className = "scope-count";
+      cnt.textContent = (t.calls || 0) + " 次";
+      top.appendChild(main);
+      top.appendChild(cnt);
+      const bar = document.createElement("div");
+      bar.className = "scope-bar";
+      const i = document.createElement("i");
+      i.style.width = Math.max(3, Math.round(((t.calls || 0) / max) * 100)) + "%";
+      bar.appendChild(i);
+      row.appendChild(top);
+      row.appendChild(bar);
+      host.appendChild(row);
+    });
+  }
+
+  function renderUsageTrend(daily) {
+    const host = document.getElementById("usageTrend");
+    if (!host) return;
+    host.innerHTML = "";
+    const days = daily || [];
+    if (!days.length) {
+      const empty = document.createElement("div");
+      empty.className = "trend-empty";
+      empty.textContent = "暂无数据";
+      host.appendChild(empty);
+      return;
+    }
+    const maxCalls = Math.max(...days.map((d) => d.calls || 0), 1);
+    days.forEach((d, idx) => {
+      const col = document.createElement("div");
+      col.className = "trend-col" + (idx === days.length - 1 ? " today" : "");
+      const tip = document.createElement("span");
+      tip.className = "trend-tip";
+      tip.textContent = `${d.label || ""} · ${d.calls || 0} 次 · 输出 ${fmtTokens(d.output_tokens || 0)} tk`;
+      const wrap = document.createElement("div");
+      wrap.className = "trend-bar-wrap";
+      const bar = document.createElement("div");
+      bar.className = "trend-bar-ok usage-trend-bar";
+      const h = d.calls ? Math.max(3, Math.round(((d.calls || 0) / maxCalls) * 100)) : 0;
+      bar.style.setProperty("--h", h + "%");
+      wrap.appendChild(bar);
+      const val = document.createElement("div");
+      val.className = "trend-val";
+      val.textContent = String(d.calls || 0);
+      const day = document.createElement("div");
+      day.className = "trend-day";
+      day.textContent = d.label || "";
+      col.appendChild(tip);
+      col.appendChild(wrap);
+      col.appendChild(val);
+      col.appendChild(day);
+      host.appendChild(col);
+    });
+  }
+
+  function renderUsageRecent(rows) {
+    const host = document.getElementById("usageRecentList");
+    if (!host) return;
+    host.innerHTML = "";
+    const list = (rows || []).slice(0, 8);
+    if (!list.length) {
+      const empty = document.createElement("div");
+      empty.className = "trend-empty";
+      empty.textContent = "暂无调用记录";
+      host.appendChild(empty);
+      return;
+    }
+    list.forEach((item) => {
+      const row = document.createElement("div");
+      row.className = "list-row";
+      const icon = document.createElement("div");
+      icon.className = "list-icon " + (item.source === "pipeline" ? "i-pink" : "i-blue");
+      icon.innerHTML = HZ.icon(item.source === "pipeline" ? "spark" : "clock");
+      const main = document.createElement("div");
+      main.className = "list-main";
+      const title = document.createElement("div");
+      title.className = "list-title";
+      const stage = CALL_TYPE_LABEL[item.call_type] || item.call_type || "未知阶段";
+      title.textContent = stage + " · " + (item.model || "未知模型");
+      const sub = document.createElement("div");
+      sub.className = "list-sub";
+      const errMark = item.status === "error" ? " · 失败" : "";
+      sub.textContent =
+        HZ.api.ago(item.created_at) + " · " + usageRecentSub(item) + errMark;
+      main.appendChild(title);
+      main.appendChild(sub);
+      const tag = document.createElement("span");
+      tag.className = "tag " + (item.status === "error" ? "tag-review" : "tag-ok");
+      tag.textContent = item.status === "error" ? "错误" : "ok";
+      row.appendChild(icon);
+      row.appendChild(main);
+      row.appendChild(tag);
+      host.appendChild(row);
+    });
+  }
+
+  /* ---------- 用量监控加载 ---------- */
+  const usageErrorBar = document.getElementById("usageError");
+  function showUsageError(message) {
+    const text = document.getElementById("usageErrorText");
+    if (text) text.textContent = message;
+    if (usageErrorBar) usageErrorBar.style.display = "flex";
+  }
+  function hideUsageError() {
+    if (usageErrorBar) usageErrorBar.style.display = "none";
+  }
+
+  function renderUsage(d) {
+    const totals = d.totals || {};
+    const observed = totals.usage_observed_calls == null ? 0 : totals.usage_observed_calls;
+    const calls = totals.calls == null ? 0 : totals.calls;
+
+    const badgeObserved = $("#usageBadgeObserved");
+    if (badgeObserved) {
+      badgeObserved.textContent =
+        calls > 0 ? observed + "/" + calls + " 实测" : "暂无数据";
+    }
+    const badgeOutput = document.getElementById("usageBadgeOutput");
+    if (badgeOutput) badgeOutput.textContent = "输出 " + fmtTokens(totals.output_tokens || 0) + " tk";
+    const badgeCached = document.getElementById("usageBadgeCached");
+    if (badgeCached) {
+      badgeCached.textContent =
+        totals.cache_share == null ? "缓存未知" : "缓存 " + Number(totals.cache_share).toFixed(1) + "%";
+    }
+    const badgeErrors = document.getElementById("usageBadgeErrors");
+    if (badgeErrors) {
+      const errors = (d.by_call_type || []).reduce((sum, t) => sum + (Number(t.errors) || 0), 0);
+      badgeErrors.textContent = errors > 0 ? errors + " 次失败" : "无失败";
+    }
+
+    const callsEl = document.getElementById("usageCalls");
+    if (callsEl) setUsageCount(callsEl, calls, 0);
+    const tokensEl = document.getElementById("usageTokens");
+    if (tokensEl) tokensEl.textContent = fmtTokens((Number(totals.input_cached) || 0) + (Number(totals.input_other) || 0) + (Number(totals.output_tokens) || 0));
+    const cacheEl = document.getElementById("usageCacheShare");
+    if (cacheEl) {
+      if (totals.cache_share == null) {
+        /* 未知就显示占位，并撤掉计数动画数据源，防止被 initCounters 写回 0.0 */
+        cacheEl.textContent = "—";
+        delete cacheEl.dataset.count;
+        delete cacheEl.dataset.decimal;
+      } else {
+        setUsageCount(cacheEl, totals.cache_share, 1);
+      }
+    }
+    const durEl = document.getElementById("usageAvgDuration");
+    if (durEl) durEl.textContent = totals.avg_duration_ms == null ? "—" : fmtDuration(totals.avg_duration_ms);
+
+    renderUsageModels(Array.isArray(d.by_model) ? d.by_model : []);
+    renderUsageTypes(Array.isArray(d.by_call_type) ? d.by_call_type : []);
+    renderUsageTrend(Array.isArray(d.daily) ? d.daily : []);
+    renderUsageRecent(Array.isArray(d.recent) ? d.recent : []);
+    if (HZ.initCounters) HZ.initCounters();
+  }
+
+  async function loadUsage() {
+    try {
+      const data = await api.get("usage-overview");
+      hideUsageError();
+      renderUsage(data || {});
+    } catch (e) {
+      const err = api.errorOf(e);
+      toast(err.message, { type: "error" });
+      showUsageError(err.message);
+    }
+  }
+
   /* ---------- 概览加载 ---------- */
   const errbar = document.getElementById("overviewError");
   const errbarText = document.getElementById("overviewErrorText");
@@ -395,9 +700,12 @@ HZ.renderTopbar(HZ.topbars["dashboard"]);
   /* 重试按钮 */
   const retryBtn = errbar && errbar.querySelector('[data-act="retry"]');
   if (retryBtn) retryBtn.addEventListener("click", loadOverview);
+  const retryUsageBtn = usageErrorBar && usageErrorBar.querySelector('[data-act="retry-usage"]');
+  if (retryUsageBtn) retryUsageBtn.addEventListener("click", loadUsage);
 
-  /* 初始化 */
+  /* 初始化（概览与用量并行加载，互不阻塞） */
   loadOverview();
+  loadUsage();
 
 } };
 

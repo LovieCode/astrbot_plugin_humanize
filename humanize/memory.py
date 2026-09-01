@@ -21,6 +21,7 @@ from xml.etree import ElementTree as ET
 from .config import PluginConfig
 from .domain.models import MessageContext
 from .domain.prompts import PromptTemplates
+from .llm_proxy import llm_call_context
 from .openviking import (
     OpenVikingManagementAdapter,
     OpenVikingMemoryAdapter,
@@ -1989,23 +1990,31 @@ class ChatMemoryService:
                 ET.SubElement(
                     replies, "Message"
                 ).text = f"[回合 {index + 1}] {str(message)[:8_000]}"
-        response = await asyncio.wait_for(
-            provider.text_chat(
-                prompt=ET.tostring(
-                    root, encoding="unicode", short_empty_elements=False
+        first_payload = payloads[0] if payloads else {}
+        async with llm_call_context(
+            "extract",
+            request_id=str(first_payload.get("request_id") or ""),
+            scope_type=str(first_payload.get("scope_type") or ""),
+            scope_id=str(first_payload.get("scope_hash") or ""),
+            conversation_id=str(first_payload.get("conversation_hash") or ""),
+        ):
+            response = await asyncio.wait_for(
+                provider.text_chat(
+                    prompt=ET.tostring(
+                        root, encoding="unicode", short_empty_elements=False
+                    ),
+                    session_id="",
+                    image_urls=[],
+                    audio_urls=[],
+                    func_tool=None,
+                    contexts=[],
+                    system_prompt=templates.memory_extraction,
+                    tool_calls_result=None,
+                    extra_user_content_parts=[],
+                    request_max_retries=1,
                 ),
-                session_id="",
-                image_urls=[],
-                audio_urls=[],
-                func_tool=None,
-                contexts=[],
-                system_prompt=templates.memory_extraction,
-                tool_calls_result=None,
-                extra_user_content_parts=[],
-                request_max_retries=1,
-            ),
-            timeout=max(5.0, self._config.memory_recall_timeout_seconds * 10),
-        )
+                timeout=max(5.0, self._config.memory_recall_timeout_seconds * 10),
+            )
         if (
             getattr(response, "role", "") != "assistant"
             or getattr(response, "tools_call_name", None)

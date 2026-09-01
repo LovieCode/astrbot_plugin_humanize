@@ -8,6 +8,8 @@ import math
 from dataclasses import dataclass
 from typing import Any
 
+from ..llm_proxy import llm_call_context
+
 
 @dataclass(frozen=True, slots=True)
 class ProviderRerankResult:
@@ -73,21 +75,22 @@ class OpenVikingProviderBridge:
         text_chat = getattr(provider, "text_chat", None)
         if not callable(text_chat):
             raise RuntimeError("configured Chat Provider is incompatible")
-        response = await asyncio.wait_for(
-            text_chat(
-                prompt=str(prompt),
-                session_id="",
-                image_urls=[],
-                audio_urls=[],
-                func_tool=None,
-                contexts=[],
-                system_prompt=str(system_prompt),
-                tool_calls_result=None,
-                extra_user_content_parts=[],
-                request_max_retries=1,
-            ),
-            timeout=self._timeout_seconds,
-        )
+        async with llm_call_context("openviking"):
+            response = await asyncio.wait_for(
+                text_chat(
+                    prompt=str(prompt),
+                    session_id="",
+                    image_urls=[],
+                    audio_urls=[],
+                    func_tool=None,
+                    contexts=[],
+                    system_prompt=str(system_prompt),
+                    tool_calls_result=None,
+                    extra_user_content_parts=[],
+                    request_max_retries=1,
+                ),
+                timeout=self._timeout_seconds,
+            )
         if (
             getattr(response, "role", "") != "assistant"
             or getattr(response, "tools_call_name", None)

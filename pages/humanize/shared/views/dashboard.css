@@ -199,6 +199,14 @@
   background: var(--bg); border-radius: var(--r-md); padding: 12px 14px;
 }
 
+/* ---------- LLM 用量监控 ---------- */
+.usage-trend-bar {
+  background: linear-gradient(180deg, #9cccf2, var(--blue));
+}
+.trend-col.today .usage-trend-bar { background: linear-gradient(180deg, #7dbcec, #4a97d6); }
+#usageTrend .trend-empty { min-height: 128px; }
+#usageModelList .trend-empty, #usageTypeList .trend-empty, #usageRecentList .trend-empty { padding: 22px 12px; }
+
 /* ---------- 响应式 ---------- */
 @media (max-width: 1080px) {
   .stats-row { flex-wrap: wrap; }

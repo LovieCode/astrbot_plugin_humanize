@@ -295,6 +295,9 @@ class WebApi:
             )
         if path == "overview":
             return self._ok(await self._repository.get_overview())
+        if path == "usage-overview":
+            days = _positive_int(request.query.get("days"), 7, 90)
+            return self._ok(await self._repository.get_usage_overview(days=days))
         if path == "jargons":
             page = _positive_int(request.query.get("page"), 1, 100_000)
             page_size = _positive_int(request.query.get("page_size"), 20, 100)

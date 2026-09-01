@@ -162,6 +162,99 @@
       </div>
     </div>
 
+    <!-- LLM 用量监控（真实 Provider 回报用量） -->
+    <div class="section-head reveal">
+      <span class="section-title">LLM 用量监控</span>
+      <span class="section-hint">Provider 回报的真实用量 · 覆盖回复 / 转述 / 记忆 / OpenViking 全链路</span>
+    </div>
+    <div class="overview-error" id="usageError" style="display:none">
+      <span data-icon="alert"></span>
+      <span id="usageErrorText">用量数据加载失败</span>
+      <button class="btn btn-sm" type="button" data-act="retry-usage">重试</button>
+    </div>
+    <div class="stats-row usage-row reveal" data-count-parent>
+      <div class="stat-card">
+        <div class="stat-top">
+          <div class="stat-icon i-pink" data-icon="spark"></div>
+          <span class="stat-trend" id="usageBadgeObserved"></span>
+        </div>
+        <div class="stat-value" id="usageCalls"></div>
+        <div class="stat-label">LLM 调用 · 7 天</div>
+      </div>
+      <div class="stat-card">
+        <div class="stat-top">
+          <div class="stat-icon i-blue" data-icon="file"></div>
+          <span class="stat-trend" id="usageBadgeOutput"></span>
+        </div>
+        <div class="stat-value" id="usageTokens"></div>
+        <div class="stat-label">Token 消耗 · 7 天</div>
+      </div>
+      <div class="stat-card">
+        <div class="stat-top">
+          <div class="stat-icon i-green" data-icon="check"></div>
+          <span class="stat-trend" id="usageBadgeCached"></span>
+        </div>
+        <div class="stat-value" id="usageCacheShare"></div>
+        <div class="stat-label">输入缓存占比</div>
+      </div>
+      <div class="stat-card">
+        <div class="stat-top">
+          <div class="stat-icon i-violet" data-icon="clock"></div>
+          <span class="stat-trend" id="usageBadgeErrors"></span>
+        </div>
+        <div class="stat-value" id="usageAvgDuration"></div>
+        <div class="stat-label">平均响应耗时</div>
+      </div>
+    </div>
+
+    <!-- 模型用量 + 调用阶段 -->
+    <div class="row two-col reveal">
+      <div class="col-main">
+        <div class="card">
+          <div class="card-head">
+            <span class="card-dot"></span>
+            <span class="card-title">模型用量 · 近 7 天</span>
+          </div>
+          <div id="usageModelList"></div>
+        </div>
+      </div>
+      <div class="col-side">
+        <div class="card">
+          <div class="card-head">
+            <span class="card-dot"></span>
+            <span class="card-title">调用阶段 · 近 7 天</span>
+          </div>
+          <div id="usageTypeList"></div>
+        </div>
+      </div>
+    </div>
+
+    <!-- 调用趋势 + 最近调用 -->
+    <div class="row two-col reveal">
+      <div class="col-main">
+        <div class="card">
+          <div class="card-head">
+            <span class="card-dot"></span>
+            <span class="card-title">调用次数 · 近 7 天</span>
+          </div>
+          <div class="trend" id="usageTrend"></div>
+          <div class="trend-legend">
+            <span><i style="background:var(--blue)"></i>调用次数</span>
+            <span style="margin-left:auto;color:var(--muted)">柱高 = 当日调用次数 · 悬停看 token</span>
+          </div>
+        </div>
+      </div>
+      <div class="col-side">
+        <div class="card">
+          <div class="card-head">
+            <span class="card-dot"></span>
+            <span class="card-title">最近调用</span>
+          </div>
+          <div id="usageRecentList"></div>
+        </div>
+      </div>
+    </div>
+
     <!-- 词库作用域 + 待审核 -->
     <div class="section-head reveal">
       <span class="section-title">词库概况</span>

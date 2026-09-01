@@ -2,7 +2,7 @@
 
 from __future__ import annotations
 
-_SCHEMA_VERSION = 29
+_SCHEMA_VERSION = 30
 _CONTEXT_PREVIEW_CHARS = 1_000
 _SCHEMA = """
 CREATE TABLE IF NOT EXISTS jargon_entries (
@@ -273,6 +273,31 @@ CREATE INDEX IF NOT EXISTS idx_humanize_usage_samples_created
     ON humanize_llm_usage_samples(created_at DESC, id DESC);
 CREATE INDEX IF NOT EXISTS idx_humanize_usage_samples_scope
     ON humanize_llm_usage_samples(scope_type, scope_id, created_at DESC);
+
+CREATE TABLE IF NOT EXISTS humanize_llm_call_log (
+    id INTEGER PRIMARY KEY AUTOINCREMENT,
+    call_type TEXT NOT NULL,
+    scope_type TEXT NOT NULL DEFAULT '',
+    scope_id TEXT NOT NULL DEFAULT '',
+    conversation_id TEXT NOT NULL DEFAULT '',
+    request_id TEXT NOT NULL DEFAULT '',
+    provider_id TEXT NOT NULL DEFAULT '',
+    provider_type TEXT NOT NULL DEFAULT '',
+    model TEXT NOT NULL DEFAULT '',
+    input_cached INTEGER NOT NULL DEFAULT 0,
+    input_other INTEGER NOT NULL DEFAULT 0,
+    output_tokens INTEGER NOT NULL DEFAULT 0,
+    usage_observed INTEGER NOT NULL DEFAULT 0,
+    duration_ms INTEGER NOT NULL DEFAULT 0,
+    status TEXT NOT NULL DEFAULT 'ok' CHECK (status IN ('ok', 'error')),
+    error TEXT NOT NULL DEFAULT '',
+    created_at TEXT NOT NULL
+);
+
+CREATE INDEX IF NOT EXISTS idx_humanize_llm_call_log_created
+    ON humanize_llm_call_log(created_at DESC, id DESC);
+CREATE INDEX IF NOT EXISTS idx_humanize_llm_call_log_type
+    ON humanize_llm_call_log(call_type, created_at DESC);
 """
 
 _PROVIDER_CACHE_SCHEMA = """

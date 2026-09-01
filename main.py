@@ -6,7 +6,7 @@ import inspect
 import re
 import time
 import uuid
-from collections.abc import Coroutine
+from collections.abc import Coroutine, Mapping
 from dataclasses import replace
 from datetime import UTC, datetime
 from pathlib import Path
@@ -29,6 +29,11 @@ from .humanize.container import Container, context_window_token_budget
 from .humanize.domain.errors import ProtocolValidationError
 from .humanize.domain.models import Action, EventState, MessageContext
 from .humanize.image_cache import ImageCacheStore
+from .humanize.llm_proxy import (
+    current_llm_call_context,
+    llm_call_context,
+    llm_response_usage,
+)
 from .humanize.prompt_cache import PromptCacheTracker
 from .humanize.protocol.envelope import EnvelopeBuilder
 from .humanize.protocol.parser import ProtocolParser
@@ -216,6 +221,19 @@ async def _refresh_summary_safe(window: Any, context: MessageContext) -> None:
         await window.refresh_summary(context)
     except Exception:
         logger.debug("[Humanize] context summary refresh failed", exc_info=True)
+
+
+def _swallow_call_log_task_exception(task: asyncio.Task[None]) -> None:
+    """Consume a detached call-log task's outcome without surfacing noise.
+
+    Args:
+        task: Completed record task spawned by the LLM call proxy.
+    """
+    if task.cancelled():
+        return
+    exc = task.exception()
+    if exc is not None:
+        logger.warning("[Humanize] LLM call-log record failed: %s", exc)
 
 
 def _json_safe(value: Any) -> Any:
@@ -633,7 +651,11 @@ class HumanizePlugin(Star):
             for path in image_paths[len(transcriptions) :]:
                 try:
                     transcriptions.append(
-                        await self._transcribe_one_image(path, raw_user)
+                        await self._transcribe_one_image(
+                            path,
+                            raw_user,
+                            trace=self._llm_trace(message_context),
+                        )
                     )
                 except Exception:
                     logger.exception("[Humanize] image transcription failed: %s", path)
@@ -1074,7 +1096,11 @@ class HumanizePlugin(Star):
                 event.get_message_str() if hasattr(event, "get_message_str") else ""
             )
             try:
-                transcription = await self._transcribe_one_image(clean_path, user_text)
+                transcription = await self._transcribe_one_image(
+                    clean_path,
+                    user_text,
+                    trace=self._llm_trace(event.get_extra(_CONTEXT_KEY)),
+                )
             except Exception:
                 logger.exception("[Humanize] image read tool failed")
                 return "图片转述失败。"
@@ -1124,6 +1150,25 @@ class HumanizePlugin(Star):
             len(image_paths),
         )
 
+    @staticmethod
+    def _llm_trace(context: Any) -> dict[str, str]:
+        """Build LLM call-log trace linkage from a message context.
+
+        Args:
+            context: ``MessageContext``-like object, or ``None``.
+
+        Returns:
+            Bounded mapping with request/scope/conversation identifiers.
+        """
+        if not isinstance(context, MessageContext):
+            return {}
+        return {
+            "request_id": str(getattr(context, "request_id", "") or ""),
+            "scope_type": str(getattr(context, "scope_type", "") or ""),
+            "scope_id": str(getattr(context, "scope_id", "") or ""),
+            "conversation_id": str(getattr(context, "conversation_id", "") or ""),
+        }
+
     async def _transcribe_one_image(
         self,
         image_path: str,
@@ -1131,6 +1176,7 @@ class HumanizePlugin(Star):
         *,
         kind: str = "image",
         summary: str = "",
+        trace: Mapping[str, Any] | None = None,
     ) -> str:
         """Transcribe one image with the multimodal provider, in context.
 
@@ -1147,6 +1193,7 @@ class HumanizePlugin(Star):
             kind: Classified kind from the raw segment; refined by the index.
             summary: Raw segment summary (sticker name); falls back to the
                 index entry when empty.
+            trace: Optional request/scope linkage recorded in the LLM call log.
 
         Returns:
             The transcription text, empty on failure.
@@ -1192,20 +1239,29 @@ class HumanizePlugin(Star):
         # 由 Provider 内部按 provider_settings.request_max_retries（默认 5）
         # 做指数退避重试，连接错误/超时/429/5xx 均可重试；聊天看起来稳，
         # 靠的正是这套 Provider 级重试，转述此前禁用它导致瞬时故障直接失败。
+        clean_trace = {
+            key: str(trace[key])
+            for key in ("request_id", "scope_type", "scope_id", "conversation_id")
+            if trace and trace.get(key)
+        }
         try:
-            response = await provider.text_chat(
-                prompt=prompt,
-                session_id="",
-                image_urls=[image_path],
-                audio_urls=[],
-                func_tool=None,
-                contexts=[],
-                system_prompt="",
-                tool_calls_result=None,
-                model=None,
-                extra_user_content_parts=[],
-                request_max_retries=None,
-            )
+            async with llm_call_context(
+                f"transcribe_{kind}" if kind else "transcribe",
+                **clean_trace,
+            ):
+                response = await provider.text_chat(
+                    prompt=prompt,
+                    session_id="",
+                    image_urls=[image_path],
+                    audio_urls=[],
+                    func_tool=None,
+                    contexts=[],
+                    system_prompt="",
+                    tool_calls_result=None,
+                    model=None,
+                    extra_user_content_parts=[],
+                    request_max_retries=None,
+                )
         except Exception as exc:
             logger.error(
                 "[Humanize] image transcription request failed: %s",
@@ -1712,7 +1768,9 @@ class HumanizePlugin(Star):
 
                     async def hooked_text_chat(self, *args, _orig=original, **kwargs):
                         plugin._capture_provider_payload(self, kwargs)
-                        return await _orig(self, *args, **kwargs)
+                        return await plugin._proxied_provider_call(
+                            self, _orig, args, kwargs
+                        )
 
                     setattr(cls, method_name, hooked_text_chat)
                 else:
@@ -1721,7 +1779,9 @@ class HumanizePlugin(Star):
                         self, *args, _orig=original, **kwargs
                     ):
                         plugin._capture_provider_payload(self, kwargs)
-                        async for item in _orig(self, *args, **kwargs):
+                        async for item in plugin._aiter_proxied_stream(
+                            self, _orig, args, kwargs
+                        ):
                             yield item
 
                     setattr(cls, method_name, hooked_text_chat_stream)
@@ -1822,6 +1882,176 @@ class HumanizePlugin(Star):
             }
         except Exception:
             logger.exception("[Humanize] provider payload capture failed")
+
+    async def _proxied_provider_call(
+        self,
+        provider: Any,
+        original,  # noqa: ANN001 - unbound Provider method
+        args: tuple[Any, ...],
+        kwargs: dict[str, Any],
+    ) -> Any:
+        """Run one Provider text call through the usage proxy.
+
+        Calls made outside a plugin-owned trace context (pipeline, other
+        plugins, core internals) pass straight through; tagged calls record
+        the provider-reported usage into ``humanize_llm_call_log``.
+
+        Args:
+            provider: Provider instance being invoked.
+            original: Unpatched ``text_chat`` implementation.
+            args: Positional arguments for the original call.
+            kwargs: Keyword arguments for the original call.
+
+        Returns:
+            Whatever the original Provider call returns.
+        """
+        trace = current_llm_call_context()
+        if trace is None:
+            return await original(provider, *args, **kwargs)
+        started = time.monotonic()
+        status = "ok"
+        error_text = ""
+        response: Any = None
+        try:
+            response = await original(provider, *args, **kwargs)
+            return response
+        except BaseException as exc:  # 含取消：失败也要留下完整调用痕迹
+            status = "error"
+            error_text = f"{type(exc).__name__}: {exc}"
+            raise
+        finally:
+            duration_ms = max(0, int((time.monotonic() - started) * 1_000))
+            # 记录以独立任务落库：不在 finally 里 await，避免取消/生成器
+            # 关闭路径上的重入问题，也不给响应路径增加延迟。
+            self._spawn_call_log_task(
+                self._record_proxied_llm_call(
+                    trace,
+                    provider,
+                    kwargs,
+                    response=response if status == "ok" else None,
+                    duration_ms=duration_ms,
+                    status=status,
+                    error_text=error_text,
+                )
+            )
+
+    async def _aiter_proxied_stream(self, provider: Any, original, args, kwargs):
+        """Yield a streaming Provider call, recording usage after completion.
+
+        Args:
+            provider: Provider instance that is streaming.
+            original: Unpatched ``text_chat_stream`` method.
+            args: Positional arguments for the original call.
+            kwargs: Keyword arguments for the original call.
+
+        Yields:
+            Items produced by the original stream, untouched.
+        """
+        trace = current_llm_call_context()
+        if trace is None:
+            async for item in original(provider, *args, **kwargs):
+                yield item
+            return
+        started = time.monotonic()
+        status = "ok"
+        error_text = ""
+        last_item: Any = None
+        try:
+            async for item in original(provider, *args, **kwargs):
+                last_item = item
+                yield item
+        except BaseException as exc:
+            status = "error"
+            error_text = f"{type(exc).__name__}: {exc}"
+            raise
+        finally:
+            duration_ms = max(0, int((time.monotonic() - started) * 1_000))
+            # 流式路径同理：GeneratorExit/aclose 期间禁止 await，交给独立任务。
+            self._spawn_call_log_task(
+                self._record_proxied_llm_call(
+                    trace,
+                    provider,
+                    kwargs,
+                    response=last_item,
+                    duration_ms=duration_ms,
+                    status=status,
+                    error_text=error_text,
+                )
+            )
+
+    @staticmethod
+    def _spawn_call_log_task(coro: Coroutine[Any, Any, None]) -> None:
+        """Fire-and-forget one proxy usage record; log and swallow failures.
+
+        Args:
+            coro: The record coroutine to run detached.
+        """
+        try:
+            task = asyncio.create_task(coro)
+        except RuntimeError:
+            coro.close()  # 无运行循环：显式关闭，避免 coroutine never awaited
+            logger.warning("[Humanize] LLM call-log record skipped: no event loop")
+            return
+        task.add_done_callback(_swallow_call_log_task_exception)
+
+    async def _record_proxied_llm_call(
+        self,
+        trace: dict[str, str],
+        provider: Any,
+        kwargs: dict[str, Any],
+        *,
+        duration_ms: int,
+        status: str,
+        error_text: str = "",
+        response: Any = None,
+    ) -> None:
+        """Persist one proxied call's provider-reported usage; never raise.
+
+        Args:
+            trace: Context mapping from :func:`llm_call_context`.
+            provider: Provider instance that served the call.
+            kwargs: Keyword arguments the call was made with.
+            duration_ms: Measured call duration in milliseconds.
+            status: ``ok`` or ``error``.
+            error_text: Truncated error description for failed calls.
+            response: Provider response when the call succeeded.
+        """
+        if self._container is None or not self._is_active:
+            return
+        repository = getattr(self._container, "repository", None)
+        if repository is None:
+            return
+        try:
+            identity = provider_identity(provider)
+        except Exception:
+            identity = {}
+        usage: dict[str, int] = {"input_cached": 0, "input_other": 0, "output": 0}
+        observed = False
+        if status == "ok" and response is not None:
+            usage, observed = llm_response_usage(response)
+        try:
+            await repository.record_llm_call(
+                call_type=str(trace.get("call_type") or "unknown"),
+                scope_type=str(trace.get("scope_type") or ""),
+                scope_id=str(trace.get("scope_id") or ""),
+                conversation_id=str(trace.get("conversation_id") or ""),
+                request_id=str(trace.get("request_id") or ""),
+                provider_id=str(identity.get("provider_id") or ""),
+                provider_type=str(identity.get("provider_type") or ""),
+                model=str(kwargs.get("model") or identity.get("model") or ""),
+                input_cached=usage.get("input_cached", 0),
+                input_other=usage.get("input_other", 0),
+                output_tokens=usage.get("output", 0),
+                usage_observed=observed,
+                duration_ms=duration_ms,
+                status=status,
+                error=error_text,
+            )
+        except Exception:
+            logger.warning(
+                "[Humanize] LLM call-log record failed",
+                exc_info=True,
+            )
 
     def _evict_stale_provider_capture(self, now: float) -> None:
         """Drop captures that no final response ever claimed.
