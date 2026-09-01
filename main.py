@@ -1744,6 +1744,19 @@ class HumanizePlugin(Star):
         clean_text = response.completion_text if response else ""
         if state in {EventState.FINAL_BLOCKED.value, EventState.NO_REPLY.value}:
             clean_text = ""
+            if state == EventState.FINAL_BLOCKED.value:
+                # 发送失败的回合：原生历史同样保留带失败标注的原始输出，
+                # 与托管窗口语义一致——后续轮次由此知道这条回复发送失败
+                # 过、失败内容是什么。其余阻断原因仍剥离被拒输出。
+                send_failed_reason = str(
+                    event.get_extra(_SEND_FAILED_REASON_KEY, "") or ""
+                )
+                annotated = event.get_extra(_SEND_FAILED_MESSAGES_KEY, ())
+                if send_failed_reason and isinstance(annotated, (tuple, list)):
+                    clean_text = next(
+                        (str(item) for item in annotated if str(item).strip()),
+                        "",
+                    )
         assistant = self._replace_current_assistant_message(
             run_context,
             user_index=user_index,
@@ -2622,7 +2635,12 @@ class HumanizePlugin(Star):
         body = str(raw_output or "").strip()
         if len(body) > _MAX_FAILED_TURN_CHARS:
             body = body[:_MAX_FAILED_TURN_CHARS] + "…"
-        annotated = f"〔发送失败：{error_code}〕"
+        # 标注格式与会话侧系统通告一致：中文原因 + 稳定错误码，模型读到
+        # 历史即可知道发送失败的原因，而不必猜测错误码含义。
+        reason = _PROTOCOL_FAILURE_REASONS.get(
+            error_code, _PROTOCOL_FAILURE_FALLBACK_REASON
+        )
+        annotated = f"〔发送失败：{reason}（{error_code}）〕"
         if body:
             annotated = f"{annotated}\n{body}"
         return annotated

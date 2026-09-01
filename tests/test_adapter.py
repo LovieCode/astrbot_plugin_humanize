@@ -2174,7 +2174,7 @@ def test_invalid_final_output_is_blocked_with_notice_and_annotation() -> None:
         ]
         assert event.get_extra("_humanize_send_failed_reason") == "missing_action"
         assert event.get_extra("_humanize_send_failed_messages") == (
-            f"〔发送失败：missing_action〕\n{raw_output}",
+            f"〔发送失败：输出缺少 Action 控制头（missing_action）〕\n{raw_output}",
         )
 
     asyncio.run(scenario())
@@ -2198,13 +2198,15 @@ def test_invalid_final_output_truncates_long_body_in_annotation() -> None:
         annotated = HumanizePlugin._failed_turn_message("missing_messages", raw_output)
 
         assert annotated == (
-            "〔发送失败：missing_messages〕\n" + raw_output.strip()[:2000] + "…"
+            "〔发送失败：Reply 缺少 Messages 消息块（missing_messages）〕\n"
+            + raw_output.strip()[:2000]
+            + "…"
         )
         assert long_body[:2000] not in annotated  # 正文整体未保留，只截到上限
 
         # 无正文的空输出也要有可读的失败标注。
         assert HumanizePlugin._failed_turn_message("empty_output", "  ") == (
-            "〔发送失败：empty_output〕"
+            "〔发送失败：模型没有输出任何内容（empty_output）〕"
         )
 
     asyncio.run(scenario())
@@ -2252,7 +2254,7 @@ def test_proactive_failure_stays_silent_but_still_annotates() -> None:
             "invalid_unknown_terms"
         )
         assert event.get_extra("_humanize_send_failed_messages") == (
-            "〔发送失败：invalid_unknown_terms〕\n"
+            "〔发送失败：UnknownTerms 陌生词字段无效（invalid_unknown_terms）〕\n"
             "<Action>Reply</Action>\n<UnknownTerms>oops</UnknownTerms>",
         )
 
@@ -2338,6 +2340,82 @@ def test_failed_turn_persists_annotated_history_via_context_window() -> None:
             {"action": "No Reply", "messages": (), "context_ref": "ctx-1"}
         ]
         assert event.get_extra("_humanize_context_turn_ref") == "ctx-1"
+
+    asyncio.run(scenario())
+
+
+def test_send_failed_native_history_keeps_annotated_assistant() -> None:
+    """原生历史同步路径：发送失败回合保留带标注的 assistant 原始输出。"""
+
+    raw_output = (
+        "Action: Reply\nUnknownTerms: []\n<Messages><Message>正文</Message></Messages>"
+    )
+
+    class Service:
+        async def process_final_response(self, context, raw, **kwargs):
+            return FinalOutcome(
+                valid=False,
+                error_code="missing_action",
+                error_detail="Response must contain an <Action> tag",
+            )
+
+    class NotifyingContext:
+        def __init__(self) -> None:
+            self.notices: list[str] = []
+
+        async def send_message(self, umo, chain):
+            self.notices.append(chain.get_plain_text())
+
+    async def scenario() -> None:
+        context = NotifyingContext()
+        plugin = HumanizePlugin(context, {})
+        plugin._container = SimpleNamespace(service=Service())
+        event = _FakeEvent()
+        event.set_extra("_humanize_state", EventState.REQUESTED.value)
+        event.set_extra("_humanize_context", _context())
+        event.set_extra("_humanize_context_window_active", False)
+        event.set_extra("_humanize_history_sync_required", True)
+        message_xml = "<Msg>在吗</Msg>"
+        event.set_extra("_humanize_message_xml", message_xml)
+        response = LLMResponse(role="assistant", completion_text=raw_output)
+
+        await plugin.enforce_response_protocol(event, response)
+
+        assert event.stopped
+        assert event.get_extra("_humanize_state") == EventState.FINAL_BLOCKED.value
+
+        run_context = SimpleNamespace(
+            messages=[
+                Message(role="user", content=[TextPart(text=message_xml)]),
+                Message(role="assistant", content=raw_output),
+            ]
+        )
+        await plugin.synchronize_agent_history(event, run_context, response)
+
+        # 失败回合：assistant 消息不被清空，内容替换为带失败标注的原文，
+        # 后续轮次由此知道这条回复发送失败过、失败内容是什么。
+        assert len(run_context.messages) == 2
+        assert run_context.messages[1].content == (
+            f"〔发送失败：输出缺少 Action 控制头（missing_action）〕\n{raw_output}"
+        )
+        assert event.get_extra("_humanize_assistant_message") is not None
+
+        # 对照组：无发送失败标注的普通阻断仍然剥离 assistant 输出。
+        plain_event = _FakeEvent()
+        plain_event.set_extra("_humanize_state", EventState.FINAL_BLOCKED.value)
+        plain_event.set_extra("_humanize_context", _context())
+        plain_event.set_extra("_humanize_context_window_active", False)
+        plain_event.set_extra("_humanize_history_sync_required", True)
+        plain_event.set_extra("_humanize_message_xml", message_xml)
+        plain_event.set_extra("_humanize_raw_output", raw_output)
+        plain_run_context = SimpleNamespace(
+            messages=[
+                Message(role="user", content=[TextPart(text=message_xml)]),
+                Message(role="assistant", content=raw_output),
+            ]
+        )
+        await plugin.synchronize_agent_history(plain_event, plain_run_context, response)
+        assert len(plain_run_context.messages) == 1
 
     asyncio.run(scenario())
 

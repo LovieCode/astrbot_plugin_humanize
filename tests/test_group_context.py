@@ -943,7 +943,10 @@ def test_send_failed_turn_keeps_annotated_assistant_in_history(
                 {"role": "user", "content": "在吗"},
                 {"role": "assistant", "content": "Action: Reply\n普通正文"},
             ],
-            final_messages=("〔发送失败：missing_action〕\nAction: Reply\n普通正文",),
+            final_messages=(
+                "〔发送失败：输出缺少 Action 控制头（missing_action）〕\n"
+                "Action: Reply\n普通正文",
+            ),
             token_budget=30_000,
             send_failed_reason="missing_action",
         )
@@ -952,7 +955,8 @@ def test_send_failed_turn_keeps_annotated_assistant_in_history(
         # 失败标注 + 原始输出进入历史（带 Bot 前缀）
         assert any(
             item["role"] == "assistant"
-            and "〔发送失败：missing_action〕" in str(item["content"])
+            and "〔发送失败：输出缺少 Action 控制头（missing_action）〕"
+            in str(item["content"])
             and "Action: Reply\n普通正文" in str(item["content"])
             for item in rendered
         )
