@@ -2,10 +2,11 @@
 
 The compaction path always writes a deterministic transcript first
 (``[sender · time] body （ctx-XXXXXXXX）`` per evicted turn). This module
-implements the second PLAN stage: an asynchronous Provider pass that
-rewrites those lines into a shorter digest while keeping the same
-line shape and whitelisted context references, so the model can still
-read back the full record behind any summarized fact.
+implements the second stage: an asynchronous Provider pass that rewrites
+the whole summary (previous digest + newly evicted lines) into a short
+rolling digest. It is selective by design — only information useful for
+future conversation survives, plus whitelisted context references so the
+model can still read back the full record behind any summarized fact.
 """
 
 from __future__ import annotations
@@ -18,19 +19,21 @@ _LINE_PREFIX_PATTERN = re.compile(r"^\[[^\[\]\n]+\]\s")
 _MAX_LINES = 200
 
 _SYSTEM_PROMPT = (
-    "你是对话记录压缩器。把给定的历史聊天逐行摘要成更短的记录，只输出摘要本身。"
+    "你是对话记录压缩器。把上一轮摘要与新增对话行整合成一份新的滚动摘要，"
+    "只输出摘要本身。"
 )
-_PROMPT_TEMPLATE = """把下面这段较早的聊天记录压缩成一份更短的逐行摘要。
+_PROMPT_TEMPLATE = """把下面这份会话历史（上一轮摘要 + 最新折叠进来的对话行）改写成一份新的滚动摘要。
 
 要求：
 1. 每行保持原格式：[发送者 · 时间] 内容。
-2. 保留重要信息：人名、时间、约定、计划、观点、承诺、分歧、明确的事实；合并重复的闲聊（如刷屏、表情、寒暄可以合并成一行）。
-3. 时间和发送者必须保留；一行可以概括多轮相近内容。
-4. 在重要信息后面用括号标注对应的引用，例如“（ctx-2A2B3C4D）”。只能使用输入里出现过的引用，不得编造。
-5. 总长度不超过 {max_chars} 字，行数尽量少。
-6. 只输出摘要行本身，不要输出任何解释、标题或额外说明。
+2. 只保留对后续对话有帮助的信息：事实、约定、计划、承诺、分歧、人物偏好、未决话题；寒暄、刷屏、表情等琐碎闲聊合并成一行或直接省略。
+3. 上一轮摘要里仍然有效的约定、承诺与重要事实必须延续到新摘要，不得无故丢失。
+4. 时间和发送者必须保留；一行可以概括多轮相近内容。
+5. 在重要信息后面用括号标注对应的引用，例如“（ctx-2A2B3C4D）”。只能使用输入里出现过的引用，不得编造。
+6. 总长度不超过 {max_chars} 字，行数尽量少。
+7. 只输出摘要行本身，不要输出任何解释、标题或额外说明。
 
-聊天记录：
+会话历史：
 {content}"""
 
 
@@ -41,7 +44,7 @@ class ContextSummarizer:
         self,
         provider_bridge: Any,
         *,
-        max_chars: int = 2_400,
+        max_chars: int = 1_000,
     ) -> None:
         """Store the bridge and bounds without contacting the Provider.
 
@@ -62,7 +65,8 @@ class ContextSummarizer:
         count and a character cap (dropping oldest lines first).
 
         Args:
-            text: Current deterministic summary text (non-empty).
+            text: Current summary text (previous digest + newly evicted
+                deterministic lines), non-empty.
 
         Returns:
             Sanitized digest text, or ``None`` when the Provider fails or

@@ -1,4 +1,15 @@
-"""Bounded, scoped chat-context storage backed by the OpenViking workspace."""
+"""Bounded, scoped chat-context storage backed by the OpenViking workspace.
+
+窗口结构（正文回合 + 旁观条目共用）：
+
+- 热区上限 40 条，触顶丢弃最旧 20 条（超预算压缩下限同为 20）；
+- 渲染时最新 15 条全文，更早的走冷区：正文 700 字、工具 1200 字截断，
+  并附 ``Earlier content folded`` 折叠提示与 ctx-ref（可回读全文）；
+- 被丢弃的条目先逐行折成确定性摘要（≤1000 字，丢最旧行），再由
+  ``ContextSummarizer`` 把「上一轮摘要 + 新淘汰行」滚动压缩成新的
+  选择性摘要；旁观（Observed）条目在热区只允许占预算的 30%。
+被淘汰内容始终保留在 context_l2 归档，可按 ctx-ref 回读全文。
+"""
 
 from __future__ import annotations
 
@@ -22,12 +33,21 @@ _WINDOW_VERSION = 1
 _WINDOW_CAPACITY = 40
 _WINDOW_KEEP = 20
 _HOT_ENTRY_COUNT = 20
+# 冷区边界：热区里最新 15 条正文不截断，更早的按冷区预算折叠（带 ref）。
+_COLD_RECENT_COUNT = 15
 _DEFAULT_TOKEN_BUDGET = 6_000
-_SUMMARY_MAX_CHARS = 6_000
+# 滚动摘要（system 历史块）的硬上限：上一轮摘要 + 新淘汰行 → LLM 选择性
+# 压缩成新摘要，逐轮有损耗是设计取舍（用户确认，2026-09）。
+_SUMMARY_MAX_CHARS = 1_000
 _COLD_TEXT_CHARS = 700
 _COLD_TOOL_CHARS = 1_200
 _SUMMARY_LINE_CHARS = 180
 _L2_MESSAGE_MAX_CHARS = 64_000
+# 旁观（Observed）条目只允许占窗口预算的一小部分：活跃群聊里未@消息
+# 很多，放任它们和真实回合抢同一份预算，会把真实对话挤出热区。
+_CHATTER_BUDGET_SHARE = 0.3
+# 单条旁观消息（含图片标注）的落盘上限，远小于真实回合的 64k 上限。
+_CHATTER_MESSAGE_MAX_CHARS = 2_000
 _L2_READ_MAX_CHARS = 6_000
 _CONTEXT_REF_PATTERN = re.compile(r"^ctx-[A-Z2-7]{8}$")
 _OBSERVED_ACTION = "Observed"
@@ -233,19 +253,21 @@ class ContextWindowService:
         self._summarizer = summarizer
 
     async def refresh_summary(self, context: MessageContext) -> bool:
-        """Digest the pending summary lines through the attached summarizer.
+        """Roll the summary forward through the attached summarizer.
 
-        压缩路径始终先写确定性逐行摘要（PLAN 第 5 步的第一阶段）；本方法
-        是第二阶段：后台把**尚未消化**的确定性行改写为更短的 LLM 摘要。
-        已摘要的旧文本冻结、不再送 digest——避免「摘要的摘要」逐轮丢细节。
-        写回前比对快照文本（field-level CAS）：期间若发生新的压缩，本次
-        结果作废，等待下一次触发。任何失败都保留确定性版本。
+        压缩路径始终先写确定性逐行摘要（第一阶段）；本方法是第二阶段：
+        把**上一轮摘要 + 新淘汰的确定性行**整体交给 LLM 压成一份新摘要
+        （滚动压缩，总长受 _SUMMARY_MAX_CHARS 钳制）。逐轮重压缩会让最
+        早期细节逐渐衰减——这是 1000 字滚动摘要的设计取舍（用户确认），
+        由提示词里的「约定/承诺/重要事实必须延续」规则缓解。写回前比对
+        快照文本（field-level CAS）：期间若发生新的压缩，本次结果作废。
+        任何失败都保留确定性版本。
 
         Args:
             context: Trusted metadata for the conversation to refresh.
 
         Returns:
-            Whether new pending lines were replaced by an LLM digest.
+            Whether the summary was replaced by an LLM digest.
         """
         summarizer = self._summarizer
         if summarizer is None or not self._ready:
@@ -253,28 +275,25 @@ class ContextWindowService:
         snapshot = await asyncio.to_thread(self._summary_snapshot_sync, context)
         if snapshot is None:
             return False
-        key, full_text, frozen_text, pending_text = snapshot
+        key, full_text = snapshot
         if key in self._summary_pending:
             return False
         self._summary_pending.add(key)
         try:
-            digest = await summarizer.digest(pending_text)
+            digest = await summarizer.digest(full_text)
             if not digest:
                 return False
             return await asyncio.to_thread(
                 self._apply_summary_sync,
                 context,
                 full_text,
-                frozen_text,
                 digest,
             )
         finally:
             self._summary_pending.discard(key)
 
-    def _summary_snapshot_sync(
-        self, context: MessageContext
-    ) -> tuple[str, str, str, str] | None:
-        """Read the pending deterministic lines and the frozen prefix, if any."""
+    def _summary_snapshot_sync(self, context: MessageContext) -> tuple[str, str] | None:
+        """Read the current summary text as the digest input, if pending."""
         identity, agent_id, session_directory = self._session_info(context)
         state_path = session_directory / "context_window.json"
         with self._workspace.transaction() as transaction:
@@ -286,20 +305,15 @@ class ContextWindowService:
             ]
             if not pending or not text:
                 return None
-            # 冻结部分 = 全文减去末尾的 pending 行（新增行总是在尾部）。
-            lines = text.splitlines()
-            pending_count = min(len(pending), len(lines))
-            frozen = "\n".join(lines[:-pending_count]) if pending_count else text
-            return str(session_directory), text, frozen, "\n".join(pending)
+            return str(session_directory), text
 
     def _apply_summary_sync(
         self,
         context: MessageContext,
         expected: str,
-        frozen: str,
         digest: str,
     ) -> bool:
-        """Replace only the pending tail when the full text still matches."""
+        """Replace the whole summary when the full text still matches."""
         identity, agent_id, session_directory = self._session_info(context)
         state_path = session_directory / "context_window.json"
         with self._workspace.transaction() as transaction:
@@ -308,9 +322,8 @@ class ContextWindowService:
             current = str(summary.get("text") or "").strip()
             if current != expected:
                 return False
-            joined = "\n".join(part for part in (frozen, digest) if part.strip())
             state["summary"] = {
-                "text": self._clip(joined, _SUMMARY_MAX_CHARS),
+                "text": self._clip(digest, _SUMMARY_MAX_CHARS),
                 "llm": True,
                 "pending": [],
             }
@@ -421,7 +434,10 @@ class ContextWindowService:
                 "bot_name": "",
                 "l0": self._clip(f"{sender_name}: {l0_body}", 160),
                 "messages": [
-                    {"role": "user", "content": self._clip(body, _L2_MESSAGE_MAX_CHARS)}
+                    {
+                        "role": "user",
+                        "content": self._clip(body, _CHATTER_MESSAGE_MAX_CHARS),
+                    }
                 ],
                 "source_complete": True,
                 "turn_ref": "",
@@ -778,9 +794,16 @@ class ContextWindowService:
         token_budget: int,
     ) -> bool:
         entries = state["entries"]
-        if len(entries) < _WINDOW_CAPACITY and self._estimate_state(
-            transaction, state, session_directory
-        ) <= self._bounded_budget(token_budget):
+        bounded = self._bounded_budget(token_budget)
+        # 旁观份额：未@消息再多，热区里也只能占这么多预算，超出部分按
+        # 最旧旁观优先折进摘要，真实回合在热区里保得更久。
+        chatter_budget = max(256, int(bounded * _CHATTER_BUDGET_SHARE))
+        if (
+            len(entries) < _WINDOW_CAPACITY
+            and self._estimate_state(transaction, state, session_directory) <= bounded
+            and self._estimate_chatter_tokens(transaction, state, session_directory)
+            <= chatter_budget
+        ):
             return False
 
         evicted: list[dict[str, str]] = []
@@ -788,6 +811,31 @@ class ContextWindowService:
             keep = min(_WINDOW_KEEP, len(entries))
             evicted.extend(entries[:-keep])
             del entries[:-keep]
+
+        # 旁观超份额：逐条淘汰最旧的 Observed 条目（真实回合不动），同样
+        # 逐行进摘要。份额按被淘汰条目的实际大小递减，不再每轮全量重估。
+        chatter_tokens = self._estimate_chatter_tokens(
+            transaction, state, session_directory
+        )
+        while len(entries) > 1 and chatter_tokens > chatter_budget:
+            index = next(
+                (
+                    i
+                    for i, entry in enumerate(entries)
+                    if entry.get("action") == _OBSERVED_ACTION
+                ),
+                -1,
+            )
+            if index < 0:
+                break
+            evicted_entry = entries.pop(index)
+            evicted.append(evicted_entry)
+            record = self._read_l2(
+                transaction, session_directory, evicted_entry["context_ref"]
+            )
+            chatter_tokens = max(
+                0, chatter_tokens - self._record_message_tokens(record)
+            )
 
         while len(entries) > _HOT_ENTRY_COUNT and self._estimate_state(
             transaction, state, session_directory
@@ -808,17 +856,18 @@ class ContextWindowService:
             new_lines.extend(self._summary_line(entry, detail).splitlines())
         summary_lines.extend(new_lines)
         # 超预算时优先丢最旧的行：最新被淘汰的内容保持可见，方向与
-        # entries 的淘汰语义一致（旧的先让位）。
+        # entries 的淘汰语义一致（旧的先让位）。刷屏洪峰下 1000 字上限
+        # 可能裁掉上一轮摘要的头部——被裁内容仍完整保留在 context_l2 归
+        # 档里，可按 ctx-ref 回读。
         while summary_lines and len("\n".join(summary_lines)) > _SUMMARY_MAX_CHARS:
             summary_lines.pop(0)
         text = "\n".join(summary_lines)
         if len(text) > _SUMMARY_MAX_CHARS:
             text = self._clip(text, _SUMMARY_MAX_CHARS)
-        # pending 累积「尚未被 LLM 摘要消化」的确定性行；refresh_summary
-        # 只对这些行做 digest，已摘要的旧文本冻结不再重压缩（摘要的摘要
-        # 会逐轮丢细节，必须避免）。pending 必须与裁剪后的 text 尾部对齐：
-        # 预算裁掉的最旧行不再等待摘要，否则无 provider 期间会无限累积、
-        # 已裁行还会在下次 digest 时「复活」。
+        # pending 累积「尚未被滚动摘要消化」的确定性行；refresh_summary 把
+        # 当前全文（含上一轮摘要）整体送 LLM 压成新摘要。pending 必须与
+        # 裁剪后的 text 尾部对齐：预算裁掉的最旧行不再等待摘要，否则无
+        # provider 期间会无限累积、已裁行还会在下次 digest 时「复活」。
         combined = [*list(state["summary"].get("pending") or []), *new_lines]
         tail = text.splitlines()
         matched: list[str] = []
@@ -852,7 +901,7 @@ class ContextWindowService:
                     ),
                 }
             )
-        cold_boundary = max(0, len(state["entries"]) - _HOT_ENTRY_COUNT)
+        cold_boundary = max(0, len(state["entries"]) - _COLD_RECENT_COUNT)
         for index, entry in enumerate(state["entries"]):
             record = self._read_l2(
                 transaction,
@@ -1241,6 +1290,45 @@ class ContextWindowService:
                 result.append(message)
         flush()
         return result
+
+    @staticmethod
+    def _record_message_tokens(record: dict[str, Any] | None) -> int:
+        """Estimate the token cost of one L2 record's messages, 4 chars/token.
+
+        Args:
+            record: Parsed L2 record, or None when it is gone.
+
+        Returns:
+            Approximate token count of the record's message payload.
+        """
+        if not record:
+            return 0
+        chars = len(json.dumps(record.get("messages", []), ensure_ascii=False))
+        return max(0, (chars + 3) // 4)
+
+    def _estimate_chatter_tokens(
+        self,
+        transaction: WorkspaceTransaction,
+        state: dict[str, Any],
+        session_directory: Path,
+    ) -> int:
+        """Estimate the hot-zone token cost of Observed (chatter) entries.
+
+        Args:
+            transaction: Workspace transaction for L2 reads.
+            state: Parsed window state.
+            session_directory: Session directory holding L2 records.
+
+        Returns:
+            Approximate token count of the chatter entries alone.
+        """
+        tokens = 0
+        for entry in state["entries"]:
+            if entry.get("action") != _OBSERVED_ACTION:
+                continue
+            record = self._read_l2(transaction, session_directory, entry["context_ref"])
+            tokens += self._record_message_tokens(record)
+        return tokens
 
     def _estimate_state(
         self,

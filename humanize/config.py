@@ -112,7 +112,8 @@ class PluginConfig:
     memory_contradiction_penalty: float = 0.5
     memory_related_boost: float = 0.15
     context_summary_enabled: bool = True
-    context_summary_max_chars: int = 2_400
+    # 滚动摘要的 LLM 输出预算；window._SUMMARY_MAX_CHARS（1000）是渲染硬上限。
+    context_summary_max_chars: int = 1_000
     context_summary_timeout_seconds: float = 30.0
     memory_intent_analysis_enabled: bool = False
     memory_extract_batch_turns: int = 8
@@ -237,7 +238,7 @@ class PluginConfig:
             ),
             context_summary_enabled=_as_bool(data.get("context_summary_enabled"), True),
             context_summary_max_chars=_as_int(
-                data.get("context_summary_max_chars"), 2_400, 500, 6_000
+                data.get("context_summary_max_chars"), 1_000, 500, 1_000
             ),
             context_summary_timeout_seconds=_as_float(
                 data.get("context_summary_timeout_seconds"), 30.0, 5.0, 120.0

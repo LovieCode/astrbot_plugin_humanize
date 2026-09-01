@@ -310,6 +310,40 @@ def test_tool_chains_and_images_are_safe_in_hot_and_cold_context(
     asyncio.run(scenario())
 
 
+def test_cold_boundary_folds_all_but_recent_fifteen(tmp_path: Path) -> None:
+    """最新 15 条正文全文渲染，更早的进入冷区：截断并带折叠回读提示。"""
+
+    async def scenario() -> None:
+        window, _, _ = await _window(tmp_path)
+        long_body = "很长的正文内容。" * 120  # ~960 字，超过冷区 700 字上限
+        for index in range(1, 21):
+            context = _context(index, user_text=f"turn{index}-" + long_body)
+            await window.append(
+                context,
+                action="Reply",
+                run_messages=[
+                    {"role": "user", "content": f"turn{index}-" + long_body},
+                    {"role": "assistant", "content": f"reply {index}"},
+                ],
+                final_messages=(f"reply {index}",),
+                token_budget=30_000,
+            )
+        loaded = await window.load(_context(99), token_budget=30_000)
+        joined = "\n".join(
+            str(item.get("content"))
+            for item in loaded.contexts
+            if item.get("role") == "user"
+        )
+        # 20 条中较早的 5 条（turn1..turn5）为冷区：截断 + 折叠提示。
+        assert joined.count("Earlier content folded") == 5
+        # 最新 15 条（turn6..turn20）全文渲染，不做冷区折叠。
+        assert f"turn6-{long_body}" in joined
+        assert f"turn20-{long_body}" in joined
+        assert f"turn5-{long_body}" not in joined  # 冷区条目已截断
+
+    asyncio.run(scenario())
+
+
 def test_canonical_context_turn_is_reused_by_openviking_memory_and_session_fallback(
     tmp_path: Path,
 ) -> None:
@@ -1071,12 +1105,12 @@ def test_summary_trim_drops_oldest_lines_first(tmp_path: Path) -> None:
             for item in loaded.contexts[1:]
             if item.get("role") == "user"
         )
-        # 60 条旁观：索引 1..40 被淘汰进摘要，41..60 仍在热区。
-        assert "刷屏40-" in summary  # 最新被淘汰的保持可见
+        # 摘要上限 1000 字：只保留最新淘汰的几行，更早的已让位。
         assert "刷屏1-" not in summary  # 最旧的被裁掉
+        assert any(f"刷屏{index}-" in summary for index in range(40, 57))
         assert "刷屏60-" in hot  # 尚未被淘汰
         # 总量被钉在摘要上限内（含头部声明行）。
-        assert len(summary) <= 6_100
+        assert len(summary) <= 1_100
 
     asyncio.run(scenario())
 
