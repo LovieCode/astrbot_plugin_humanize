@@ -230,11 +230,18 @@ CORPUS: list[ResponseCase] = [
         expected_no_reply_reason="当前话题不适合插话",
     ),
     ResponseCase(
-        description="UnknownTerms tag without valid JSON is tolerated",
-        raw="<Action>Reply</Action>\n<UnknownTerms>[broken</UnknownTerms>\n"
+        description="empty UnknownTerms tag tolerated",
+        raw="<Action>Reply</Action>\n<UnknownTerms></UnknownTerms>\n"
         "<Messages><Message>ok</Message></Messages>",
         expected_valid=True,
         expected_action="Reply",
+    ),
+    ResponseCase(
+        description="UnknownTerms JSON parse error",
+        raw="<Action>Reply</Action>\n<UnknownTerms>[broken</UnknownTerms>\n"
+        "<Messages><Message>ok</Message></Messages>",
+        expected_valid=False,
+        expected_error_code="invalid_unknown_terms_json",
     ),
     ResponseCase(
         description="UnknownTerms is a JSON object, not array",
