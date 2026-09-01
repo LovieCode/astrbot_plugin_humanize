@@ -659,9 +659,9 @@ def test_wake_pending_defers_proactive_evaluation(
             )
             synthetic = await asyncio.wait_for(queue.get(), timeout=5)
 
-            # 唤醒回合进入 prepare（置让路标记），还没轮到 on_llm_request。
+            # 唤醒回合即将排队等锁（置让路标记），还没轮到 on_llm_request。
             wake = _group_event(text="bot 指挥是我", at_bot=True, message_id="m-2")
-            await plugin.prepare_message_event(wake)
+            await plugin.on_waiting_llm_request(wake)
 
             synthetic.set_extra("_humanize_proactive_outcome_callback", None)
             req = ProviderRequest(
@@ -700,7 +700,7 @@ def test_wake_pending_defers_proactive_evaluation(
 def test_foreign_event_does_not_clear_wake_pending(
     tmp_path: Path, monkeypatch: pytest.MonkeyPatch
 ) -> None:
-    """命令或其他回合的 decorating 不得抹掉仍在排队的真实 @ 让路标记。"""
+    """命令等非模型回合既不置让路标记，也不得抹掉在途 @ 的标记。"""
 
     async def scenario() -> None:
         queue: asyncio.Queue = asyncio.Queue()
@@ -715,11 +715,17 @@ def test_foreign_event_does_not_clear_wake_pending(
             )
             synthetic = await asyncio.wait_for(queue.get(), timeout=5)
 
+            # 命令是唤醒事件，但不调用模型：prepare 不再置让路标记。
+            command = _group_event(text="/help", at_bot=True, message_id="m-cmd")
+            await plugin.prepare_message_event(command)
+            assert SCOPE not in plugin._wake_started_at
+
+            # 真实 @ 即将排队等锁：置标记。
             wake = _group_event(text="bot 指挥是我", at_bot=True, message_id="m-2")
-            await plugin.prepare_message_event(wake)
+            await plugin.on_waiting_llm_request(wake)
             assert SCOPE in plugin._wake_started_at
 
-            command = _group_event(text="/help", at_bot=True, message_id="m-cmd")
+            # 其他事件（含命令收尾）不得误清。
             await plugin.finalize_decoration(command)
             assert SCOPE in plugin._wake_started_at
 

@@ -121,8 +121,9 @@ _PROACTIVE_ARMED_SERIAL_KEY = "_humanize_proactive_armed_reply_serial"
 _PROACTIVE_ARMED_ENTRIES_KEY = "_humanize_proactive_armed_window_entries"
 # 当前请求加载的托管窗口条目数（含 Wait 基线比对用）。
 _CONTEXT_WINDOW_ENTRY_COUNT_KEY = "_humanize_context_window_entry_count"
-# 唤醒让路：@/私聊进入管线但还没轮到自己的 on_llm_request 时置位。
-# 期间排队的主动评估直接让路；异常终止靠 TTL 兜底。
+# 唤醒让路：唤醒回合即将排队等会话锁（OnWaitingLLMRequestEvent）时置位，
+# 到它自己的 on_llm_request 为止。期间排队的主动评估直接让路；异常终止
+# 靠 TTL 兜底。命令等不调用模型的回合不置位，不压制主动评估。
 _WAKE_PENDING_TTL_SECONDS = 120.0
 _PROACTIVE_OUTCOME_CALLBACK_KEY = "_humanize_proactive_outcome_callback"
 _PROACTIVE_OUTCOME_FIRED_KEY = "_humanize_proactive_outcome_fired"
@@ -307,9 +308,9 @@ class HumanizePlugin(Star):
         self._provider_hooks_installed = False
         self._provider_originals: list[tuple] = []
         self._provider_capture: dict[str, dict[str, Any]] = {}
-        # 唤醒事件（@/私聊）从 prepare 到自己轮到 on_llm_request 之间可能
-        # 间隔一整个在途回合；这段时间里排队的主动评估应当让路。按会话
-        # 记录「哪个事件置的标记」，别的事件收尾不得误清。
+        # 唤醒回合从「即将排队等锁」到自己轮到 on_llm_request 之间，排队
+        # 的主动评估应当让路。按会话记录「哪个事件置的标记」，别的回合
+        # 收尾不得误清。
         self._wake_started_at: dict[str, tuple[int, float]] = {}
 
     async def initialize(self) -> None:
@@ -397,15 +398,6 @@ class HumanizePlugin(Star):
             return
         event.set_extra("enable_streaming", False)
         self._install_send_gate(event)
-        # 唤醒消息（@/私聊）进入管线：记录它已开始但尚未轮到自己的
-        # on_llm_request，让这期间排队的主动评估让路（同一会话锁保证
-        # 真实回复先完成）。主动合成事件自身带 _PROACTIVE_KIND_KEY，不算。
-        if (
-            getattr(event, "is_at_or_wake_command", False)
-            and not event.get_extra(_PROACTIVE_KIND_KEY, False)
-            and self._container is not None
-        ):
-            self._arm_wake_pending(event)
         policy_mode = await self._policy_mode_for(
             str(getattr(event, "unified_msg_origin", "") or "")
         )
@@ -415,6 +407,27 @@ class HumanizePlugin(Star):
             await self._prepare_images(event)
         await self._maybe_record_chatter(event, policy_mode=policy_mode)
         await self._maybe_schedule_proactive(event, policy_mode=policy_mode)
+
+    @filter.on_waiting_llm_request()
+    async def on_waiting_llm_request(self, event: AstrMessageEvent) -> None:
+        """Arm the wake-pending marker when a wake turn queues for its lock.
+
+        唤醒回合即将排队等会话锁（core 在拿到锁之前触发本钩子）：此刻
+        置让路标记，直到它自己的 on_llm_request 清除。命令、被其他插件
+        接管的回合等不调用模型的路径不会走到这里，天然不会压制主动
+        评估；合成主动事件自身带 _PROACTIVE_KIND_KEY，也不算。
+
+        Args:
+            event: The LLM-bound event about to wait for its session lock.
+        """
+        if not self._is_active:
+            return
+        if (
+            getattr(event, "is_at_or_wake_command", False)
+            and not event.get_extra(_PROACTIVE_KIND_KEY, False)
+            and self._container is not None
+        ):
+            self._arm_wake_pending(event)
 
     async def _maybe_remember_session(self, event: AstrMessageEvent) -> None:
         """Record one group session's display name for the policy page.
@@ -3581,8 +3594,8 @@ class HumanizePlugin(Star):
 
         评估真正开始前，先比对触发时打上的回复序号与当前序号：排队期间
         Bot 若已发过言（任何回合的最终回复都会推进序号），这条评估已经
-        过时。再看唤醒让路标记：有真实 @/私聊回合已进入管线但还没轮到
-        它自己的 LLM 阶段时，主动评估先让位。
+        过时。再看唤醒让路标记：有真实 @/私聊回合已在排队等会话锁、还
+        没轮到它自己的 on_llm_request 时，主动评估先让位。
 
         Args:
             event: The synthetic proactive event carrying the armed stamps.
