@@ -127,7 +127,7 @@ _DECORATION_FINALIZER_PRIORITY = -1_000_001
 _FINALIZER_PRIORITY = -100_000
 _NO_REPLY_SENTINEL = " "
 # 最终协议校验失败时，向会话发送的系统通告文案（中文原因 + 稳定错误码）。
-# 键为 parser/服务层的全部确定性错误码；未知码走兜底文案。
+# 键为 parser 的全部确定性错误码；未知码走兜底文案。
 _PROTOCOL_FAILURE_REASONS = {
     "empty_output": "模型没有输出任何内容",
     "missing_action": "输出缺少 Action 控制头",
@@ -135,8 +135,6 @@ _PROTOCOL_FAILURE_REASONS = {
     "invalid_wait_seconds": "Wait 等待时长无效",
     "wait_not_allowed": "当前回合不允许 Wait 等待",
     "missing_messages": "Reply 缺少 Messages 消息块",
-    "empty_message": "Reply 消息块里存在空 Message",
-    "too_many_messages": "单次回复拆条超出上限",
     "no_reply_disabled": "静默不回复未启用",
     "invalid_unknown_terms": "UnknownTerms 陌生词字段无效",
     "invalid_unknown_terms_json": "UnknownTerms 不是有效的 JSON 数组",

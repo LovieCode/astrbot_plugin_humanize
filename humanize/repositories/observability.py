@@ -44,7 +44,7 @@ class ObservabilityRepository:
 
         Args:
             request_id: AstrBot request identifier.
-            stage: ``tool``, ``final`` or ``repair`` stage.
+            stage: Provider call stage such as ``tool`` or ``final``.
             scope_type: Scope type for the conversation.
             scope_id: Scope identifier for the conversation.
             conversation_id: AstrBot conversation identifier.

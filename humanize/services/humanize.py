@@ -215,7 +215,7 @@ class HumanizeService:
                 logger.exception("[Humanize] failed to persist unknown terms")
 
         # Providers sometimes add one formatting blank line after the header. Keep the
-        # parser's exact body for repair/audit, but remove that framing blank before
+        # parser's exact body for audit, but remove that framing blank before
         # the validated message reaches outbound dispatch and history.
         messages = tuple(
             message[2:]

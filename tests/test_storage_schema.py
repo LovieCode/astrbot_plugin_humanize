@@ -82,6 +82,45 @@ def test_fresh_database_keeps_only_plugin_owned_memory_support_tables(
     asyncio.run(scenario())
 
 
+def test_legacy_prompt_template_table_backfills_default_row(tmp_path: Path) -> None:
+    """旧库（含 NOT NULL 的 repair_content 列）但模板表为空时也能回填默认行。"""
+
+    async def scenario() -> None:
+        db_path = tmp_path / "humanize.db"
+        with sqlite3.connect(db_path) as conn:
+            conn.executescript(
+                """
+                CREATE TABLE humanize_prompt_templates (
+                    id INTEGER PRIMARY KEY CHECK (id = 1),
+                    rule_content TEXT NOT NULL,
+                    protocol_content TEXT NOT NULL,
+                    repair_content TEXT NOT NULL,
+                    updated_at TEXT NOT NULL
+                );
+                PRAGMA user_version = 16;
+                """
+            )
+
+        repository = SQLiteRepository(db_path)
+        await repository.initialize()
+        stored = await repository.get_prompt_templates()
+
+        assert set(stored["templates"]) == {
+            "rule",
+            "protocol",
+            "memory_extraction",
+            "reply_examples",
+        }
+        with sqlite3.connect(db_path) as conn:
+            # repair_content 列仍在旧表中，回填时补空值满足 NOT NULL。
+            repair_value = conn.execute(
+                "SELECT repair_content FROM humanize_prompt_templates WHERE id = 1"
+            ).fetchone()[0]
+        assert repair_value == ""
+
+    asyncio.run(scenario())
+
+
 def test_schema_upgrade_drops_legacy_memory_and_control_tables(
     tmp_path: Path,
 ) -> None:

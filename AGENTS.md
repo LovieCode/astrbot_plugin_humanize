@@ -22,8 +22,8 @@
 
 - 插件通过 `_install_provider_hooks`（main.py）给所有 AstrBot Provider 子类的 `text_chat`/`text_chat_stream` 打了统一补丁：任何 LLM 调用都会先经过 `plugin._proxied_provider_call` / `_aiter_proxied_stream`（代理层，实现在 main.py + `humanize/llm_proxy.py`）。
 - **新增直接调用 Provider 的代码路径必须用 `humanize/llm_proxy.py` 的 `llm_call_context(call_type, request_id=…, scope_type=…, scope_id=…, conversation_id=…)` 异步上下文包裹 `text_chat` 调用**，否则该调用不会进入用量日志（代理只在上下文存在时记录，避免把其他插件/核心的调用计入本插件用量、也避免与主管线重复计数）。
-- 记录内容全部来自 Provider 回报的真实 usage（`response.usage`，缺失时回退 `raw_completion.usage`；都没有则 `usage_observed=0`、token 记 0，**禁止估算**），落到 `humanize_llm_call_log`（schema v30，含 call_type/scope/request 关联、duration_ms、status、截断 error）。主管线（tool/final/repair）已有 `_record_llm_usage_sample`，继续走 `humanize_llm_usage_samples`，两者在 `get_usage_overview` 合并。
-- 现有 call_type 约定：`final`/`tool`/`repair`（主管线，走 usage_samples）、`transcribe_image`、`transcribe_sticker`（转述，trace 带 request/scope）、`extract`（记忆抽取）、`openviking`。新增调用类型沿用小写下划线命名，并在 WebUI `dashboard.js` 的 `CALL_TYPE_LABEL` 补中文标签。
+- 记录内容全部来自 Provider 回报的真实 usage（`response.usage`，缺失时回退 `raw_completion.usage`；都没有则 `usage_observed=0`、token 记 0，**禁止估算**），落到 `humanize_llm_call_log`（schema v30，含 call_type/scope/request 关联、duration_ms、status、截断 error）。主管线（tool/final）已有 `_record_llm_usage_sample`，继续走 `humanize_llm_usage_samples`，两者在 `get_usage_overview` 合并。
+- 现有 call_type 约定：`final`/`tool`（主管线，走 usage_samples）、`transcribe_image`、`transcribe_sticker`（转述，trace 带 request/scope）、`extract`（记忆抽取）、`openviking`。新增调用类型沿用小写下划线命名，并在 WebUI `dashboard.js` 的 `CALL_TYPE_LABEL` 补中文标签。历史遗留：`repair`（协议修复已移除，不再产生新记录，仅旧数据展示用）。
 - 代理记录必须 fail-open：记录失败只打 warning，绝不影响 LLM 调用本身；不要在记录路径里引入新的必备依赖。
 - 首页用量面板数据来自 `GET usage-overview`（routes.py），不要从别的表"推算"用量。
 
