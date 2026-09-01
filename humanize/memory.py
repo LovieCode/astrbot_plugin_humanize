@@ -1810,16 +1810,38 @@ class ChatMemoryService:
 
         summary: list[dict[str, Any]] = []
         first_payload = valid_payloads[0] if valid_payloads else {}
-        for entry in deduplicated.values():
+        # 同批共现链接：先按确定性规则算出每个候选的 URI，再找出与它共享
+        # 至少一个来源回合的其他候选，作为 related 传给写盘（一跳召回用）。
+        batch_uris: dict[str, str] = {}
+        batch_commits: dict[str, set[str]] = {}
+        for key, entry in deduplicated.items():
+            candidate = entry["candidate"]
+            batch_uris[key] = self._openviking.memory_uri_for(
+                agent_id=str(candidate.get("agent_id") or "default"),
+                scope_type=str(candidate.get("scope_type") or ""),
+                scope_hash=str(candidate.get("scope_hash") or ""),
+                subject_hash=str(candidate.get("subject_hash") or ""),
+                memory_type=str(candidate.get("memory_type") or ""),
+                memory_key=str(candidate.get("memory_key") or ""),
+            )
+            batch_commits[key] = set(entry["source_commit_ids"])
+        for key, entry in deduplicated.items():
             candidate = entry["candidate"]
             if not entry["source_commit_ids"]:
                 raise RuntimeError("OpenViking Memory source commit is unavailable")
+            related_uris = tuple(
+                uri
+                for other_key, uri in batch_uris.items()
+                if other_key != key and (batch_commits[other_key] & batch_commits[key])
+            )
             try:
                 upserted = await asyncio.to_thread(
                     self._openviking.upsert_memory,
                     candidate,
                     evidence=entry["evidence"],
                     source_commit_ids=tuple(entry["source_commit_ids"]),
+                    related_uris=related_uris,
+                    contradiction_penalty=self._config.memory_contradiction_penalty,
                 )
                 self._openviking_last_error = ""
                 summary.append(

@@ -100,10 +100,14 @@ class Container:
         openviking_recall = OpenVikingRecallAdapter(
             openviking_workspace,
             openviking_providers,
+            decay_half_life_days=config.memory_decay_half_life_days,
+            decay_min_confidence=config.memory_decay_forget_confidence,
+            related_boost=config.memory_related_boost,
         )
         openviking_management = OpenVikingManagementAdapter(
             openviking,
             openviking_workspace,
+            decay_half_life_days=config.memory_decay_half_life_days,
         )
         memory = ChatMemoryService(
             config,

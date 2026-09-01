@@ -368,6 +368,74 @@
         "collapsed": true,
         "hint": "记忆只作为临时用户上下文注入，并保持回复协议位于最后。"
       },
+      "memory_decay_half_life_days": {
+        "description": "记忆置信度半衰期（天）",
+        "type": "int",
+        "default": 120,
+        "minimum": 7,
+        "maximum": 3650,
+        "slider": {
+          "min": 7,
+          "max": 730,
+          "step": 7
+        },
+        "condition": {
+          "memory_enabled": true
+        },
+        "collapsed": true,
+        "hint": "记忆的有效置信度每经过一个半衰期减半：长时间未被再次提及且置信度跌破候选下限的记忆不再被召回（文件仍保留，可在详情页查看）。"
+      },
+      "memory_contradiction_penalty": {
+        "description": "记忆矛盾证伪惩罚",
+        "type": "float",
+        "default": 0.5,
+        "minimum": 0.05,
+        "maximum": 1.0,
+        "slider": {
+          "min": 0.05,
+          "max": 1.0,
+          "step": 0.05
+        },
+        "condition": {
+          "memory_enabled": true
+        },
+        "collapsed": true,
+        "hint": "新证据与已存记忆在结构化字段上直接冲突、且新置信度较低时，旧记忆保留但置信度按该系数打折（配合时间衰减让争议事实更快淡出）；新证据置信度更高则正常更新。"
+      },
+      "memory_decay_forget_confidence": {
+        "description": "记忆遗忘边界",
+        "type": "float",
+        "default": 0.15,
+        "minimum": 0.05,
+        "maximum": 0.5,
+        "slider": {
+          "min": 0.05,
+          "max": 0.5,
+          "step": 0.05
+        },
+        "condition": {
+          "memory_enabled": true
+        },
+        "collapsed": true,
+        "hint": "有效置信度（存储置信度 × 时间衰减）跌破该边界后，记忆不再被召回，但文件仍保留、可在详情页查看。与候选下限解耦：一次矛盾证伪不会直接把记忆打出可召回范围。"
+      },
+      "memory_related_boost": {
+        "description": "关联记忆召回加成",
+        "type": "float",
+        "default": 0.15,
+        "minimum": 0.0,
+        "maximum": 0.5,
+        "slider": {
+          "min": 0.0,
+          "max": 0.5,
+          "step": 0.05
+        },
+        "condition": {
+          "memory_enabled": true
+        },
+        "collapsed": true,
+        "hint": "同一回合提取出的记忆互为关联：召回命中一条时，与它相关的记忆按命中分数获得加成，让相关事实可以互相浮现。"
+      },
       "context_summary_enabled": {
         "description": "历史摘要 LLM 压缩",
         "type": "bool",

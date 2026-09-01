@@ -107,6 +107,10 @@ class PluginConfig:
     memory_recall_limit: int = 5
     memory_recall_score_threshold: float = 0.2
     memory_recall_max_chars: int = 2_500
+    memory_decay_half_life_days: int = 120
+    memory_decay_forget_confidence: float = 0.15
+    memory_contradiction_penalty: float = 0.5
+    memory_related_boost: float = 0.15
     context_summary_enabled: bool = True
     context_summary_max_chars: int = 2_400
     context_summary_timeout_seconds: float = 30.0
@@ -219,6 +223,18 @@ class PluginConfig:
             memory_recall_max_chars=_as_int(
                 data.get("memory_recall_max_chars"), 2_500, 256, 20_000
             ),
+            memory_decay_half_life_days=_as_int(
+                data.get("memory_decay_half_life_days"), 120, 7, 3_650
+            ),
+            memory_decay_forget_confidence=_as_float(
+                data.get("memory_decay_forget_confidence"), 0.15, 0.05, 0.5
+            ),
+            memory_contradiction_penalty=_as_float(
+                data.get("memory_contradiction_penalty"), 0.5, 0.05, 1.0
+            ),
+            memory_related_boost=_as_float(
+                data.get("memory_related_boost"), 0.15, 0.0, 0.5
+            ),
             context_summary_enabled=_as_bool(data.get("context_summary_enabled"), True),
             context_summary_max_chars=_as_int(
                 data.get("context_summary_max_chars"), 2_400, 500, 6_000
@@ -300,6 +316,10 @@ class PluginConfig:
             "memory_recall_limit": self.memory_recall_limit,
             "memory_recall_score_threshold": self.memory_recall_score_threshold,
             "memory_recall_max_chars": self.memory_recall_max_chars,
+            "memory_decay_half_life_days": self.memory_decay_half_life_days,
+            "memory_decay_forget_confidence": self.memory_decay_forget_confidence,
+            "memory_contradiction_penalty": self.memory_contradiction_penalty,
+            "memory_related_boost": self.memory_related_boost,
             "context_summary_enabled": self.context_summary_enabled,
             "context_summary_max_chars": self.context_summary_max_chars,
             "context_summary_timeout_seconds": (self.context_summary_timeout_seconds),

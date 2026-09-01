@@ -19,6 +19,7 @@ from ..vendor.openviking_core.session.memory.utils.memory_file_utils import (
     MemoryFileUtils,
 )
 from .adapter import normalize_openviking_agent_id
+from .decay import decayed_confidence
 from .provider import OpenVikingProviderBridge
 from .type_quota import (
     DEFAULT_QUOTAS,
@@ -99,15 +100,26 @@ class OpenVikingRecallAdapter:
         self,
         workspace: OpenVikingWorkspace,
         provider_bridge: OpenVikingProviderBridge | None = None,
+        *,
+        decay_half_life_days: float = 120.0,
+        decay_min_confidence: float = 0.15,
+        related_boost: float = 0.15,
     ) -> None:
         """Bind recall to one controlled workspace and optional Provider bridge.
 
         Args:
             workspace: Initialized embedded OpenViking workspace.
             provider_bridge: Optional AstrBot Embedding and Rerank bridge.
+            decay_half_life_days: Memory confidence half-life for lazy decay.
+            decay_min_confidence: Memories whose decayed confidence falls
+                below this boundary are treated as forgotten (not recalled).
+            related_boost: Score bonus weight for one-hop co-occurrence links.
         """
         self._workspace = workspace
         self._providers = provider_bridge
+        self._decay_half_life_days = max(0.1, float(decay_half_life_days))
+        self._decay_min_confidence = max(0.0, min(float(decay_min_confidence), 1.0))
+        self._related_boost = max(0.0, min(float(related_boost), 0.5))
 
     async def recall(
         self,
@@ -207,6 +219,13 @@ class OpenVikingRecallAdapter:
                         else 0.0
                     ),
                 )
+                # 时间衰减乘数：有效置信度越低，同等相关性下的排序越靠后
+                # （区间 0.5~1.0，纯时间不会把记忆压死，跌破遗忘边界才不召回）。
+                # session 行没有记忆置信度，按 1.0（不衰减）处理；0.0 是合法
+                # 值，不能走 or 默认。
+                raw_decayed = row.get("decayed_confidence")
+                decayed = 1.0 if raw_decayed is None else float(raw_decayed)
+                row["score"] = float(row["score"]) * (0.5 + 0.5 * decayed)
             candidate_limit = max(bounded_limit * 4, 20)
             rows.sort(
                 key=lambda item: (
@@ -250,6 +269,32 @@ class OpenVikingRecallAdapter:
                         "[Humanize] OpenViking embedding recall degraded: %s",
                         type(exc).__name__,
                     )
+
+            if self._related_boost > 0.0:
+                # 一跳关联加成：与已命中记忆同批共现（related）的记忆获得
+                # 加成，让「小红喜欢的」和「小红做的」能互相浮出。加成只
+                # 读未加成的基准分（base），互链团体不会互相抬分产生回声。
+                base_by_uri = {str(row["uri"]): float(row["score"]) for row in rows}
+                for row in rows:
+                    best_linked = 0.0
+                    for item in row.get("related", []):
+                        if not isinstance(item, dict):
+                            continue
+                        uri = str(item.get("uri") or "")
+                        peer_score = base_by_uri.get(uri)
+                        if peer_score is None or uri == row["uri"]:
+                            continue
+                        try:
+                            weight = float(item.get("weight") or 0.0)
+                        except (TypeError, ValueError):
+                            weight = 0.0
+                        linked = weight * peer_score
+                        if linked > best_linked:
+                            best_linked = linked
+                    if best_linked > 0.0:
+                        row["score"] = (
+                            float(row["score"]) + self._related_boost * best_linked
+                        )
 
             rows.sort(
                 key=lambda item: (
@@ -462,15 +507,42 @@ class OpenVikingRecallAdapter:
                     ):
                         continue
                     updated_at = fields.get("updated_at")
+                    decayed = decayed_confidence(
+                        confidence,
+                        (
+                            updated_at.isoformat()
+                            if isinstance(updated_at, datetime)
+                            else str(updated_at or "")
+                        ),
+                        half_life_days=self._decay_half_life_days,
+                    )
+                    if decayed < self._decay_min_confidence:
+                        # 有效置信度跌破遗忘边界：不再注入，但文件仍在盘上，
+                        # 详情/审计仍可读（可逆的遗忘）。
+                        continue
+                    raw_related = fields.get("related")
                     rows.append(
                         {
                             "abstract": abstract or " ".join(content.split())[:160],
                             "confidence": confidence,
                             "content": content,
+                            "decayed_confidence": decayed,
                             "importance": importance,
                             "memory_key": str(fields.get("memory_key") or ""),
                             "memory_type": str(memory.memory_type or memory_type),
                             "overview": overview or content[:600],
+                            "related": (
+                                [
+                                    item
+                                    for item in raw_related
+                                    if isinstance(item, dict)
+                                    and str(item.get("uri") or "").startswith(
+                                        "viking://agent/"
+                                    )
+                                ][:20]
+                                if isinstance(raw_related, list)
+                                else []
+                            ),
                             "scope_type": scope["scope_type"],
                             "updated_at": (
                                 updated_at.isoformat()

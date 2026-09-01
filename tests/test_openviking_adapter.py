@@ -270,15 +270,18 @@ def test_lower_confidence_memory_keeps_content_but_records_diff(tmp_path: Path) 
         (tmp_path / "plugin-data" / "openviking" / "memories").rglob("*.md")
     )
     content = memory_path.read_text(encoding="utf-8")
+    # 旧内容保留；低置信度冲突作为反例把置信度打五折（0.9 → 0.45）。
     assert "用户喜欢无糖乌龙茶" in content
-    assert "低置信度冲突" not in content
-    assert '"confidence": 0.9' in content
+    assert '"confidence": 0.45' in content
     assert '"importance": 0.8' in content
     assert '"status": "active"' in content
-    assert '"like": "无糖乌龙茶"' in content
+    # 结构化字段级合并：新证据里的字段生效（同 key 新值覆盖旧值）。
+    assert '"like": "低置信度冲突"' in content
+    assert '"like": "无糖乌龙茶"' not in content
     assert '"valid_until": ""' in content
     assert "错误摘要" not in content
     assert "错误概览" not in content
+    assert '"penalized": true' in content
 
 
 def test_memory_upsert_recovers_missing_diff_without_new_version(

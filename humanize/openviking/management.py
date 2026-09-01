@@ -13,7 +13,11 @@ from typing import Any
 from ..vendor.openviking_core.session.memory.utils.memory_file_utils import (
     MemoryFileUtils,
 )
-from .adapter import OpenVikingMemoryAdapter, normalize_openviking_agent_id
+from .adapter import (
+    OpenVikingMemoryAdapter,
+    normalize_openviking_agent_id,
+)
+from .decay import decayed_confidence
 from .workspace import OpenVikingWorkspace, WorkspaceTransaction
 
 _DIGEST_PATTERN = re.compile(r"^[0-9a-f]{64}$")
@@ -28,15 +32,20 @@ class OpenVikingManagementAdapter:
         self,
         memory_adapter: OpenVikingMemoryAdapter,
         workspace: OpenVikingWorkspace,
+        *,
+        decay_half_life_days: float = 120.0,
     ) -> None:
         """Bind management operations to the runtime memory workspace.
 
         Args:
             memory_adapter: Initialized OpenViking write adapter.
             workspace: Controlled workspace shared by recall and management.
+            decay_half_life_days: Half-life used for the reported decayed
+                confidence, consistent with the recall adapter's decay.
         """
         self._memory = memory_adapter
         self._workspace = workspace
+        self._decay_half_life_days = max(0.1, float(decay_half_life_days))
 
     def get_overview(self) -> dict[str, Any]:
         """Return memory counts and anonymized scope options.
@@ -205,6 +214,11 @@ class OpenVikingManagementAdapter:
         return {
             **item,
             "audit": audit,
+            "decayed_confidence": decayed_confidence(
+                item.get("confidence"),
+                item.get("updated_at"),
+                half_life_days=self._decay_half_life_days,
+            ),
             "evidence": evidence,
             "revisions": revisions,
         }
@@ -316,6 +330,8 @@ class OpenVikingManagementAdapter:
             for value in (confidence, importance)
         ):
             raise ValueError("OpenViking memory scores must be between zero and one")
+        # 管理端更新是“以提交为准”的覆盖语义：显式传 structured_value 就
+        # 原样落盘（传 {} 可清空），不并入旧字段——与抽取端的字段级合并区分。
         structured_value = payload.get(
             "structured_value", (existing or {}).get("structured_value", {})
         )
@@ -505,6 +521,18 @@ class OpenVikingManagementAdapter:
                         "memory_id": memory_id,
                         "memory_key": str(fields.get("memory_key") or ""),
                         "memory_type": memory_type,
+                        "related": (
+                            [
+                                item
+                                for item in fields.get("related")
+                                if isinstance(item, dict)
+                                and str(item.get("uri") or "").startswith(
+                                    "viking://agent/"
+                                )
+                            ][:20]
+                            if isinstance(fields.get("related"), list)
+                            else []
+                        ),
                         "scope_hash": scope_hash,
                         "scope_type": scope_type,
                         "status": status,

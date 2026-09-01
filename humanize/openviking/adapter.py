@@ -18,11 +18,53 @@ from ..vendor.openviking_core.session.memory.utils.memory_file_utils import (
     MemoryFileUtils,
     next_memory_version,
 )
+from .decay import apply_contradiction_penalty
 from .workspace import OpenVikingWorkspace, WorkspaceTransaction
 
 _DIGEST_PATTERN = re.compile(r"^[0-9a-f]{64}$")
 _SCOPE_TYPES = frozenset({"global", "private_user", "group", "group_member"})
 _CONTEXT_REF_PATTERN = re.compile(r"^ctx-[A-Z2-7]{8}$")
+
+
+def _merge_structured(old: object, new: object, *, _depth: int = 0) -> dict[str, Any]:
+    """Field-level merge for structured values: new wins, old keys survive.
+
+    Nested dictionaries merge recursively; scalars and lists are taken from
+    the newer candidate so an update never silently drops an older field.
+    Recursion is capped so untrusted (LLM-supplied) nesting cannot overflow.
+    """
+    if _depth >= 4:
+        return dict(new) if isinstance(new, dict) else {}
+    merged = dict(old) if isinstance(old, dict) else {}
+    if not isinstance(new, dict):
+        return merged
+    for key, value in new.items():
+        if isinstance(value, dict) and isinstance(merged.get(key), dict):
+            merged[key] = _merge_structured(merged[key], value, _depth=_depth + 1)
+        else:
+            merged[key] = value
+    return merged
+
+
+def _structured_conflict(old: object, new: object) -> bool:
+    """Return whether two structured values contradict on any shared key.
+
+    Only scalar (non-dict) values on the same key count as a conflict;
+    missing or identical values do not. This keeps the contradiction
+    penalty explainable: rephrasing or extending a fact without touching
+    the same field is not treated as counter-evidence.
+    """
+    if not isinstance(old, dict) or not isinstance(new, dict):
+        return False
+    for key, new_value in new.items():
+        if key not in old:
+            continue
+        old_value = old[key]
+        if isinstance(old_value, dict) or isinstance(new_value, dict):
+            continue
+        if str(old_value) != str(new_value):
+            return True
+    return False
 
 
 def normalize_openviking_agent_id(value: object) -> str:
@@ -427,6 +469,8 @@ class OpenVikingMemoryAdapter:
         evidence: list[dict[str, Any]],
         source_commit_ids: tuple[str, ...],
         force_replace: bool = False,
+        related_uris: tuple[str, ...] = (),
+        contradiction_penalty: float = 0.5,
     ) -> MemoryUpsertResult:
         """Create or update one scoped OpenViking memory with diff and links.
 
@@ -435,6 +479,11 @@ class OpenVikingMemoryAdapter:
             evidence: Trusted evidence records supporting the candidate.
             source_commit_ids: Session commits used by this extraction operation.
             force_replace: Whether a trusted caller overrides confidence ordering.
+            related_uris: URIs of other memories extracted from the same turns;
+                co-occurrence links merged into the stored ``related`` field.
+            contradiction_penalty: Confidence multiplier applied once when the
+                incoming content contradicts the stored content but the stored
+                memory wins (keep_existing): a contested fact fades faster.
 
         Returns:
             Stable operation identity, URI, version, and duplicate state.
@@ -484,10 +533,13 @@ class OpenVikingMemoryAdapter:
         )
         memory_path = memory_directory / f"{memory_id}.md"
         diff_path = Path("memory_diffs") / f"{operation_id}.json"
-        memory_uri = (
-            f"viking://agent/{normalized['agent_id']}/memories/"
-            f"{normalized['scope_type']}/{normalized['scope_hash']}/"
-            f"{subject_segment}/{normalized['memory_type']}/{memory_id}"
+        memory_uri = self.memory_uri_for(
+            agent_id=str(normalized["agent_id"]),
+            scope_type=str(normalized["scope_type"]),
+            scope_hash=str(normalized["scope_hash"]),
+            subject_hash=str(normalized["subject_hash"]),
+            memory_type=str(normalized["memory_type"]),
+            memory_key=str(normalized["memory_key"]),
         )
         session_uri = (
             f"viking://agent/{normalized['agent_id']}/sessions/"
@@ -592,8 +644,26 @@ class OpenVikingMemoryAdapter:
                 else occurred_at
             )
             keep_existing = old_file is not None and not should_replace
+            # 反例判定：仅当旧证据被保留（新置信度更低）、内容不同且
+            # 结构化字段在同一 key 上直接冲突时，才把新证据当作“证伪”
+            # 打一次折。同义改写或补充（没有同 key 冲突）不触发惩罚。
+            contradicted = bool(
+                old_file is not None
+                and not should_replace
+                and str(normalized["content"]) != old_content
+                and _structured_conflict(
+                    old_file.extra_fields.get("structured_value", {})
+                    if old_file is not None
+                    else {},
+                    normalized["structured_value"],
+                )
+            )
             effective_confidence = (
-                old_confidence if keep_existing else float(normalized["confidence"])
+                apply_contradiction_penalty(old_confidence, contradiction_penalty)
+                if contradicted
+                else (
+                    old_confidence if keep_existing else float(normalized["confidence"])
+                )
             )
             effective_importance = (
                 old_file.extra_fields.get("importance", normalized["importance"])
@@ -605,12 +675,11 @@ class OpenVikingMemoryAdapter:
                 if keep_existing
                 else normalized["status"]
             )
-            effective_structured_value = (
-                old_file.extra_fields.get(
-                    "structured_value", normalized["structured_value"]
-                )
-                if keep_existing
-                else normalized["structured_value"]
+            effective_structured_value = _merge_structured(
+                old_file.extra_fields.get("structured_value", {})
+                if old_file is not None
+                else {},
+                normalized["structured_value"],
             )
             effective_valid_until = (
                 old_file.extra_fields.get("valid_until", normalized["valid_until"])
@@ -656,6 +725,33 @@ class OpenVikingMemoryAdapter:
                 for commit_id in commit_ids
             ]
             links = merge_links(existing_links, source_links)
+            existing_related = (
+                old_file.extra_fields.get("related") if old_file is not None else []
+            )
+            related_by_uri: dict[str, float] = {}
+            for item in [
+                *(existing_related if isinstance(existing_related, list) else []),
+                *(
+                    {"uri": str(uri), "weight": float(normalized["confidence"])}
+                    for uri in related_uris
+                ),
+            ]:
+                if not isinstance(item, dict):
+                    continue
+                uri = str(item.get("uri") or "").strip()
+                if not uri.startswith("viking://agent/") or "/memories/" not in uri:
+                    continue
+                try:
+                    weight = float(item.get("weight") or 0.0)
+                except (TypeError, ValueError):
+                    weight = 0.0
+                # NaN/inf 比较恒 False，天然被排除。
+                if 0.0 <= weight <= 1.0:
+                    related_by_uri[uri] = max(related_by_uri.get(uri, 0.0), weight)
+            related = [
+                {"uri": uri, "weight": weight}
+                for uri, weight in sorted(related_by_uri.items())[:20]
+            ]
             abstract_source = (
                 old_file.extra_fields.get("abstract", "")
                 if keep_existing
@@ -691,6 +787,7 @@ class OpenVikingMemoryAdapter:
                 "memory_uri": memory_uri,
                 "operation": operation,
                 "operation_id": operation_id,
+                "penalized": bool(contradicted),
                 "source_commit_ids": list(commit_ids),
                 "version": version,
             }
@@ -708,6 +805,7 @@ class OpenVikingMemoryAdapter:
                 "memory_id": memory_id,
                 "memory_key": normalized["memory_key"],
                 "overview": overview,
+                "related": related,
                 "scope_hash": normalized["scope_hash"],
                 "scope_type": normalized["scope_type"],
                 "source_commit_ids": list(commit_ids),
@@ -739,6 +837,51 @@ class OpenVikingMemoryAdapter:
             operation=operation,
             version=version,
             duplicate=False,
+        )
+
+    @staticmethod
+    def memory_uri_for(
+        *,
+        agent_id: str,
+        scope_type: str,
+        scope_hash: str,
+        subject_hash: str,
+        memory_type: str,
+        memory_key: str,
+    ) -> str:
+        """Return the deterministic memory URI for one candidate identity.
+
+        The memory id is the SHA-256 of the scoped identity tuple, so the
+        URI is computable before any write — used to pre-link co-occurring
+        memories inside one extraction batch. Agent and type identifiers are
+        normalized exactly like ``_normalize_memory_candidate`` so the result
+        always matches the URI ``upsert_memory`` writes.
+
+        Returns:
+            Full ``viking://agent/...`` memory URI.
+        """
+        subject_segment = str(subject_hash or "global")
+        memory_id = hashlib.sha256(
+            "\0".join(
+                (
+                    str(normalize_openviking_agent_id(agent_id)),
+                    str(scope_type),
+                    str(scope_hash),
+                    str(subject_hash),
+                    str(
+                        normalize_identifier_part(
+                            str(memory_type).strip(), "memory_type"
+                        )
+                        or ""
+                    ),
+                    str(memory_key)[:256],
+                )
+            ).encode()
+        ).hexdigest()
+        return (
+            f"viking://agent/{normalize_openviking_agent_id(agent_id)}/"
+            f"memories/{scope_type}/{scope_hash}/"
+            f"{subject_segment}/{memory_type}/{memory_id}"
         )
 
     def _normalize_memory_candidate(self, candidate: dict[str, Any]) -> dict[str, Any]:
