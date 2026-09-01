@@ -16,9 +16,11 @@ from types import SimpleNamespace
 from typing import Any
 
 import pytest
+from astrbot_plugin_humanize.humanize.domain.models import ImageCache
 from astrbot_plugin_humanize.humanize.image_cache import ImageCacheStore
 from astrbot_plugin_humanize.main import (
     _EVENT_IMAGE_CACHE_PATHS_KEY,
+    _EVENT_IMAGE_KINDS_KEY,
     _EVENT_IMAGE_TRANSCRIPTIONS_KEY,
     _IMAGE_TRANSCRIPTION_PROMPT,
     _STICKER_TRANSCRIPTION_PROMPT,
@@ -652,3 +654,77 @@ def test_prepare_quoted_sticker_hits_cache_via_index(tmp_path: Path) -> None:
         assert transcriptions == ["缓存里的表情包转述"]
 
     asyncio.run(scenario())
+
+
+class _ExtrasEvent:
+    """最小事件桩：只带 get_extra/set_extra，供 kind 解析测试使用。"""
+
+    def __init__(self, extras: dict[str, Any] | None = None) -> None:
+        self.extras = dict(extras or {})
+
+    def get_extra(self, key: str, default: Any = None) -> Any:
+        return self.extras.get(key, default)
+
+    def set_extra(self, key: str, value: Any) -> None:
+        self.extras[key] = value
+
+
+def test_resolve_image_kinds_prefers_stored_then_index(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """prepare 分类优先；未覆盖的路径按缓存索引反查（引用表情包可识别）。"""
+
+    async def scenario() -> None:
+        repository = _RepoStub()
+        plugin = _plugin(tmp_path, monkeypatch, repository, _ProviderStub())
+        sticker_path = str(tmp_path / "quoted.png")
+        repository.rows["hash-q"] = {
+            "file_hash": "hash-q",
+            "file_path": sticker_path,
+            "kind": "sticker",
+            "summary": "[动画表情]",
+            "transcription": "",
+        }
+        event = _ExtrasEvent({_EVENT_IMAGE_KINDS_KEY: ("sticker", "image")})
+        kinds = await plugin._resolve_image_kinds(
+            event,
+            [str(tmp_path / "direct.png"), str(tmp_path / "plain.png"), sticker_path],
+        )
+        assert kinds == ["sticker", "image", "sticker"]
+
+    asyncio.run(scenario())
+
+
+def test_resolve_image_kinds_falls_back_to_image(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """非法/缺失 kind 全部回退普通图片，不影响请求。"""
+
+    async def scenario() -> None:
+        plugin = _plugin(tmp_path, monkeypatch, _RepoStub(), _ProviderStub())
+        event = _ExtrasEvent({_EVENT_IMAGE_KINDS_KEY: ("bogus", "sticker")})
+        kinds = await plugin._resolve_image_kinds(
+            event, [str(tmp_path / "a.png"), str(tmp_path / "b.png")]
+        )
+        assert kinds == ["image", "sticker"]
+        assert await plugin._resolve_image_kinds(_ExtrasEvent(), ["x", "y"]) == [
+            "image",
+            "image",
+        ]
+
+    asyncio.run(scenario())
+
+
+def test_attach_image_kinds_labels_persisted_entries() -> None:
+    """持久化条目按回合图片顺序补 kind：纯文本升级为 ImageCache，越界回退 image。"""
+    attached = HumanizePlugin._attach_image_kinds(
+        ("模型没回显的兜底文本", ImageCache(text="模型回显的转述")),
+        ("sticker", "image"),
+    )
+    assert attached[0] == ImageCache(text="模型没回显的兜底文本", kind="sticker")
+    assert attached[1] == ImageCache(text="模型回显的转述", kind="image")
+    # kinds 不足时按普通图处理；无 kinds 时原样返回。
+    partial = HumanizePlugin._attach_image_kinds(("a", "b"), ("sticker",))
+    assert partial[0].kind == "sticker"
+    assert partial[1].kind == "image"
+    assert HumanizePlugin._attach_image_kinds(("a",), ()) == ("a",)

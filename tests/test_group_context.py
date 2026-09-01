@@ -759,6 +759,59 @@ def test_image_cache_objects_and_text_are_marked_into_turn(
     asyncio.run(scenario())
 
 
+def test_sticker_entries_render_sticker_markers_in_turn(tmp_path: Path) -> None:
+    """sticker 类别的条目渲染 [表情包 N: …]，普通图仍是 [图片 N: …]。"""
+
+    async def scenario() -> None:
+        window, _, _ = await _window(tmp_path)
+        context = _context(1, user_text="")  # 图片轮：无文本
+        await window.append(
+            context,
+            action="Reply",
+            run_messages=[
+                {"role": "user", "content": ""},
+                {"role": "assistant", "content": "哈哈"},
+            ],
+            final_messages=("哈哈",),
+            image_cache=(
+                ImageCache(text="一只猪无奈摇头，表达无语", kind="sticker"),
+                ImageCache(text="一只白猫趴在键盘上", kind="image"),
+                "纯文本兜底转述",
+            ),
+            image_count=3,
+            token_budget=30_000,
+        )
+        loaded = await window.load(_context(1), token_budget=30_000)
+        joined = "\n".join(str(item.get("content", "")) for item in loaded.contexts)
+        assert "[表情包 1: 一只猪无奈摇头，表达无语]" in joined
+        assert "[图片 2: 一只白猫趴在键盘上]" in joined
+        assert "[图片 3: 纯文本兜底转述]" in joined
+        assert "[图片 1:" not in joined
+
+    asyncio.run(scenario())
+
+
+def test_chatter_sticker_renders_sticker_marker(tmp_path: Path) -> None:
+    """旁观表情包按对位的 image_kinds 渲染 [表情包 N: …] 标注。"""
+
+    async def scenario() -> None:
+        window, _, _ = await _window(tmp_path)
+        await window.append_chatter(
+            _context(1, sender_name="碎心", user_text=""),
+            has_image=True,
+            image_descriptions=("一只柴犬歪头微笑，表达敷衍",),
+            image_kinds=("sticker",),
+        )
+        loaded = await window.load(_context(2, user_text="@bot"), token_budget=30_000)
+        user_contents = [
+            str(item["content"]) for item in loaded.contexts if item["role"] == "user"
+        ]
+        assert any("[表情包 1: 一只柴犬歪头微笑，表达敷衍]" in c for c in user_contents)
+        assert not any("[图片 1:" in c for c in user_contents)
+
+    asyncio.run(scenario())
+
+
 def test_assistant_only_turn_keeps_tools_and_drops_user_entry(tmp_path: Path) -> None:
     """主动回合（assistant_only）不插用户占位，但保留工具序列与 Bot 发言。
 

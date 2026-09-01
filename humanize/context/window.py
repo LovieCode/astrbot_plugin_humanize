@@ -323,6 +323,7 @@ class ContextWindowService:
         *,
         has_image: bool = False,
         image_descriptions: Sequence[str] = (),
+        image_kinds: Sequence[str] = (),
         token_budget: int = _DEFAULT_TOKEN_BUDGET,
     ) -> bool:
         """Record one unaddressed group message as an ordinary history entry.
@@ -340,6 +341,9 @@ class ContextWindowService:
                 the prepare phase. When present they replace the bare
                 ``[图片]`` placeholder with content-bearing markers, so the
                 history keeps what the picture showed.
+            image_kinds: Kinds aligned with ``image_descriptions``
+                (``'sticker'`` renders ``[表情包 N: …]`` markers, plain
+                images default to ``[图片 N: …]``).
             token_budget: Compaction threshold applied after the append;
                 callers pass the same budget their reply turns use.
 
@@ -357,8 +361,14 @@ class ContextWindowService:
         if not message_id:
             return False
         plain = " ".join(str(context.user_text or "").split())
+        kinds = [
+            str(item) if str(item) in ("sticker", "image") else "image"
+            for item in image_kinds
+        ]
         descriptions = [
-            str(item).strip() for item in image_descriptions if str(item).strip()
+            (str(item).strip(), kinds[index] if index < len(kinds) else "image")
+            for index, item in enumerate(image_descriptions)
+            if str(item).strip()
         ]
         # 与真实回合的图片标注完全同构：复用 _image_markers（上限 16 张，
         # 与真回合一致）；除 _clip 截断外，旁观条目没有其他特殊格式。
@@ -1012,7 +1022,7 @@ class ContextWindowService:
         self,
         context: MessageContext,
         run_messages: tuple[Any, ...],
-        image_descriptions: dict[int, str],
+        image_descriptions: list[tuple[str, str]],
         image_count: int,
         current_user_prompt: str = "",
         include_user_entry: bool = True,
@@ -1132,30 +1142,37 @@ class ContextWindowService:
             return "[Image data omitted]"
         return self._clip(stripped, _L2_MESSAGE_MAX_CHARS)
 
-    def _image_descriptions(self, image_cache: tuple[Any, ...]) -> list[str]:
-        """Collect plain-text image transcription entries.
+    def _image_descriptions(
+        self, image_cache: tuple[Any, ...]
+    ) -> list[tuple[str, str]]:
+        """Collect plain-text image transcription entries with kinds.
 
         Args:
             image_cache: Parsed same-turn ImageCache entries (plain text).
 
         Returns:
-            Cleaned transcription texts in order.
+            ``(text, kind)`` pairs in order; ``kind`` is ``'sticker'`` for
+            表情包 entries (so markers read ``[表情包 N: …]``) and
+            ``'image'`` otherwise (plain text entries default to image).
         """
-        result: list[str] = []
+        result: list[tuple[str, str]] = []
         seen: set[str] = set()
         for raw in image_cache:
             # ImageCache dataclass 直接带 text 属性（无 model_dump，_safe_value
             # 会把它们变成 repr 字符串），先取纯文本再走安全化。
             if hasattr(raw, "text"):
                 text = str(getattr(raw, "text") or "")
+                kind = str(getattr(raw, "kind", "") or "image")
             else:
                 value = self._safe_value(raw)
                 text = ""
+                kind = "image"
                 if isinstance(value, str):
                     text = value
                 elif isinstance(value, dict):
                     # 兼容旧的结构化条目（description 兜底）
                     text = str(value.get("text") or value.get("description") or "")
+                    kind = str(value.get("kind") or "image")
                 elif isinstance(value, list):
                     # ImageCache 对象经 _safe_value 变成 [{'text': ...}] 结构
                     text = " ".join(
@@ -1167,15 +1184,20 @@ class ContextWindowService:
             if not text or text in seen:
                 continue
             seen.add(text)
-            result.append(text)
+            result.append((text, kind if kind in ("sticker", "image") else "image"))
         return result
 
     @staticmethod
-    def _image_markers(descriptions: list[str], image_count: int) -> list[str]:
-        texts = descriptions[: min(image_count, 16)]
-        if not texts:
+    def _image_markers(
+        descriptions: list[tuple[str, str]], image_count: int
+    ) -> list[str]:
+        entries = descriptions[: min(image_count, 16)]
+        if not entries:
             return []
-        return [f"[图片 {index}: {text}]" for index, text in enumerate(texts, 1)]
+        return [
+            "[{} {}: {}]".format("表情包" if kind == "sticker" else "图片", index, text)
+            for index, (text, kind) in enumerate(entries, 1)
+        ]
 
     @staticmethod
     def _valid_tool_history(messages: list[dict[str, Any]]) -> list[dict[str, Any]]:

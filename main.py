@@ -27,7 +27,12 @@ from astrbot.core.provider.provider import Provider as _ProviderBase
 from .humanize.config import PluginConfig
 from .humanize.container import Container, context_window_token_budget
 from .humanize.domain.errors import ProtocolValidationError
-from .humanize.domain.models import Action, EventState, MessageContext
+from .humanize.domain.models import (
+    Action,
+    EventState,
+    ImageCache,
+    MessageContext,
+)
 from .humanize.image_cache import ImageCacheStore
 from .humanize.llm_proxy import (
     current_llm_call_context,
@@ -80,6 +85,7 @@ _CONTEXT_WINDOW_PENDING_ACTION_KEY = "_humanize_context_window_pending_action"
 _CONTEXT_READ_CALLS_KEY = "_humanize_context_read_calls"
 _IMAGE_CACHE_KEY = "_humanize_image_cache"
 _EVENT_IMAGE_CACHE_PATHS_KEY = "_humanize_event_image_cache_paths"
+_EVENT_IMAGE_KINDS_KEY = "_humanize_event_image_kinds"
 _EVENT_IMAGE_TRANSCRIPTIONS_KEY = "_humanize_event_image_transcriptions"
 _TOOL_IMAGE_TRANSCRIPTIONS_KEY = "_humanize_tool_image_transcriptions"
 _TOOL_HISTORY_KEY = "_humanize_tool_history_replacements"
@@ -472,6 +478,7 @@ class HumanizePlugin(Star):
         except Exception:
             logger.exception("[Humanize] image cache interception failed")
         event.set_extra(_EVENT_IMAGE_CACHE_PATHS_KEY, tuple(cache_paths))
+        event.set_extra(_EVENT_IMAGE_KINDS_KEY, tuple(cache_kinds))
         # 转述：配置了转述模型即逐张转述（供 Msg 内联）；表情包命中内容 hash
         # 级长期缓存时不再调用转述模型，与常驻工具互补。
         transcriptions: list[str] = []
@@ -662,8 +669,11 @@ class HumanizePlugin(Star):
                     transcriptions.append("")
         event.set_extra(_IMAGE_CACHE_KEY, tuple(transcriptions))
         if image_paths:
+            image_kinds = await self._resolve_image_kinds(event, image_paths)
+            event.set_extra(_EVENT_IMAGE_KINDS_KEY, tuple(image_kinds))
             image_lines = [
-                "[图片：{}（图片路径 {}）]".format(
+                "[{}：{}（图片路径 {}）]".format(
+                    "表情包" if image_kinds[index] == "sticker" else "图片",
                     transcriptions[index].strip()
                     if index < len(transcriptions)
                     else "未转述",
@@ -1056,7 +1066,8 @@ class HumanizePlugin(Star):
     ) -> None:
         """常驻工具：按路径重读缓存图片。
 
-        非多模态模型收到 [图片：…（图片路径 …）] 标注后，可用该工具结合上下文
+        非多模态模型收到 [图片：…（图片路径 …）] 或 [表情包：…（图片路径 …）]
+        标注后，可用该工具结合上下文
         重新转述图片；多模态模型本请求已带原图，工具用于历史图片。读图经由
         图片转述 Provider；未配置时返回明确提示。
 
@@ -1076,7 +1087,8 @@ class HumanizePlugin(Star):
 
             Args:
                 event: Active message event.
-                path(str): 图片路径，来自消息中的 [图片：…（图片路径 …）] 标注。
+                path(str): 图片路径，来自消息中的 [图片：…（图片路径 …）] 或
+                    [表情包：…（图片路径 …）] 标注。
 
             Returns:
                 结合上下文的图片转述文本；失败或路径无效时返回说明。
@@ -1134,7 +1146,10 @@ class HumanizePlugin(Star):
                 "properties": {
                     "path": {
                         "type": "string",
-                        "description": "图片路径，来自消息中的 [图片：…（图片路径 …）] 标注",
+                        "description": (
+                            "图片路径，来自消息中的 [图片：…（图片路径 …）] 或"
+                            " [表情包：…（图片路径 …）] 标注"
+                        ),
                     }
                 },
                 "required": ["path"],
@@ -1168,6 +1183,70 @@ class HumanizePlugin(Star):
             "scope_id": str(getattr(context, "scope_id", "") or ""),
             "conversation_id": str(getattr(context, "conversation_id", "") or ""),
         }
+
+    async def _resolve_image_kinds(
+        self, event: AstrMessageEvent, image_paths: list[str]
+    ) -> list[str]:
+        """Resolve per-image kinds aligned with the turn's image paths.
+
+        prepare 阶段直接分类的 kind 优先（与缓存路径一一对应）；引用图等
+        未覆盖的路径按缓存索引反查（引用的表情包同样能识别）；都拿不到时
+        按普通图片处理。全程 fail-open，不影响请求。
+
+        Args:
+            event: Incoming message event carrying the prepared kinds extra.
+            image_paths: The turn's cached image paths, in annotation order.
+
+        Returns:
+            One ``'sticker'``/``'image'`` kind per path.
+        """
+        stored = [
+            str(item) for item in (event.get_extra(_EVENT_IMAGE_KINDS_KEY, ()) or ())
+        ]
+        kinds: list[str] = []
+        for index, path in enumerate(image_paths):
+            kind = stored[index] if index < len(stored) else ""
+            if kind not in ("sticker", "image") and self._container is not None:
+                repository = getattr(self._container, "repository", None)
+                if repository is not None:
+                    try:
+                        entry = await repository.get_image_cache_entry(file_path=path)
+                        kind = str((entry or {}).get("kind") or "")
+                    except Exception:
+                        logger.debug(
+                            "[Humanize] image kind lookup failed", exc_info=True
+                        )
+            kinds.append(kind if kind in ("sticker", "image") else "image")
+        return kinds
+
+    @staticmethod
+    def _attach_image_kinds(
+        entries: tuple[Any, ...], kinds: tuple[str, ...]
+    ) -> tuple[Any, ...]:
+        """Carry per-image kinds into the entries persisted for the turn.
+
+        持久化的 ImageCache 条目（模型回显或纯文本兜底）本身不带类别，
+        渲染成历史标注时会一律显示 ``[图片 N: …]``；这里按回合图片顺序
+        把 kind 对位补上（模型按展示顺序回显，兜底转述与图片路径天然对
+        齐），纯文本条目一并升级为带 kind 的 ImageCache。位置对不上的
+        条目（部分回显等）按普通图片处理，宁可保守标注。
+
+        Args:
+            entries: Model-echo ImageCache entries and/or plain transcription
+                strings captured for this turn.
+            kinds: Aligned per-image kinds from the annotation phase.
+
+        Returns:
+            Entries with kind attached.
+        """
+        if not kinds:
+            return tuple(entries)
+        attached: list[Any] = []
+        for index, item in enumerate(entries):
+            kind = kinds[index] if index < len(kinds) else "image"
+            text = str(getattr(item, "text", item) or "")
+            attached.append(ImageCache(text=text, kind=kind))
+        return tuple(attached)
 
     async def _transcribe_one_image(
         self,
@@ -2209,6 +2288,13 @@ class HumanizePlugin(Star):
                 merged = list(image_cache)
                 merged.extend(item for item in tool_transcriptions if item not in known)
                 image_cache = tuple(merged)
+            image_cache = self._attach_image_kinds(
+                image_cache,
+                tuple(
+                    str(item)
+                    for item in (event.get_extra(_EVENT_IMAGE_KINDS_KEY, ()) or ())
+                ),
+            )
             result = await self._container.context_window.append(
                 context,
                 action=action,
@@ -3304,6 +3390,10 @@ class HumanizePlugin(Star):
                     for item in (
                         event.get_extra(_EVENT_IMAGE_TRANSCRIPTIONS_KEY, ()) or ()
                     )
+                ),
+                image_kinds=tuple(
+                    str(item)
+                    for item in (event.get_extra(_EVENT_IMAGE_KINDS_KEY, ()) or ())
                 ),
                 token_budget=self._context_window_token_budget(umo),
             )

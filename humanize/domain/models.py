@@ -42,9 +42,13 @@ class ImageCache:
 
     The text is the combined contextual meaning plus brief content of the
     image (produced by a multimodal model), not a dry visual description.
+
+    ``kind`` marks the image class (``'sticker'`` for 表情包, ``'image'``
+    for ordinary pictures) so history rendering can label markers correctly.
     """
 
     text: str
+    kind: str = "image"
 
 
 @dataclass(frozen=True, slots=True)
