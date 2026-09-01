@@ -86,7 +86,6 @@ def test_parse_valid_no_reply() -> None:
         (_response(action="Wait"), "invalid_wait_seconds"),
         (_response(action="Maybe"), "invalid_action"),
         (_response(unknown_terms="{}"), "invalid_unknown_terms"),
-        (_response(unknown_terms="[broken"), "invalid_unknown_terms_json"),
     ],
 )
 def test_reject_invalid_protocol(raw: str, error_code: str) -> None:
@@ -94,6 +93,23 @@ def test_reject_invalid_protocol(raw: str, error_code: str) -> None:
         ProtocolParser(PluginConfig()).parse(raw)
 
     assert error.value.code == error_code
+
+
+@pytest.mark.parametrize("payload", ("[broken", "随便写点什么", "", "[] 拖尾文本"))
+def test_unknown_terms_without_json_is_tolerated(payload: str) -> None:
+    """UnknownTerms 标签存在但内容不是合法 JSON：按空处理，不判协议错误。"""
+
+    raw = (
+        "<Action>Reply</Action>\n"
+        f"<UnknownTerms>{payload}</UnknownTerms>\n"
+        "<Messages><Message>收到</Message></Messages>"
+    )
+
+    decision = ProtocolParser(PluginConfig()).parse(raw)
+
+    assert decision.action is Action.REPLY
+    assert decision.messages == ("收到",)
+    assert decision.unknown_terms == ()
 
 
 def test_wait_action_parsed_only_when_allowed() -> None:

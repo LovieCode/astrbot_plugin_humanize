@@ -173,7 +173,8 @@ class ProtocolParser:
             raw: Full model output.
 
         Returns:
-            Parsed unknown terms, or () when the tag is absent or invalid.
+            Parsed unknown terms, or () when the tag is absent or its
+            payload is not valid JSON（有标签没 JSON 可接受，不判协议错）.
         """
         match = _UNKNOWN_TERMS_TAG_RE.search(raw)
         if match is None:
@@ -181,10 +182,10 @@ class ProtocolParser:
         payload_raw = match.group("value").strip()
         try:
             payload = json.loads(payload_raw)
-        except json.JSONDecodeError as exc:
-            raise ProtocolValidationError(
-                "invalid_unknown_terms_json", str(exc)
-            ) from exc
+        except json.JSONDecodeError:
+            # 标签在但内容不是 JSON：黑话候选宁缺毋滥，直接放弃，
+            # 不让整条回复进入修复流。
+            return ()
         return self._parse_unknown_terms(payload)
 
     def _parse_unknown_terms(self, payload: Any) -> tuple[UnknownTerm, ...]:
