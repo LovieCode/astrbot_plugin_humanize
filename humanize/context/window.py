@@ -26,6 +26,7 @@ _DEFAULT_TOKEN_BUDGET = 6_000
 _SUMMARY_MAX_CHARS = 6_000
 _COLD_TEXT_CHARS = 700
 _COLD_TOOL_CHARS = 1_200
+_SUMMARY_LINE_CHARS = 180
 _L2_MESSAGE_MAX_CHARS = 64_000
 _L2_READ_MAX_CHARS = 6_000
 _CONTEXT_REF_PATTERN = re.compile(r"^ctx-[A-Z2-7]{8}$")
@@ -1112,8 +1113,28 @@ class ContextWindowService:
         entry: dict[str, str],
         record: dict[str, Any] | None,
     ) -> str:
+        """Render one evicted turn in the same shape as a normal message.
+
+        与热区/冷区消息完全同构：`[发送者 · 时间] 正文`，只有正文过长时才
+        按字符上限截断。Bot 有回复时补一行 `[Bot · 时间] 回复`；旁观条目
+        （Observed）与 No Reply 回合没有回复行，渲染结果与普通消息一致。
+
+        Args:
+            entry: Evicted window entry (l0/created_at/context_ref).
+            record: Matching L2 record, or None when it is gone.
+
+        Returns:
+            One transcript line per speaker, newline separated.
+        """
+        fallback = self._clip(
+            " ".join(str(entry.get("l0") or "").split()), _SUMMARY_LINE_CHARS
+        )
         if record is None:
-            return f"- Earlier turn: {entry['l0']}"
+            time_label = self._format_time_label(str(entry.get("created_at") or ""))
+            return f"[{time_label}] {fallback}" if time_label else fallback
+        sender_name = str(record.get("sender_name") or "").strip() or "用户"
+        bot_name = str(record.get("bot_name") or "").strip() or "Bot"
+        time_label = self._format_time_label(str(record.get("created_at") or ""))
         user_text = ""
         assistant_text = ""
         for message in record.get("messages", []):
@@ -1123,11 +1144,16 @@ class ContextWindowService:
                 user_text = self._content_text(message.get("content"))
             elif message.get("role") == "assistant" and not message.get("tool_calls"):
                 assistant_text = self._content_text(message.get("content"))
-        details = self._clip(" ".join(user_text.split()), 180)
-        reply = self._clip(" ".join(assistant_text.split()), 180)
-        if reply:
-            return f"- Earlier turn: {details} -> {reply}"
-        return f"- Earlier turn: {details or entry['l0']}"
+        lines = [self._speaker_line(sender_name, time_label, user_text or fallback)]
+        if assistant_text.strip():
+            lines.append(self._speaker_line(bot_name, time_label, assistant_text))
+        return "\n".join(lines)
+
+    def _speaker_line(self, speaker: str, time_label: str, body: str) -> str:
+        """Render one bounded ``[speaker · time] text`` transcript line."""
+        prefix = f"[{speaker} · {time_label}]" if time_label else f"[{speaker}]"
+        text = self._clip(" ".join(str(body or "").split()), _SUMMARY_LINE_CHARS)
+        return f"{prefix} {text}" if text else prefix
 
     def _read_l2(
         self,

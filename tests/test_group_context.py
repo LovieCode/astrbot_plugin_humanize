@@ -150,8 +150,9 @@ def test_window_compacts_long_history_by_token_budget_and_keeps_latest_turns(
         loaded = await window.load(last_context, token_budget=500)
         assert loaded.compacted is True
         assert loaded.entry_count == 20
+        # 折叠进摘要的历史也按正常消息同构渲染：发送人 + 时间 + 截断正文。
         assert any(
-            item["role"] == "system" and "Earlier turn" in str(item["content"])
+            item["role"] == "system" and "[小明 · " in str(item["content"])
             for item in loaded.contexts
         )
         assert any(
@@ -951,9 +952,43 @@ def test_chatter_summary_keeps_duplicate_messages_unmerged(tmp_path: Path) -> No
         )
         assert "该水群了" in summary
         # 重复的真实消息不做合并，逐条罗列（截断封顶是唯一保护）。
-        assert summary.count("- Earlier turn: ") >= 2
+        assert summary.count("[成员") >= 2
         assert "（×" not in summary
         assert "已省略" not in summary
+
+    asyncio.run(scenario())
+
+
+def test_compacted_observed_turn_renders_like_a_normal_message(
+    tmp_path: Path,
+) -> None:
+    """折叠的旁观条目与正常消息同构：发送人 + 时间 + 过长才截断。"""
+
+    async def scenario() -> None:
+        window, _, _ = await _window(tmp_path)
+        for index in range(1, 24):
+            await window.append_chatter(
+                _context(
+                    index,
+                    sender_id=f"user-{index}",
+                    sender_name="小红",
+                    user_text="该水群了" * 60,
+                ),
+                token_budget=256,
+            )
+        loaded = await window.load(_context(99, user_text="@bot"), token_budget=256)
+        summary = "\n".join(
+            str(item.get("content"))
+            for item in loaded.contexts
+            if item["role"] == "system"
+        )
+        assert "Earlier turn" not in summary
+        # 与热区消息同样的 [发送人 · 时间] 前缀。
+        assert "[小红 · " in summary
+        # 正文过长按字符上限截断并留省略号，不做其余加工。
+        assert summary.count("[小红 · ") >= 2
+        assert "该水群了" in summary
+        assert "…" in summary
 
     asyncio.run(scenario())
 
