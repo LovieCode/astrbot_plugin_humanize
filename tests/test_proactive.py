@@ -11,6 +11,7 @@ import asyncio
 from types import SimpleNamespace
 from typing import Any
 
+import pytest
 from astrbot_plugin_humanize.humanize.config import PluginConfig
 from astrbot_plugin_humanize.humanize.domain.models import Action, MessageContext
 from astrbot_plugin_humanize.humanize.protocol.envelope import EnvelopeBuilder
@@ -127,9 +128,23 @@ class _FakeBuilder:
         self.calls: list[dict[str, Any]] = []
         self._result = result
 
-    def __call__(self, template: Any, *, kind: str, on_outcome: Any) -> Any:
+    def __call__(
+        self,
+        template: Any,
+        *,
+        kind: str,
+        on_outcome: Any,
+        armed_reply_serial: int = -1,
+        armed_window_entries: int | None = None,
+    ) -> Any:
         self.calls.append(
-            {"template": template, "kind": kind, "on_outcome": on_outcome}
+            {
+                "template": template,
+                "kind": kind,
+                "on_outcome": on_outcome,
+                "armed_reply_serial": armed_reply_serial,
+                "armed_window_entries": armed_window_entries,
+            }
         )
         return self._result
 
@@ -339,13 +354,194 @@ def test_on_bot_reply_resets_window_and_waits() -> None:
         parts["repository"].states[SCOPE] = {"window_seconds": 120}
         service._waits[SCOPE] = 2
         service._rejections[SCOPE] = 5
+        service._wait_entries[SCOPE] = 9
+
+        async def _hang() -> None:
+            await asyncio.Event().wait()
+
+        timer = asyncio.create_task(_hang())
+        service._window_timers[SCOPE] = timer
 
         await service.on_bot_reply(SCOPE)
+        with pytest.raises(asyncio.CancelledError):
+            await timer
         await service.shutdown()
 
         assert parts["repository"].states[SCOPE]["window_seconds"] == 2
         assert SCOPE not in service._waits
         assert SCOPE not in service._rejections
+        assert SCOPE not in service._window_timers
+        assert SCOPE not in service._wait_entries
+        assert timer.cancelled()
+
+    asyncio.run(scenario())
+
+
+def test_reply_serial_advances_on_every_bot_reply() -> None:
+    """普通回复与主动回复都推进同一序号，供过期评估判定使用。"""
+
+    async def scenario() -> None:
+        service, _parts = _service()
+        assert service.reply_serial(SCOPE) == 0
+
+        await service.on_bot_reply(SCOPE)
+        assert service.reply_serial(SCOPE) == 1
+
+        outcome = service._outcome(SCOPE)
+        await outcome(_ctx(), action=Action.REPLY)
+        assert service.reply_serial(SCOPE) == 2
+        await service.shutdown()
+
+    asyncio.run(scenario())
+
+
+def test_trigger_stamps_current_reply_serial() -> None:
+    """合成事件携带触发时刻的回复序号；排队期间有回复就可在评估端判定过期。"""
+
+    async def scenario() -> None:
+        service, parts = _service()
+        await _arm(service, _template())
+        await service.on_bot_reply(SCOPE)
+
+        await service._trigger(SCOPE, "window")
+        await service.shutdown()
+
+        call = parts["builder"].calls[0]
+        assert call["armed_reply_serial"] == 1
+
+    asyncio.run(scenario())
+
+
+def test_wait_recheck_carries_window_entry_baseline() -> None:
+    """Wait 再检查带窗口条目基线；window/direct 触发不带。"""
+
+    async def scenario() -> None:
+        service, parts = _service()
+        template = _template()
+
+        await service.on_wait_requested(
+            SCOPE, event=template, wait_seconds=1, window_entries=7
+        )
+        await service._trigger(SCOPE, "wait")
+        await service.shutdown()
+
+        call = parts["builder"].calls[0]
+        assert call["kind"] == "wait"
+        assert call["armed_window_entries"] == 7
+        # 基线一次性消费
+        assert SCOPE not in service._wait_entries
+
+    asyncio.run(scenario())
+
+
+def test_wait_recheck_without_baseline_stamps_none() -> None:
+    """没有基线（未知条目数）的 Wait 再检查打 None，评估端不得据此丢弃。"""
+
+    async def scenario() -> None:
+        service, parts = _service()
+
+        await service.on_wait_requested(
+            SCOPE, event=_template(), wait_seconds=1, window_entries=-1
+        )
+        await service._trigger(SCOPE, "wait")
+        await service.shutdown()
+
+        assert parts["builder"].calls[0]["armed_window_entries"] is None
+
+    asyncio.run(scenario())
+
+
+def test_wait_baseline_kept_when_builder_refuses() -> None:
+    """构造失败不得消费 Wait 基线，否则复查会带着空基线 fail-open。"""
+
+    async def scenario() -> None:
+        service, parts = _service(builder=_FakeBuilder(result=None))
+        await service.on_wait_requested(
+            SCOPE, event=_template(), wait_seconds=1, window_entries=7
+        )
+        await service._trigger(SCOPE, "wait")
+        assert service._wait_entries[SCOPE] == 7
+        assert parts["queue"].events == []
+        await service.shutdown()
+
+    asyncio.run(scenario())
+
+
+def test_post_reply_cooldown_defers_window_trigger() -> None:
+    """回复后静默期：窗口到点若仍在静默期内，顺延到静默期结束才触发。"""
+
+    async def scenario() -> None:
+        loop = asyncio.get_running_loop()
+        service, parts = _service(
+            config=_config(proactive_post_reply_cooldown_seconds=10)
+        )
+        template = _template()
+        await service.on_group_chatter(SCOPE, event=template)
+        await service.on_bot_reply(SCOPE)  # 静默期到 t0+10
+        parts["builder"].calls.clear()
+        parts["queue"].events.clear()
+
+        # 窗口计时到点（2 秒下限太慢，直接驱动计时器协程模拟到点）：
+        # 静默期未结束，先顺延，结束后才触发一次。
+        service._quiet_until[SCOPE] = loop.time() + 0.3
+        task = asyncio.create_task(
+            service._timer_entry(SCOPE, 0.05, "window", service._window_timers)
+        )
+        await asyncio.sleep(0.15)
+        assert parts["builder"].calls == []
+        assert parts["queue"].events == []
+
+        await asyncio.wait_for(task, timeout=2)
+        assert len(parts["builder"].calls) == 1
+        assert parts["queue"].events == ["synthetic-event"]
+        await service.shutdown()
+
+    asyncio.run(scenario())
+
+
+def test_quiet_deferral_extends_when_another_reply_arrives() -> None:
+    """顺延期间又有回复：静默期被拉长，一次性 sleep 不得提前触发。"""
+
+    async def scenario() -> None:
+        loop = asyncio.get_running_loop()
+        service, parts = _service(
+            config=_config(proactive_post_reply_cooldown_seconds=10)
+        )
+        service._templates[SCOPE] = _template()
+        service._quiet_until[SCOPE] = loop.time() + 0.15
+        task = asyncio.create_task(
+            service._timer_entry(SCOPE, 0.02, "window", service._window_timers)
+        )
+        await asyncio.sleep(0.08)
+        service._quiet_until[SCOPE] = loop.time() + 0.2
+        await asyncio.sleep(0.12)
+        assert parts["builder"].calls == []
+        await asyncio.wait_for(task, timeout=2)
+        assert len(parts["builder"].calls) == 1
+        await service.shutdown()
+
+    asyncio.run(scenario())
+
+
+def test_direct_timer_ignores_post_reply_cooldown() -> None:
+    """直达触发（关键词/引用点名）不受回复后静默期约束，到点立即触发。"""
+
+    async def scenario() -> None:
+        service, parts = _service(
+            config=_config(proactive_post_reply_cooldown_seconds=60)
+        )
+        await service.on_bot_reply(SCOPE)
+        service._templates[SCOPE] = _template()
+        parts["builder"].calls.clear()
+        parts["queue"].events.clear()
+
+        task = asyncio.create_task(
+            service._timer_entry(SCOPE, 0.05, "direct", service._window_timers)
+        )
+        await asyncio.wait_for(task, timeout=2)
+        assert len(parts["builder"].calls) == 1
+        assert parts["builder"].calls[0]["kind"] == "direct"
+        await service.shutdown()
 
     asyncio.run(scenario())
 

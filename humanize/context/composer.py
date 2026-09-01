@@ -61,7 +61,7 @@ class ContextComposer:
                 Session continuity fallback when semantic memory is absent.
             allow_wait: Whether the response protocol advertises the proactive
                 ``Wait N`` action supplement.
-            proactive_situation: Proactive situation (``window``/``direct``).
+            proactive_situation: Proactive situation (``window``/``wait``/``direct``).
                 When set, the situation brief rides with the response protocol
                 and the ``current_message`` section becomes a standalone
                 ``<SystemNotice>`` block instead of ``<Msg>``-wrapped user

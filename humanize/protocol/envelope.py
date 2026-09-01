@@ -8,7 +8,7 @@ from ..domain.models import KnownTerm, MessageContext
 from ..domain.prompts import PromptTemplates
 from .parser import MAX_WAIT_SECONDS
 
-# 主动触发两种入口的场景说明，作为合成事件的消息文本。这是协议契约的一部分
+# 主动触发三种入口的场景说明，作为合成事件的消息文本。这是协议契约的一部分
 # （与解析器规则一一对应），不是用户可编辑模板；基础协议模板完全不提及 Wait，
 # 正常回复路径看不到它。群聊内容本身已在历史里（旁观条目），这里只交代事实。
 _PROACTIVE_SITUATION_BRIEFS = {
@@ -20,6 +20,11 @@ _PROACTIVE_SITUATION_BRIEFS = {
     "direct": (
         "（系统提示）有群成员提到了你（配置的关键词，或引用了你的消息）。"
         "请按协议自然、简短地回应。"
+    ),
+    "wait": (
+        "（系统提示）你之前选择了等待，现在等待时间到了，请重新检查群聊："
+        "对话有了新进展或现在适合插话就按协议回复；仍然不宜发言时可以再次"
+        "输出 No Reply 或 Wait。"
     ),
 }
 
@@ -35,14 +40,19 @@ _WAIT_RULE = (
 
 # 主动回合的系统通告文本：协议契约规定 <Msg> 只装"最新用户消息"，主动回合的
 # current_message 段改为独立的 <SystemNotice> 标签；合成平台事件的消息文本也用
-# 它（替换机制会把它换成 <SystemNotice> XML）。两条路径分开措辞：窗口检查是
+# 它（替换机制会把它换成 <SystemNotice> XML）。三条路径分开措辞：窗口检查是
 # "要不要加入群聊"的开放决定（用户定稿的行动指引，含 Wait 提示）；直呼路径
-# 有人点名要回应，不能给"先旁观"的选项，只交代"没附用户消息、看上方历史"。
+# 有人点名要回应，不能给"先旁观"的选项，只交代"没附用户消息、看上方历史"；
+# 等待复查是模型自己约好的到点重看，措辞与窗口检查相近但交代来由。
 _PROACTIVE_NOTICE_TEXTS = {
     "window": (
         "（群里正在聊天，根据你的人设决定是否发言加入对话或者先旁观一会（Wait动作））"
     ),
     "direct": ("（本条由系统触发，这次没有附上用户消息；提到你的发言见上方聊天历史）"),
+    "wait": (
+        "（这是你此前选择等待后的到点复查，根据你的人设重新决定是否发言加入"
+        "对话或者继续旁观（Wait动作））"
+    ),
 }
 
 
@@ -132,10 +142,10 @@ class EnvelopeBuilder:
                 delayed re-check has a landing spot (proactive turns and
                 groups with proactive participation enabled); the base
                 protocol template never mentions ``Wait``.
-            proactive_situation: Proactive situation brief (``window`` or
-                ``direct``). Injected ahead of the protocol block so the
-                situation description never masquerades as a user message
-                inside ``<Msg>``; empty for normal turns.
+            proactive_situation: Proactive situation brief (``window``,
+                ``wait`` or ``direct``). Injected ahead of the protocol
+                block so the situation description never masquerades as a
+                user message inside ``<Msg>``; empty for normal turns.
 
         Returns:
             The rendered rule and protocol blocks (plus the optional
@@ -180,7 +190,7 @@ class EnvelopeBuilder:
         so this text only states the situation.
 
         Args:
-            situation: One of ``window``, ``direct``.
+            situation: One of ``window``, ``wait``, ``direct``.
 
         Returns:
             The situation brief for the proactive turn's protocol block.
@@ -203,7 +213,7 @@ class EnvelopeBuilder:
         the event text only needs to carry the notice.
 
         Args:
-            situation: One of ``window``, ``direct``.
+            situation: One of ``window``, ``wait``, ``direct``.
 
         Returns:
             The per-situation notice text for this system-triggered turn.
@@ -222,7 +232,7 @@ class EnvelopeBuilder:
         ``<Msg>``.
 
         Args:
-            situation: One of ``window``, ``direct``.
+            situation: One of ``window``, ``wait``, ``direct``.
 
         Returns:
             ``<SystemNotice>`` XML with the per-situation notice, XML-escaped.
@@ -245,7 +255,7 @@ class EnvelopeBuilder:
 
         Args:
             context: Trusted current-message metadata.
-            proactive_situation: ``window`` / ``direct`` / empty.
+            proactive_situation: ``window`` / ``wait`` / ``direct`` / empty.
 
         Returns:
             The expectation line, or an empty string when not applicable.

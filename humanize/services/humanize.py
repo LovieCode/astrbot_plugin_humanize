@@ -67,7 +67,7 @@ class HumanizeService:
                 Session continuity when no semantic memory matches.
             allow_wait: Whether the response protocol advertises the proactive
                 ``Wait N`` action supplement.
-            proactive_situation: Proactive situation (``window``/``direct``).
+            proactive_situation: Proactive situation (``window``/``wait``/``direct``).
                 Routes the situation brief into the response protocol and the
                 ``<Msg>`` placeholder; empty for normal turns.
 

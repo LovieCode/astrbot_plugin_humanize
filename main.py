@@ -114,6 +114,16 @@ _PREFIX_EPOCH_REASON_KEY = "_humanize_prefix_epoch_reason"
 _FIRST_RESPONSE_AT_KEY = "_humanize_first_response_at"
 _PROACTIVE_KIND_KEY = "_humanize_proactive_kind"
 _PROACTIVE_WAIT_KEY = "_humanize_proactive_wait_seconds"
+# 合成事件出发时打上的「过期评估」戳：触发时的回复序号 + Wait 再检查的
+# 窗口条目基线。on_llm_request 里与当前值比对，不一致就把这条已经排队
+# 很久的评估直接丢弃，不再调用模型（详见 on_llm_request 内注释）。
+_PROACTIVE_ARMED_SERIAL_KEY = "_humanize_proactive_armed_reply_serial"
+_PROACTIVE_ARMED_ENTRIES_KEY = "_humanize_proactive_armed_window_entries"
+# 当前请求加载的托管窗口条目数（含 Wait 基线比对用）。
+_CONTEXT_WINDOW_ENTRY_COUNT_KEY = "_humanize_context_window_entry_count"
+# 唤醒让路：@/私聊进入管线但还没轮到自己的 on_llm_request 时置位。
+# 期间排队的主动评估直接让路；异常终止靠 TTL 兜底。
+_WAKE_PENDING_TTL_SECONDS = 120.0
 _PROACTIVE_OUTCOME_CALLBACK_KEY = "_humanize_proactive_outcome_callback"
 _PROACTIVE_OUTCOME_FIRED_KEY = "_humanize_proactive_outcome_fired"
 # Wait 规则注入与解析共用同一个标记：请求阶段算一次存进 event，
@@ -297,6 +307,9 @@ class HumanizePlugin(Star):
         self._provider_hooks_installed = False
         self._provider_originals: list[tuple] = []
         self._provider_capture: dict[str, dict[str, Any]] = {}
+        # 唤醒事件（@/私聊）从 prepare 到自己轮到 on_llm_request 之间可能
+        # 间隔一整个在途回合；这段时间里排队的主动评估应当让路。
+        self._wake_started_at: dict[str, float] = {}
 
     async def initialize(self) -> None:
         self._container = Container.build(
@@ -383,6 +396,17 @@ class HumanizePlugin(Star):
             return
         event.set_extra("enable_streaming", False)
         self._install_send_gate(event)
+        # 唤醒消息（@/私聊）进入管线：记录它已开始但尚未轮到自己的
+        # on_llm_request，让这期间排队的主动评估让路（同一会话锁保证
+        # 真实回复先完成）。主动合成事件自身带 _PROACTIVE_KIND_KEY，不算。
+        if (
+            getattr(event, "is_at_or_wake_command", False)
+            and not event.get_extra(_PROACTIVE_KIND_KEY, False)
+            and self._container is not None
+        ):
+            self._wake_started_at[
+                str(getattr(event, "unified_msg_origin", "") or "")
+            ] = asyncio.get_running_loop().time()
         policy_mode = await self._policy_mode_for(
             str(getattr(event, "unified_msg_origin", "") or "")
         )
@@ -564,15 +588,35 @@ class HumanizePlugin(Star):
     ) -> None:
         if not self._is_active:
             return
+        umo = str(getattr(event, "unified_msg_origin", "") or "")
+        is_proactive = bool(event.get_extra(_PROACTIVE_KIND_KEY))
+        if not is_proactive:
+            # 真实唤醒/对话回合已经轮到自己的 LLM 阶段：清除唤醒让路标记，
+            # 之后它自己的回复序号变化负责挡住排队的主动评估。
+            self._wake_started_at.pop(umo, None)
+        else:
+            drop_reason = self._stale_proactive_reason(event, umo)
+            if drop_reason:
+                # 合成事件从触发到真正进入评估之间可能隔了一整个在途回合
+                # （会话锁排队）。期间若 Bot 已经发过言、有真实 @ 回合正在
+                # 赶来、或 Wait 以来历史毫无变化，这次评估只会对着同样或
+                # 已过时的上下文重复发言——直接丢弃，不发模型、不落账、
+                # 不报 outcome；下一条群消息会自然重新开窗。
+                logger.info(
+                    "[Humanize] stale proactive evaluation dropped (%s; umo=%s)",
+                    drop_reason,
+                    umo,
+                )
+                event.clear_result()
+                event.stop_event()
+                return
         # 群聊策略是全局的：完全沉默的会话里机器人连 @ 都不回复。命令类
         # 处理器不会走到这个钩子，所以只拦截对话回复，不影响指令功能。
-        policy_mode = await self._policy_mode_for(
-            str(getattr(event, "unified_msg_origin", "") or "")
-        )
+        policy_mode = await self._policy_mode_for(umo)
         if policy_mode == "silent":
             logger.debug(
                 "[Humanize] session not permitted; reply suppressed (umo=%s)",
-                getattr(event, "unified_msg_origin", ""),
+                umo,
             )
             event.clear_result()
             event.stop_event()
@@ -745,6 +789,32 @@ class HumanizePlugin(Star):
                 context_window_error_type,
                 exc_info=True,
             )
+        event.set_extra(_CONTEXT_WINDOW_ENTRY_COUNT_KEY, context_window_entry_count)
+        if is_proactive:
+            # Wait 再检查的第二道过期判定：触发时记录的窗口条目基线与当前
+            # 一致（期间既没有新发言、也没有别的回合落账）说明模型想等的
+            # 新内容根本没来，把同一段上下文再喂给模型一次只会得到重复
+            # 发言——直接丢弃；有新内容时才值得重新评估。戳缺失或无法
+            # 解析时 fail-open，不阻断这次评估。
+            try:
+                armed_entries = event.get_extra(_PROACTIVE_ARMED_ENTRIES_KEY)
+                wait_unchanged = (
+                    armed_entries is not None
+                    and int(armed_entries) >= 0
+                    and context_window_active
+                    and int(armed_entries) == context_window_entry_count
+                )
+            except (TypeError, ValueError):
+                wait_unchanged = False
+            if wait_unchanged:
+                logger.info(
+                    "[Humanize] stale proactive evaluation dropped "
+                    "(wait window unchanged; umo=%s)",
+                    umo,
+                )
+                event.clear_result()
+                event.stop_event()
+                return
         try:
             proactive_kind = str(event.get_extra(_PROACTIVE_KIND_KEY, "") or "")
             # 常驻 Wait：群聊回合可用（话没说完/不便插话时暂不回应）。
@@ -2546,6 +2616,12 @@ class HumanizePlugin(Star):
 
     @filter.on_decorating_result(priority=_DECORATION_FINALIZER_PRIORITY)
     async def finalize_decoration(self, event: AstrMessageEvent) -> None:
+        # 事件走到终态（回复/命令产物/主动评估结束）：唤醒让路标记完成
+        # 使命，立即清除，避免事件异常终止后长时间压制主动评估。异常
+        # 终止的事件靠 TTL 兜底。
+        self._wake_started_at.pop(
+            str(getattr(event, "unified_msg_origin", "") or ""), None
+        )
         state = event.get_extra(_STATE_KEY, EventState.INACTIVE.value)
         if state in {
             EventState.NO_REPLY.value,
@@ -2809,10 +2885,17 @@ class HumanizePlugin(Star):
             proactive = getattr(self._container, "proactive", None)
             if proactive is not None:
                 try:
+                    try:
+                        window_entries = int(
+                            event.get_extra(_CONTEXT_WINDOW_ENTRY_COUNT_KEY, -1)
+                        )
+                    except (TypeError, ValueError):
+                        window_entries = -1
                     await proactive.on_wait_requested(
                         context.scope_id,
                         event=event,
                         wait_seconds=int(wait_seconds_raw or 0),
+                        window_entries=window_entries,
                     )
                 except Exception:
                     logger.exception("[Humanize] failed to schedule the wait re-check")
@@ -2908,6 +2991,7 @@ class HumanizePlugin(Star):
     async def terminate(self) -> None:
         container = self._container
         self._container = None
+        self._wake_started_at.clear()
         self._uninstall_provider_hooks()
         if container is not None:
             proactive = getattr(container, "proactive", None)
@@ -3495,12 +3579,45 @@ class HumanizePlugin(Star):
         """Return the host event queue for synthetic proactive events."""
         return self.context.get_event_queue()
 
+    def _stale_proactive_reason(self, event: AstrMessageEvent, umo: str) -> str | None:
+        """Cheap pre-load staleness check for one synthetic proactive event.
+
+        评估真正开始前，先比对触发时打上的回复序号与当前序号：排队期间
+        Bot 若已发过言（任何回合的最终回复都会推进序号），这条评估已经
+        过时。再看唤醒让路标记：有真实 @/私聊回合已进入管线但还没轮到
+        它自己的 LLM 阶段时，主动评估先让位。
+
+        Args:
+            event: The synthetic proactive event carrying the armed stamps.
+            umo: Unified message origin of the target session.
+
+        Returns:
+            A stable drop reason, or ``None`` when the evaluation is fresh.
+        """
+        proactive = getattr(self._container, "proactive", None)
+        armed_serial = event.get_extra(_PROACTIVE_ARMED_SERIAL_KEY)
+        if armed_serial is not None and proactive is not None:
+            try:
+                if int(proactive.reply_serial(umo)) != int(armed_serial):
+                    return "bot_replied_since_armed"
+            except (TypeError, ValueError):
+                pass
+        wake_started_at = self._wake_started_at.get(umo)
+        if wake_started_at is not None:
+            elapsed = asyncio.get_running_loop().time() - wake_started_at
+            if elapsed <= _WAKE_PENDING_TTL_SECONDS:
+                return "wake_turn_pending"
+            self._wake_started_at.pop(umo, None)
+        return None
+
     def _build_proactive_event(
         self,
         template: AstrMessageEvent | None,
         *,
         kind: str,
         on_outcome: Any,
+        armed_reply_serial: int = -1,
+        armed_window_entries: int | None = None,
     ) -> AstrMessageEvent | None:
         """Construct the synthetic group event for one proactive turn.
 
@@ -3513,13 +3630,16 @@ class HumanizePlugin(Star):
         the response protocol in ``on_llm_request`` and the group's chatter
         is already ordinary history. A fresh object is mandatory: pipeline
         stages stamp state onto the event instance, so a consumed event must
-        never be reused.
+        never be reused. The armed stamps let ``on_llm_request`` drop
+        evaluations that went stale while queued.
 
         Args:
             template: The group's most recent real message event.
-            kind: Trigger source, ``window`` or ``direct``.
+            kind: Trigger source, ``window``, ``wait`` or ``direct``.
             on_outcome: Callback receiving ``(context, action, wait_seconds)``
                 when the pipeline reaches a terminal outcome.
+            armed_reply_serial: The scope's reply serial at trigger time.
+            armed_window_entries: Window entry baseline for Wait re-checks.
 
         Returns:
             A fresh event marked as proactive, or ``None`` when the
@@ -3569,6 +3689,16 @@ class HumanizePlugin(Star):
             return None
         event.set_extra(_PROACTIVE_KIND_KEY, kind)
         event.set_extra(_PROACTIVE_OUTCOME_CALLBACK_KEY, on_outcome)
+        try:
+            if armed_reply_serial is not None and int(armed_reply_serial) >= 0:
+                event.set_extra(_PROACTIVE_ARMED_SERIAL_KEY, int(armed_reply_serial))
+        except (TypeError, ValueError):
+            pass
+        try:
+            if armed_window_entries is not None and int(armed_window_entries) >= 0:
+                event.set_extra(_PROACTIVE_ARMED_ENTRIES_KEY, int(armed_window_entries))
+        except (TypeError, ValueError):
+            pass
         return event
 
     @staticmethod
@@ -4336,7 +4466,16 @@ class HumanizePlugin(Star):
             return
         event.set_extra(_PROACTIVE_OUTCOME_FIRED_KEY, True)
         try:
-            await callback(context, action=action, wait_seconds=wait_seconds)
+            window_entries = int(event.get_extra(_CONTEXT_WINDOW_ENTRY_COUNT_KEY, -1))
+        except (TypeError, ValueError):
+            window_entries = -1
+        try:
+            await callback(
+                context,
+                action=action,
+                wait_seconds=wait_seconds,
+                window_entries=window_entries,
+            )
         except Exception:
             logger.exception("[Humanize] proactive outcome callback failed")
 

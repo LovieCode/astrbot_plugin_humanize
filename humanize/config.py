@@ -125,6 +125,7 @@ class PluginConfig:
     reply_examples_recall_score_threshold: float = 0.2
     proactive_window_initial_seconds: int = 10
     proactive_window_max_seconds: int = 300
+    proactive_post_reply_cooldown_seconds: int = 20
     proactive_keywords: tuple[str, ...] = ()
 
     @classmethod
@@ -268,6 +269,9 @@ class PluginConfig:
             proactive_window_max_seconds=_as_int(
                 data.get("proactive_window_max_seconds"), 300, 30, 3_600
             ),
+            proactive_post_reply_cooldown_seconds=_as_int(
+                data.get("proactive_post_reply_cooldown_seconds"), 20, 0, 600
+            ),
             proactive_keywords=_as_string_list(data.get("proactive_keywords")),
         )
 
@@ -332,5 +336,8 @@ class PluginConfig:
             ),
             "proactive_window_initial_seconds": (self.proactive_window_initial_seconds),
             "proactive_window_max_seconds": self.proactive_window_max_seconds,
+            "proactive_post_reply_cooldown_seconds": (
+                self.proactive_post_reply_cooldown_seconds
+            ),
             "proactive_keywords": list(self.proactive_keywords),
         }

@@ -115,6 +115,7 @@ def test_grouped_schema_defaults_are_flattened_for_runtime_config(
     # 群聊许可与主动模式已迁移到 WebUI 群聊策略页（humanize.db），配置只留节奏与关键词
     assert config.proactive_window_initial_seconds == 10
     assert config.proactive_window_max_seconds == 300
+    assert config.proactive_post_reply_cooldown_seconds == 20
 
 
 def test_provider_ids_preserve_astrbot_path_segments() -> None:

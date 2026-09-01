@@ -336,6 +336,10 @@ def test_envelope_proactive_prompt_covers_situations() -> None:
     direct = builder.build_proactive_prompt(situation="direct")
     assert "没有 @ 你" not in direct
 
+    wait = builder.build_proactive_prompt(situation="wait")
+    assert "你之前选择了等待" in wait
+    assert "没有 @ 你" not in wait
+
     with pytest.raises(ValueError):
         builder.build_proactive_prompt(situation="followup")
     with pytest.raises(ValueError):
@@ -359,11 +363,16 @@ def test_envelope_proactive_situation_lives_in_protocol_not_msg() -> None:
         builder.build_protocol_prompt(_context(), proactive_situation="unknown")
 
     # 通告按路径措辞：窗口是行动指引（含 Wait 提示），直呼保留结构说明
-    # （不能给"先旁观"的选项）。占位都不得伪装成 <Msg> 用户消息。
+    # （不能给"先旁观"的选项），等待复查交代来由。占位都不得伪装成
+    # <Msg> 用户消息。
     window_notice = builder.build_proactive_message_text(situation="window")
     assert "群里正在聊天" in window_notice
     assert "Wait动作" in window_notice
     assert "<Msg>" not in window_notice
+
+    wait_notice = builder.build_proactive_message_text(situation="wait")
+    assert "等待后的到点复查" in wait_notice
+    assert "<Msg>" not in wait_notice
 
     direct_notice = builder.build_proactive_message_text(situation="direct")
     assert "由系统触发" in direct_notice
@@ -403,13 +412,14 @@ def test_rule_injects_speak_expectation_only_for_window_turns() -> None:
     # 期望行落在 <Rule> 标签内部
     assert window.index("主动发言的概率约为 35%") < window.index("<Rule/>")
 
-    # 直呼回合、普通回合、未设置概率的窗口回合：都不注入。
+    # 直呼回合、等待复查、普通回合、未设置概率的窗口回合：都不注入。
     direct = builder.build_protocol_prompt(group, proactive_situation="direct")
+    wait = builder.build_protocol_prompt(group, proactive_situation="wait")
     normal = builder.build_protocol_prompt(group)
     unset = builder.build_protocol_prompt(
         _context(scope_type="group"), proactive_situation="window"
     )
-    for prompt in (direct, normal, unset):
+    for prompt in (direct, wait, normal, unset):
         assert "主动发言的概率" not in prompt
 
 

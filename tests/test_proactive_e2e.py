@@ -166,9 +166,11 @@ def _plugin(
         },
     )
     # 提速：初始窗口压到下限（线上默认 10 秒），受 2 秒保底下限托底，
-    # 其余计时语义不变。
+    # 回复后静默期关闭（线上默认 20 秒）；其余计时语义不变。
     plugin._plugin_config = replace(
-        plugin._plugin_config, proactive_window_initial_seconds=0
+        plugin._plugin_config,
+        proactive_window_initial_seconds=0,
+        proactive_post_reply_cooldown_seconds=0,
     )
     return plugin
 
@@ -384,8 +386,13 @@ def test_window_wait_cycle_defers_then_replies(
             assert SCOPE in proactive._window_timers
             assert (await _load_window(plugin)).entry_count == 1
 
+            # 等待期间群里来了新发言：再检查时窗口有新内容，评估继续。
+            await plugin.prepare_message_event(
+                _group_event(text="我先说我的", message_id="m-2")
+            )
+
             second = await asyncio.wait_for(queue.get(), timeout=5)
-            assert second.get_extra(_PROACTIVE_KIND_KEY) == "window"
+            assert second.get_extra(_PROACTIVE_KIND_KEY) == "wait"
             second.is_at_or_wake_command = True
             _req2, response2 = await _run_request(plugin, second, REPLY_RAW)
             await _dispatch(plugin, second, response2)
@@ -398,7 +405,8 @@ def test_window_wait_cycle_defers_then_replies(
                 scope_id=SCOPE
             )
             assert state["window_seconds"] == 2  # 回复后回到 2 秒保底窗口
-            assert (await _load_window(plugin)).entry_count == 2
+            # 开窗闲聊 + 等待期间新发言 + Bot 回复，共三条
+            assert (await _load_window(plugin)).entry_count == 3
         finally:
             await plugin.terminate()
 
@@ -431,8 +439,13 @@ def test_normal_turn_wait_schedules_window_recheck(
             # 等待不落窗口：回合里没有可记录的发言
             assert (await _load_window(plugin)).entry_count == 0
 
+            # 等待期间群里来了新发言：再检查带着新内容继续。
+            await plugin.prepare_message_event(
+                _group_event(text="好了我说完了", message_id="m-2")
+            )
+
             second = await asyncio.wait_for(queue.get(), timeout=5)
-            assert second.get_extra(_PROACTIVE_KIND_KEY) == "window"
+            assert second.get_extra(_PROACTIVE_KIND_KEY) == "wait"
             second.is_at_or_wake_command = True
             _req2, response2 = await _run_request(plugin, second, REPLY_RAW)
             await _dispatch(plugin, second, response2)
@@ -465,10 +478,16 @@ def test_normal_turn_waits_capped_per_batch(
             _req, response = await _run_request(plugin, event, WAIT_RAW)
             await _dispatch(plugin, event, response)
 
-            # 第 2、3 次：两次补查都继续等待，第 3 次触顶。
-            for _ in range(2):
+            # 第 2、3 次：两次补查都继续等待，第 3 次触顶。每次补查前群里
+            # 都有新发言（窗口内容变了，再检查才会继续评估）。
+            for index in range(2):
+                await plugin.prepare_message_event(
+                    _group_event(
+                        text=f"又补了一句 {index}", message_id=f"m-wait-{index}"
+                    )
+                )
                 recheck = await asyncio.wait_for(queue.get(), timeout=5)
-                assert recheck.get_extra(_PROACTIVE_KIND_KEY) == "window"
+                assert recheck.get_extra(_PROACTIVE_KIND_KEY) == "wait"
                 recheck.is_at_or_wake_command = True
                 _req2, response2 = await _run_request(plugin, recheck, WAIT_RAW)
                 await _dispatch(plugin, recheck, response2)
@@ -555,6 +574,172 @@ def test_normal_at_reply_resets_pending_window(
             )
             assert state["window_seconds"] == 2  # 回复后回到 2 秒保底窗口
             assert queue.empty()
+        finally:
+            await plugin.terminate()
+
+    asyncio.run(scenario())
+
+
+def test_stale_proactive_dropped_after_bot_reply(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """排队期间 Bot 回复过 → 到点的主动评估直接丢弃，不调模型不落账。
+
+    对应线上「触发评估 + @ 回复并发 → 两条上下文一致的回复」的缺陷：
+    合成事件带着触发时刻的回复序号，评估真正开始时序号已前进（期间有
+    @ 回复），说明上下文已经包含那条回复，再评估只会重复发言。
+    """
+
+    async def scenario() -> None:
+        queue: asyncio.Queue = asyncio.Queue()
+        plugin = _plugin(tmp_path, monkeypatch, queue)
+        try:
+            await plugin.initialize()
+            await plugin._container.repository.set_group_policy_mode(
+                scope_id="global", mode="full"
+            )
+            await plugin.prepare_message_event(
+                _group_event(text="这局谁来指挥", message_id="m-1")
+            )
+            synthetic = await asyncio.wait_for(queue.get(), timeout=5)
+
+            # 评估排到队列里之后、真正开始之前，群里有人 @ Bot 并得到回复。
+            at_event = _group_event(text="我来指挥", at_bot=True, message_id="m-2")
+            _req, response = await _run_request(plugin, at_event, REPLY_RAW)
+            await _dispatch(plugin, at_event, response)
+            assert [c.get_plain_text() for c in at_event.sent_chains] == [
+                "好呀，我也要去"
+            ]
+
+            # 现在轮到那条排队的主动评估：序号已过期 → 丢弃。
+            outcomes: list[Any] = []
+
+            async def _outcome(*args: Any, **kwargs: Any) -> None:
+                outcomes.append((args, kwargs))
+
+            synthetic.set_extra("_humanize_proactive_outcome_callback", _outcome)
+            req2 = ProviderRequest(
+                prompt=synthetic.message_str,
+                contexts=[],
+                system_prompt="",
+                conversation=SimpleNamespace(
+                    cid=_StubConversationManager.CONVERSATION_ID,
+                    persona_id=_StubConversationManager.PERSONA_ID,
+                ),
+            )
+            await plugin.prepare_message_event(synthetic)
+            await plugin.on_llm_request(synthetic, req2)
+
+            assert synthetic.is_stopped()
+            assert req2.contexts == []
+            assert req2.system_prompt == ""
+            assert outcomes == []
+            assert queue.empty()
+        finally:
+            await plugin.terminate()
+
+    asyncio.run(scenario())
+
+
+def test_wake_pending_defers_proactive_evaluation(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """有真实 @ 回合已进入管线但还没到自己的 LLM 阶段 → 主动评估先让路。"""
+
+    async def scenario() -> None:
+        queue: asyncio.Queue = asyncio.Queue()
+        plugin = _plugin(tmp_path, monkeypatch, queue)
+        try:
+            await plugin.initialize()
+            await plugin._container.repository.set_group_policy_mode(
+                scope_id="global", mode="full"
+            )
+            await plugin.prepare_message_event(
+                _group_event(text="这局谁来指挥", message_id="m-1")
+            )
+            synthetic = await asyncio.wait_for(queue.get(), timeout=5)
+
+            # 唤醒回合进入 prepare（置让路标记），还没轮到 on_llm_request。
+            wake = _group_event(text="bot 指挥是我", at_bot=True, message_id="m-2")
+            await plugin.prepare_message_event(wake)
+
+            synthetic.set_extra("_humanize_proactive_outcome_callback", None)
+            req = ProviderRequest(
+                prompt=synthetic.message_str,
+                contexts=[],
+                system_prompt="",
+                conversation=SimpleNamespace(
+                    cid=_StubConversationManager.CONVERSATION_ID,
+                    persona_id=_StubConversationManager.PERSONA_ID,
+                ),
+            )
+            await plugin.prepare_message_event(synthetic)
+            await plugin.on_llm_request(synthetic, req)
+            assert synthetic.is_stopped()
+            assert req.contexts == []
+
+            # 唤醒回合走到自己的 LLM 阶段：让路标记清除。
+            wake_req = ProviderRequest(
+                prompt=wake.message_str,
+                contexts=[],
+                system_prompt="",
+                conversation=SimpleNamespace(
+                    cid=_StubConversationManager.CONVERSATION_ID,
+                    persona_id=_StubConversationManager.PERSONA_ID,
+                ),
+            )
+            await plugin.on_llm_request(wake, wake_req)
+            assert not wake.is_stopped()
+            assert plugin._stale_proactive_reason(synthetic, SCOPE) is None
+        finally:
+            await plugin.terminate()
+
+    asyncio.run(scenario())
+
+
+def test_wait_recheck_dropped_when_window_unchanged(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """Wait 到点后历史毫无变化 → 再检查被丢弃，不再对着同样内容评估。"""
+
+    async def scenario() -> None:
+        queue: asyncio.Queue = asyncio.Queue()
+        plugin = _plugin(tmp_path, monkeypatch, queue)
+        try:
+            await plugin.initialize()
+            await plugin._container.repository.set_group_policy_mode(
+                scope_id="global", mode="full"
+            )
+            event = _group_event(text="等等，我话没说完", at_bot=True, message_id="m-1")
+            _req, response = await _run_request(plugin, event, WAIT_RAW)
+            await _dispatch(plugin, event, response)
+            assert dict(plugin._container.proactive._waits) == {SCOPE: 1}
+
+            recheck = await asyncio.wait_for(queue.get(), timeout=5)
+            assert recheck.get_extra(_PROACTIVE_KIND_KEY) == "wait"
+            recheck.is_at_or_wake_command = True
+
+            outcomes: list[Any] = []
+
+            async def _outcome(*args: Any, **kwargs: Any) -> None:
+                outcomes.append((args, kwargs))
+
+            recheck.set_extra("_humanize_proactive_outcome_callback", _outcome)
+            req2 = ProviderRequest(
+                prompt=recheck.message_str,
+                contexts=[],
+                system_prompt="",
+                conversation=SimpleNamespace(
+                    cid=_StubConversationManager.CONVERSATION_ID,
+                    persona_id=_StubConversationManager.PERSONA_ID,
+                ),
+            )
+            await plugin.prepare_message_event(recheck)
+            await plugin.on_llm_request(recheck, req2)
+
+            assert recheck.is_stopped()
+            assert req2.system_prompt == ""
+            assert outcomes == []
         finally:
             await plugin.terminate()
 
