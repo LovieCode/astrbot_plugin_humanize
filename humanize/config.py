@@ -107,6 +107,9 @@ class PluginConfig:
     memory_recall_limit: int = 5
     memory_recall_score_threshold: float = 0.2
     memory_recall_max_chars: int = 2_500
+    context_summary_enabled: bool = True
+    context_summary_max_chars: int = 2_400
+    context_summary_timeout_seconds: float = 30.0
     memory_intent_analysis_enabled: bool = False
     memory_extract_batch_turns: int = 8
     memory_extract_idle_seconds: int = 180
@@ -216,6 +219,13 @@ class PluginConfig:
             memory_recall_max_chars=_as_int(
                 data.get("memory_recall_max_chars"), 2_500, 256, 20_000
             ),
+            context_summary_enabled=_as_bool(data.get("context_summary_enabled"), True),
+            context_summary_max_chars=_as_int(
+                data.get("context_summary_max_chars"), 2_400, 500, 6_000
+            ),
+            context_summary_timeout_seconds=_as_float(
+                data.get("context_summary_timeout_seconds"), 30.0, 5.0, 120.0
+            ),
             memory_intent_analysis_enabled=_as_bool(
                 data.get("memory_intent_analysis_enabled"), False
             ),
@@ -290,6 +300,9 @@ class PluginConfig:
             "memory_recall_limit": self.memory_recall_limit,
             "memory_recall_score_threshold": self.memory_recall_score_threshold,
             "memory_recall_max_chars": self.memory_recall_max_chars,
+            "context_summary_enabled": self.context_summary_enabled,
+            "context_summary_max_chars": self.context_summary_max_chars,
+            "context_summary_timeout_seconds": (self.context_summary_timeout_seconds),
             "memory_intent_analysis_enabled": self.memory_intent_analysis_enabled,
             "memory_extract_batch_turns": self.memory_extract_batch_turns,
             "memory_extract_idle_seconds": self.memory_extract_idle_seconds,

@@ -547,6 +547,7 @@ def test_request_takeover_replaces_native_history_and_disables_session_fallback(
                 contexts=({"role": "user", "content": "managed history"},),
                 entry_count=1,
                 estimated_tokens=2,
+                compacted=False,
             )
 
     class Service:
@@ -989,6 +990,40 @@ def test_compacted_observed_turn_renders_like_a_normal_message(
         assert summary.count("[小红 · ") >= 2
         assert "该水群了" in summary
         assert "…" in summary
+        # 行尾附带 ctx 引用，模型可回读该回合全文。
+        assert "（ctx-" in summary
+
+    asyncio.run(scenario())
+
+
+def test_summary_trim_drops_oldest_lines_first(tmp_path: Path) -> None:
+    """摘要超上限时丢最旧的行：最新被淘汰的内容保持可见。"""
+
+    async def scenario() -> None:
+        window, _, _ = await _window(tmp_path)
+        for index in range(1, 61):
+            await window.append_chatter(
+                _context(
+                    index,
+                    sender_id=f"user-{index}",
+                    sender_name="成员",
+                    user_text=f"刷屏{index}-" + "水" * 200,
+                ),
+                token_budget=256,
+            )
+        loaded = await window.load(_context(99, user_text="@bot"), token_budget=256)
+        summary = str(loaded.contexts[0].get("content"))
+        hot = "\n".join(
+            str(item.get("content"))
+            for item in loaded.contexts[1:]
+            if item.get("role") == "user"
+        )
+        # 60 条旁观：索引 1..40 被淘汰进摘要，41..60 仍在热区。
+        assert "刷屏40-" in summary  # 最新被淘汰的保持可见
+        assert "刷屏1-" not in summary  # 最旧的被裁掉
+        assert "刷屏60-" in hot  # 尚未被淘汰
+        # 总量被钉在摘要上限内（含头部声明行）。
+        assert len(summary) <= 6_100
 
     asyncio.run(scenario())
 
@@ -1054,6 +1089,7 @@ def test_on_llm_request_loads_managed_history_without_trailing_fragments() -> No
                 ),
                 entry_count=2,
                 estimated_tokens=2,
+                compacted=False,
             )
 
     class Service:

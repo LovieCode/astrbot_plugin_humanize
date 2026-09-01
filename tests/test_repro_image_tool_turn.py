@@ -37,7 +37,9 @@ class RecordingWindow:
 
     async def append(self, context, **kwargs):
         self.calls.append({"context": context, **kwargs})
-        return SimpleNamespace(context_ref="ctx-AAAAAAAA", duplicate=False)
+        return SimpleNamespace(
+            context_ref="ctx-AAAAAAAA", duplicate=False, compacted=False
+        )
 
 
 class MemoryStub:

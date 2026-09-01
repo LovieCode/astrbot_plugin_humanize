@@ -6,6 +6,7 @@ from typing import Any
 
 from .config import PluginConfig
 from .context.composer import ContextComposer
+from .context.summarizer import ContextSummarizer
 from .context.window import ContextWindowService
 from .jargon.matcher import JargonMatcher
 from .memory import ChatMemoryService
@@ -113,6 +114,19 @@ class Container:
             openviking_management_adapter=openviking_management,
         )
         context_window = ContextWindowService(openviking_workspace, memory)
+        if config.context_summary_enabled and config.memory_extraction_provider_id:
+            # 摘要用独立的 Provider 桥：超时比召回宽（长文本压缩），
+            # 复用记忆抽取 Provider 的选择，未配置时保持确定性摘要。
+            context_window.attach_summarizer(
+                ContextSummarizer(
+                    OpenVikingProviderBridge(
+                        context,
+                        chat_provider_id=config.memory_extraction_provider_id,
+                        timeout_seconds=config.context_summary_timeout_seconds,
+                    ),
+                    max_chars=config.context_summary_max_chars,
+                )
+            )
         envelope = EnvelopeBuilder(config)
         matcher = JargonMatcher()
         composer = ContextComposer(

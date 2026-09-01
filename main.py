@@ -206,6 +206,14 @@ def _spawn_background(
     return task
 
 
+async def _refresh_summary_safe(window: Any, context: MessageContext) -> None:
+    """Run one summary digest with fail-open semantics."""
+    try:
+        await window.refresh_summary(context)
+    except Exception:
+        logger.debug("[Humanize] context summary refresh failed", exc_info=True)
+
+
 def _json_safe(value: Any) -> Any:
     """Convert a runtime value into a JSON-serializable structure.
 
@@ -678,6 +686,8 @@ class HumanizePlugin(Star):
             context_window_active = True
             context_window_entry_count = context_window.entry_count
             context_window_estimated_tokens = context_window.estimated_tokens
+            if context_window.compacted:
+                self._schedule_summary_refresh(message_context)
         except Exception as exc:
             # The managed window is authoritative. An unavailable workspace must
             # omit short-term history rather than silently exposing AstrBot's
@@ -1974,6 +1984,8 @@ class HumanizePlugin(Star):
                 assistant_only=assistant_only,
             )
             event.set_extra(_CONTEXT_TURN_REF_KEY, result.context_ref)
+            if result.compacted:
+                self._schedule_summary_refresh(context)
             committer = getattr(
                 getattr(self._container, "memory", None),
                 "commit_context_turn",
@@ -2953,6 +2965,22 @@ class HumanizePlugin(Star):
             logger.exception("[Humanize] failed to resolve reset persona")
         return message_context
 
+    def _schedule_summary_refresh(self, context: MessageContext) -> None:
+        """Digest the window summary in the background after a compaction.
+
+        The window keeps its deterministic transcript until the digest lands;
+        a missing summarizer makes the call return immediately, so spawning
+        unconditionally is safe.
+        """
+        container = self._container
+        window = getattr(container, "context_window", None) if container else None
+        if window is None:
+            return
+        _spawn_background(
+            _refresh_summary_safe(window, context),
+            name="humanize-context-summary",
+        )
+
     async def _maybe_record_chatter(
         self, event: AstrMessageEvent, *, policy_mode: str = ""
     ) -> None:
@@ -3020,7 +3048,7 @@ class HumanizePlugin(Star):
             return
         chatter_context = await self._align_turn_identity(event, chatter_context)
         try:
-            await window(
+            appended = await window(
                 chatter_context,
                 has_image=has_image,
                 # prepare 阶段已经算好的转述直接带上：旁观图片进历史时
@@ -3033,6 +3061,9 @@ class HumanizePlugin(Star):
                 ),
                 token_budget=self._context_window_token_budget(umo),
             )
+            if appended:
+                # 摘要快照自检（llm 标记）会挡掉无新内容的刷新。
+                self._schedule_summary_refresh(chatter_context)
         except Exception:
             logger.debug("[Humanize] chatter record skipped", exc_info=True)
 

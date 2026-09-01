@@ -71,6 +71,8 @@ class ContextWindowService:
         self._workspace = workspace
         self._memory = memory
         self._ready = False
+        self._summarizer: Any = None
+        self._summary_pending: set[str] = set()
 
     def initialize(self) -> None:
         """Initialize the shared workspace before serving context requests."""
@@ -219,6 +221,84 @@ class ContextWindowService:
         if not self._ready:
             raise RuntimeError("context window is not initialized")
         return await asyncio.to_thread(self._clear_sync, context)
+
+    def attach_summarizer(self, summarizer: Any) -> None:
+        """Attach the optional LLM digest used by :meth:`refresh_summary`.
+
+        Args:
+            summarizer: ``ContextSummarizer`` instance with an async
+                ``digest(text)`` method. Without one the window keeps the
+                deterministic compaction summary and refresh is a no-op.
+        """
+        self._summarizer = summarizer
+
+    async def refresh_summary(self, context: MessageContext) -> bool:
+        """Digest the rolling summary through the attached summarizer.
+
+        压缩路径始终先写确定性逐行摘要（PLAN 第 5 步的第一阶段）；本方法
+        是第二阶段：后台把该文本改写为更短的 LLM 摘要。写回前比对快照
+        文本（field-level CAS）：期间若发生新的压缩或已写入别的摘要，本次
+        结果作废，等待下一次触发。任何失败都保留确定性版本。
+
+        Args:
+            context: Trusted metadata for the conversation to refresh.
+
+        Returns:
+            Whether an LLM digest replaced the deterministic summary.
+        """
+        summarizer = self._summarizer
+        if summarizer is None or not self._ready:
+            return False
+        snapshot = await asyncio.to_thread(self._summary_snapshot_sync, context)
+        if snapshot is None:
+            return False
+        key, text = snapshot
+        if key in self._summary_pending:
+            return False
+        self._summary_pending.add(key)
+        try:
+            digest = await summarizer.digest(text)
+            if not digest:
+                return False
+            return await asyncio.to_thread(
+                self._apply_summary_sync, context, text, digest
+            )
+        finally:
+            self._summary_pending.discard(key)
+
+    def _summary_snapshot_sync(self, context: MessageContext) -> tuple[str, str] | None:
+        """Read the pending deterministic summary text, if any."""
+        identity, agent_id, session_directory = self._session_info(context)
+        state_path = session_directory / "context_window.json"
+        with self._workspace.transaction() as transaction:
+            state = self._read_state(transaction, state_path, identity, agent_id)
+            summary = state["summary"]
+            text = str(summary.get("text") or "").strip()
+            if not text or summary.get("llm"):
+                return None
+            return str(session_directory), text
+
+    def _apply_summary_sync(
+        self,
+        context: MessageContext,
+        expected: str,
+        digest: str,
+    ) -> bool:
+        """Replace the summary only when it still matches the snapshot."""
+        identity, agent_id, session_directory = self._session_info(context)
+        state_path = session_directory / "context_window.json"
+        with self._workspace.transaction() as transaction:
+            state = self._read_state(transaction, state_path, identity, agent_id)
+            summary = state["summary"]
+            current = str(summary.get("text") or "").strip()
+            if current != expected or summary.get("llm"):
+                return False
+            state["summary"] = {
+                "text": self._clip(str(digest or "").strip(), _SUMMARY_MAX_CHARS),
+                "llm": True,
+            }
+            transaction.atomic_write(state_path, self._serialize(state))
+            return True
 
     async def append_chatter(
         self,
@@ -631,14 +711,16 @@ class ContextWindowService:
                 )
         summary = raw.get("summary")
         summary_text = ""
+        summary_llm = False
         if isinstance(summary, dict):
             summary_text = self._clip(
                 str(summary.get("text") or ""), _SUMMARY_MAX_CHARS
             )
+            summary_llm = bool(summary.get("llm"))
         state = self._empty_state(expected)
         state["refs"] = refs
         state["entries"] = entries
-        state["summary"] = {"text": summary_text}
+        state["summary"] = {"text": summary_text, "llm": summary_llm}
         return state
 
     @staticmethod
@@ -648,7 +730,7 @@ class ContextWindowService:
             **expected,
             "entries": [],
             "refs": {},
-            "summary": {"text": ""},
+            "summary": {"text": "", "llm": False},
         }
 
     def _compact_state(
@@ -679,16 +761,22 @@ class ContextWindowService:
             return False
         # 逐条摘要，不做任何聚合合并：同一条真实消息重复出现就重复罗列，
         # 由 _clip 兜底截断（真实消息不该被偷偷合并掉）。
-        summary_lines = []
+        summary_lines: list[str] = []
         previous = str(state["summary"].get("text") or "").strip()
         if previous:
-            summary_lines.append(previous)
+            summary_lines.extend(line for line in previous.splitlines() if line.strip())
         for entry in evicted:
             detail = self._read_l2(transaction, session_directory, entry["context_ref"])
-            summary_lines.append(self._summary_line(entry, detail))
-        state["summary"] = {
-            "text": self._clip("\n".join(summary_lines), _SUMMARY_MAX_CHARS)
-        }
+            summary_lines.extend(self._summary_line(entry, detail).splitlines())
+        # 超预算时优先丢最旧的行：最新被淘汰的内容保持可见，方向与
+        # entries 的淘汰语义一致（旧的先让位）。
+        while summary_lines and len("\n".join(summary_lines)) > _SUMMARY_MAX_CHARS:
+            summary_lines.pop(0)
+        text = "\n".join(summary_lines)
+        if len(text) > _SUMMARY_MAX_CHARS:
+            text = self._clip(text, _SUMMARY_MAX_CHARS)
+        # 新增了未消化的确定性行：LLM 摘要标记复位，refresh_summary 会接管。
+        state["summary"] = {"text": text, "llm": False}
         return True
 
     def _render_contexts(
@@ -1116,8 +1204,10 @@ class ContextWindowService:
         """Render one evicted turn in the same shape as a normal message.
 
         与热区/冷区消息完全同构：`[发送者 · 时间] 正文`，只有正文过长时才
-        按字符上限截断。Bot 有回复时补一行 `[Bot · 时间] 回复`；旁观条目
-        （Observed）与 No Reply 回合没有回复行，渲染结果与普通消息一致。
+        按字符上限截断。回合末尾附带 `（ctx-…）` 引用，模型可用
+        humanize_memory_search 回读该回合全文。Bot 有回复时补一行
+        `[Bot · 时间] 回复`；旁观条目（Observed）与 No Reply 回合没有
+        回复行，渲染结果与普通消息一致。
 
         Args:
             entry: Evicted window entry (l0/created_at/context_ref).
@@ -1126,12 +1216,14 @@ class ContextWindowService:
         Returns:
             One transcript line per speaker, newline separated.
         """
+        ref = str(entry.get("context_ref") or "").strip()
         fallback = self._clip(
             " ".join(str(entry.get("l0") or "").split()), _SUMMARY_LINE_CHARS
         )
         if record is None:
             time_label = self._format_time_label(str(entry.get("created_at") or ""))
-            return f"[{time_label}] {fallback}" if time_label else fallback
+            line = f"[{time_label}] {fallback}" if time_label else fallback
+            return f"{line}（{ref}）" if ref else line
         sender_name = str(record.get("sender_name") or "").strip() or "用户"
         bot_name = str(record.get("bot_name") or "").strip() or "Bot"
         time_label = self._format_time_label(str(record.get("created_at") or ""))
@@ -1147,6 +1239,8 @@ class ContextWindowService:
         lines = [self._speaker_line(sender_name, time_label, user_text or fallback)]
         if assistant_text.strip():
             lines.append(self._speaker_line(bot_name, time_label, assistant_text))
+        if ref:
+            lines[-1] = f"{lines[-1]}（{ref}）"
         return "\n".join(lines)
 
     def _speaker_line(self, speaker: str, time_label: str, body: str) -> str:

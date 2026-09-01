@@ -368,6 +368,42 @@
         "collapsed": true,
         "hint": "记忆只作为临时用户上下文注入，并保持回复协议位于最后。"
       },
+      "context_summary_enabled": {
+        "description": "历史摘要 LLM 压缩",
+        "type": "bool",
+        "default": true,
+        "condition": {},
+        "collapsed": true,
+        "hint": "被挤出窗口的历史先用逐行摘要保底，再由记忆提取 Provider 后台压缩成更短的 LLM 摘要并在重要信息旁标注 ctx 引用；未选择提取 Provider 或压缩失败时保留逐行摘要。"
+      },
+      "context_summary_max_chars": {
+        "description": "LLM 摘要字符上限",
+        "type": "int",
+        "default": 2400,
+        "minimum": 500,
+        "maximum": 6000,
+        "condition": {
+          "context_summary_enabled": true
+        },
+        "collapsed": true
+      },
+      "context_summary_timeout_seconds": {
+        "description": "LLM 摘要超时（秒）",
+        "type": "float",
+        "default": 30.0,
+        "minimum": 5.0,
+        "maximum": 120.0,
+        "slider": {
+          "min": 5.0,
+          "max": 120.0,
+          "step": 1.0
+        },
+        "condition": {
+          "context_summary_enabled": true
+        },
+        "collapsed": true,
+        "hint": "超时或失败保留确定性逐行摘要，下次压缩后再试。"
+      },
       "memory_extract_batch_turns": {
         "description": "记忆提取批次回合数（越大越省 LLM 调用，延迟提取）",
         "type": "int",
@@ -558,7 +594,7 @@
         "default": 10,
         "minimum": 5,
         "maximum": 600,
-        "hint": "群里出现新消息后等待多久再触发一次回复；机器人回复后回到 1 秒，沉默则加 10 秒，上限见最长触发窗口。"
+        "hint": "群里出现新消息后等待多久再触发一次回复；机器人回复后回到 2 秒保底，连续沉默按 1/3/5/10 秒阶梯加长（之后每步约 1.4 倍），上限见最长触发窗口。"
       },
       "proactive_window_max_seconds": {
         "description": "最长触发窗口（秒）",
