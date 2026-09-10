@@ -105,7 +105,8 @@ printf 'Running local checks...\n'
 uv run pytest -q tests/test_webui_static.py tests/test_sdk_webapi_endpoints.py
 uvx ruff format --check humanize tests scripts/build_spa.py main.py
 uvx ruff check humanize tests scripts/build_spa.py main.py
-python scripts/build_spa.py --check || die "SPA build is out of date; run scripts/build_spa.py and commit"
+# 必须走 uv run：裸 python 在部分 Windows 环境会命中应用商店占位 stub，静默非零退出。
+uv run python scripts/build_spa.py --check || die "SPA build is out of date; run scripts/build_spa.py and commit"
 git -c core.whitespace=cr-at-eol diff --check
 
 if "$dry_run"; then
