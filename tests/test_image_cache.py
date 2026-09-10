@@ -19,12 +19,16 @@ class _ConfigStub:
 
     def __init__(self, root: Path) -> None:
         self._root = root
+        self._astrbot_root = root.parent
         self.image_cache_enabled = True
         self.image_cache_max_entries = 10
         self.image_cache_max_sticker_entries = 10
 
     def data_path(self) -> Path:
         return self._root
+
+    def astrbot_root(self) -> Path:
+        return self._astrbot_root
 
 
 class _RepositoryStub:
@@ -57,7 +61,9 @@ class _RepositoryStub:
 
 
 def _store(tmp_path: Path, repository: _RepositoryStub) -> ImageCacheStore:
-    config = _ConfigStub(tmp_path / "data")
+    # 仿真实布局：<root>/AstrBot/data 是插件数据目录，AstrBot 根即 <root>/AstrBot，
+    # 这样容器形态的 "/workspace/<id>/AstrBot/..." 才有可重基的目标。
+    config = _ConfigStub(tmp_path / "AstrBot" / "data")
     return ImageCacheStore(config, repository)
 
 
@@ -214,6 +220,80 @@ def test_sticker_survives_image_lru_eviction(tmp_path: Path) -> None:
         assert Path(kept.file_path).exists(), "表情包不参与普通图 LRU 淘汰"
         kinds = {entry["file_hash"]: entry["kind"] for entry in repository.entries}
         assert kinds[kept.file_hash] == "sticker"
+
+    asyncio.run(scenario())
+
+
+def test_read_normalizes_container_rewritten_path(tmp_path: Path) -> None:
+    """模型把缓存路径改写成容器挂载点后，仍要能读回同一张图。
+
+    回归守卫：真实事故里模型把
+    ``/home/lovie/AstrBot/data/plugin_data/astrbot_plugin_humanize/image_cache/x.jpg``
+    写成 ``/workspace/<会话id>/AstrBot/data/plugin_data/.../image_cache/x.jpg``
+    （它以为自己在容器里），宿主机上并不存在 ``/workspace``，于是常驻读图
+    工具和下游生图插件都拿不到这张图。
+    """
+
+    async def scenario() -> None:
+        source = tmp_path / "source.png"
+        source.write_bytes(b"image-bytes")
+        repository = _RepositoryStub()
+        store = _store(tmp_path, repository)
+
+        result = await store.store(str(source))
+        assert result.cached is True
+        astrbot_root = tmp_path / "AstrBot"
+        relative = Path(result.file_path).relative_to(astrbot_root).as_posix()
+        rewritten = f"/workspace/8db647f94920/AstrBot/{relative}"
+
+        assert store.resolve_path(rewritten) == result.file_path
+        assert store.is_cache_path(rewritten) is True
+        assert await store.read(rewritten) == b"image-bytes"
+
+        # 模型常见的其余包装形态：反引号/引号包裹、行尾标点、file:// URI、纯文件名。
+        # 另外覆盖两种重写边界：前缀大小写不同（/Workspace/），以及容器 id 段直接
+        # 被 data 段顶掉（/workspace/data/plugin_data/…）——此时不能把 data 当成 id
+        # 剥掉，否则重基锚点就丢了。
+        for raw in (
+            f"`{rewritten}`",
+            f'"{rewritten}"',
+            f"{rewritten}，",
+            Path(result.file_path).as_uri(),
+            Path(result.file_path).name,
+            f"/Workspace/8db647f94920/AstrBot/{relative}",
+            f"/workspace/{relative}",
+        ):
+            assert await store.read(raw) == b"image-bytes", raw
+
+    asyncio.run(scenario())
+
+
+def test_read_rejects_references_outside_cache(tmp_path: Path) -> None:
+    """归一化只做路径猜测，绝不允许把缓存目录之外的文件读进来。"""
+
+    async def scenario() -> None:
+        outside = tmp_path / "outside.png"
+        outside.write_bytes(b"not-cached")
+        repository = _RepositoryStub()
+        store = _store(tmp_path, repository)
+
+        outside_posix = outside.as_posix()
+        for raw in (
+            str(outside),
+            f"file://{outside_posix}",
+            "/workspace/8db647f94920/AstrBot/../outside.png",
+            "/workspace/8db647f94920/AstrBot/AstrBot/../../outside.png",
+            "/workspace/8db647f94920/AstrBot/data/plugin_data/astrbot_plugin_humanize/image_cache/missing.png",
+        ):
+            assert store.resolve_path(raw) == "", raw
+            assert store.is_cache_path(raw) is False, raw
+            assert await store.read(raw) is None, raw
+
+        # 有效的缓存图不会被误判
+        source = tmp_path / "cached.png"
+        source.write_bytes(b"image-bytes")
+        stored = await store.store(str(source))
+        assert store.is_cache_path(stored.file_path) is True
 
     asyncio.run(scenario())
 

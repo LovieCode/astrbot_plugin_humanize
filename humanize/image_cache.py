@@ -8,6 +8,13 @@ re-read the image by path (resident tool) until the entry is evicted.
 Entries carry a kind: regular images are LRU-capped; stickers are kept
 long-term under a separate, larger cap and may store a transcription keyed by
 content hash so the same sticker is never transcribed twice.
+
+References handed back to us by a model are normalized before use: models
+sometimes rewrite an absolute path into the mount point of a container they
+believe they run in (``/workspace/<session-id>/AstrBot/data/...``), or wrap it
+in quotes and punctuation. :func:`reference_candidates` expands such a value
+into the plausible local paths, and every candidate still has to stay inside
+the cache directory before it is read.
 """
 
 from __future__ import annotations
@@ -15,13 +22,126 @@ from __future__ import annotations
 import asyncio
 import hashlib
 import logging
+import re
+from collections.abc import Sequence
 from dataclasses import dataclass
 from pathlib import Path
+from urllib.parse import unquote, urlsplit
 
 from .config import PluginConfig
 from .ports import RepositoryPort
 
 logger = logging.getLogger("astrbot")
+
+# 模型侧可能出现的容器挂载点前缀：/workspace/<会话或容器id>/...
+# 大小写按模型输出放宽（/Workspace/ 也认）；这里与 astrbot_plugin-paint 的
+# 同名逻辑是一份语义契约，改动必须两边同步。
+_SANDBOX_PREFIX = re.compile(r"^/workspace/[^/]+/", re.IGNORECASE)
+_QUOTE_CHARS = "\"'`“”‘’"
+_TRAILING_CHARS = "，。；、,;）)】]"
+
+
+def _unwrap_reference(raw: object) -> str:
+    """Strip quotes, backticks and sentence punctuation a model may add."""
+    text = str(raw or "").strip()
+    while len(text) >= 2 and text[0] in _QUOTE_CHARS and text[-1] in _QUOTE_CHARS:
+        text = text[1:-1].strip()
+    while text and text[-1] in _TRAILING_CHARS:
+        text = text[:-1].strip()
+    return text
+
+
+def _file_uri_to_path(text: str) -> str:
+    """Convert a ``file://`` reference to a local path, else return ``text``."""
+    if not text.lower().startswith("file:"):
+        return text
+    parsed = urlsplit(text)
+    path = unquote(parsed.path or "")
+    host = parsed.netloc or ""
+    if host and host.lower() != "localhost":
+        if len(host) == 2 and host[1] == ":" and host[0].isalpha():
+            return f"{host}{path}"
+        return f"//{host}{path}"
+    if len(path) >= 3 and path[0] == "/" and path[2] == ":" and path[1].isalpha():
+        path = path[1:]
+    return path
+
+
+def _sandbox_remainder(text: str) -> str:
+    """Return the part of ``text`` after a container mount prefix, else ``''``."""
+    match = _SANDBOX_PREFIX.match(text)
+    if not match:
+        return ""
+    return text[match.end() :]
+
+
+def _rebase_candidates(remainder: str, astrbot_root: Path) -> list[str]:
+    """Map the tail of a container path back onto the AstrBot install root."""
+    segments = [segment for segment in remainder.split("/") if segment]
+    if not segments:
+        return []
+    candidates: list[str] = []
+    root_name = astrbot_root.name.lower()
+    for index, segment in enumerate(segments):
+        if segment.lower() == root_name:
+            candidates.append(str(astrbot_root.joinpath(*segments[index + 1 :])))
+            break
+    else:
+        candidates.append(str(astrbot_root.joinpath(*segments)))
+    for index, segment in enumerate(segments):
+        if segment == "data":
+            candidates.append(str(astrbot_root.joinpath(*segments[index:])))
+            break
+    return candidates
+
+
+def reference_candidates(
+    raw: object,
+    *,
+    astrbot_root: Path,
+    bare_roots: Sequence[Path] = (),
+) -> list[str]:
+    """Expand a model-supplied image reference into plausible local paths.
+
+    Args:
+        raw: Value as reported by the model, possibly rewritten into a
+            container mount path (``/workspace/<id>/AstrBot/...``), wrapped in
+            quotes or trailing punctuation, or a bare file name.
+        astrbot_root: AstrBot install root used to rebase container paths.
+        bare_roots: Directories searched when the reference has no directory
+            part at all.
+
+    Returns:
+        Candidate paths in preference order, the value as given first. Every
+        candidate is only a guess: callers must still validate it (the image
+        cache additionally requires the path to stay inside its own root).
+    """
+    text = _unwrap_reference(raw)
+    if not text:
+        return []
+    ordered: list[str] = []
+
+    def push(value: object) -> None:
+        candidate = str(value)
+        if candidate and candidate not in ordered:
+            ordered.append(candidate)
+
+    local = _file_uri_to_path(text)
+    push(local)
+    remainder = _sandbox_remainder(local)
+    if remainder:
+        push(remainder)
+        # 重基时同时按「剥掉前缀后的剩余段」和「完整路径」各试一次：模型可能把
+        # id 段和 data 段并到一起（/workspace/data/plugin_data/…），只剥一层会把
+        # data 锚点吃掉。
+        for candidate in _rebase_candidates(remainder, astrbot_root):
+            push(candidate)
+        for candidate in _rebase_candidates(local, astrbot_root):
+            push(candidate)
+    if "/" not in local and "\\" not in local:
+        for root in bare_roots:
+            push(Path(root) / local)
+    return ordered
 
 
 @dataclass(frozen=True, slots=True)
@@ -40,6 +160,24 @@ class ImageCacheStore:
         self._config = config
         self._repository = repository
         self._root = config.data_path() / "image_cache"
+        self._astrbot_root = self._resolve_astrbot_root(config)
+
+    @staticmethod
+    def _resolve_astrbot_root(config: PluginConfig) -> Path:
+        """Read the AstrBot root from config, falling back to the data path."""
+        provider = getattr(config, "astrbot_root", None)
+        if callable(provider):
+            try:
+                root = Path(str(provider()))
+                if str(root):
+                    return root
+            except Exception:
+                logger.debug(
+                    "[Humanize] failed to resolve the AstrBot root", exc_info=True
+                )
+        data_path = Path(config.data_path())
+        parents = data_path.parents
+        return parents[2] if len(parents) > 2 else data_path
 
     @property
     def root(self) -> Path:
@@ -51,14 +189,58 @@ class ImageCacheStore:
         """Whether the cache is enabled and sized above zero."""
         return self._config.image_cache_enabled
 
-    def is_cache_path(self, path: str) -> bool:
-        """Return True when ``path`` resolves inside the cache directory."""
+    def _candidates(self, path: str) -> list[Path]:
+        """Expand one reference into the local paths it may really mean."""
+        if not path:
+            return []
+        return [
+            Path(item)
+            for item in reference_candidates(
+                path,
+                astrbot_root=self._astrbot_root,
+                bare_roots=(self._root,),
+            )
+        ]
+
+    def _inside_cache(self, candidate: Path) -> bool:
+        """Return True when ``candidate`` resolves inside the cache directory."""
         try:
-            resolved = Path(path).resolve()
-            resolved.relative_to(self._root.resolve())
+            candidate.resolve().relative_to(self._root.resolve())
             return True
         except (ValueError, OSError):
             return False
+
+    def is_cache_path(self, path: str) -> bool:
+        """Return True when ``path`` resolves inside the cache directory.
+
+        Container-style rewrites (``/workspace/<id>/AstrBot/...``) and
+        ``file://`` references are recognized as pointing at the cache when
+        their normalized candidate lands inside it.
+        """
+        return any(
+            self._inside_cache(candidate) for candidate in self._candidates(path)
+        )
+
+    def resolve_path(self, path: str) -> str:
+        """Return the cached file path a model-supplied reference means.
+
+        Args:
+            path: Reference as reported by the model; may be rewritten into a
+                container mount path, a ``file://`` URI, or a quoted value.
+
+        Returns:
+            The candidate path that exists inside the cache directory, or an
+            empty string when nothing usable matches.
+        """
+        for candidate in self._candidates(path):
+            if not self._inside_cache(candidate):
+                continue
+            try:
+                if candidate.is_file():
+                    return str(candidate)
+            except OSError:
+                continue
+        return ""
 
     async def store(
         self,
@@ -140,14 +322,18 @@ class ImageCacheStore:
                 [str(entry["file_hash"]) for entry in evicted]
             )
             for entry in evicted:
+                raw_path = str(entry.get("file_path") or "")
+                # 校验和删除必须落在同一个路径上：先归一化出缓存内的真实文件，
+                # 再删它；否则校验通过的是候选路径、被删的却是原始字符串。
+                target = self.resolve_path(raw_path)
+                if not target:
+                    continue
                 try:
-                    path = Path(str(entry["file_path"]))
-                    if self.is_cache_path(str(path)):
-                        path.unlink(missing_ok=True)
+                    Path(target).unlink(missing_ok=True)
                 except OSError:
                     logger.debug(
                         "[Humanize] failed to unlink evicted image %s",
-                        entry.get("file_path"),
+                        raw_path,
                     )
             logger.debug(
                 "[Humanize] evicted %s %s entries from image cache",
@@ -159,34 +345,31 @@ class ImageCacheStore:
         """Read one cached image by path, restricted to the cache directory.
 
         Args:
-            path: Image path previously produced by :meth:`store`.
+            path: Image path previously produced by :meth:`store`, or a
+                model-supplied rewrite of it (see :meth:`resolve_path`).
 
         Returns:
-            Image bytes, or None when the path is outside the cache, missing,
-            or the cache is disabled.
+            Image bytes, or None when no candidate stays inside the cache,
+            exists, or the cache is disabled.
         """
         if not self.enabled or not path:
             return None
-        try:
-            resolved = Path(path).resolve()
-            resolved.relative_to(self._root.resolve())
-        except (ValueError, OSError):
-            return None
-        if not resolved.is_file():
+        target = self.resolve_path(path)
+        if not target:
             return None
         try:
-            data = await asyncio.to_thread(resolved.read_bytes)
+            data = await asyncio.to_thread(Path(target).read_bytes)
         except OSError:
             return None
         # 命中即刷新 LRU 时间戳；失败不影响读取（fail-open）。
         touch = getattr(self._repository, "touch_image_cache_entry", None)
         if callable(touch):
             try:
-                await touch(file_path=path)
+                await touch(file_path=target)
             except Exception:
                 logger.debug(
                     "[Humanize] failed to touch image cache entry %s",
-                    path,
+                    target,
                     exc_info=True,
                 )
         return data

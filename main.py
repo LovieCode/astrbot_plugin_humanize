@@ -1179,15 +1179,18 @@ class HumanizePlugin(Star):
             Returns:
                 结合上下文的图片转述文本；失败或路径无效时返回说明。
             """
-            clean_path = str(path or "").strip()
+            requested = str(path or "").strip()
             if not self._plugin_config.image_transcription_provider_id:
                 return (
                     "无法读取图片内容：未配置图片转述模型。"
                     "请基于上下文中的图片转述回复，避免直接谈论图片细节。"
                 )
-            data = await self._image_store.read(clean_path)
+            # 模型可能把路径改写成它以为的容器挂载点（/workspace/<id>/AstrBot/…），
+            # 先归一化回真实缓存路径，索引反查与后续 LRU 命中才对得上。
+            clean_path = self._image_store.resolve_path(requested)
+            data = await self._image_store.read(clean_path) if clean_path else None
             if data is None:
-                if image_paths and clean_path in image_paths:
+                if image_paths and requested in image_paths:
                     return "图片读取失败。"
                 return "图片不存在或已被缓存清理。"
             user_text = str(
@@ -1234,7 +1237,8 @@ class HumanizePlugin(Star):
                         "type": "string",
                         "description": (
                             "图片路径，来自消息中的 [图片：…（图片路径 …）] 或"
-                            " [表情包：…（图片路径 …）] 标注"
+                            " [表情包：…（图片路径 …）] 标注。原样传入，不要添加"
+                            " /workspace、/sandbox 之类的前缀或自行改写路径。"
                         ),
                     }
                 },

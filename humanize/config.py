@@ -284,6 +284,16 @@ class PluginConfig:
 
         return Path(get_astrbot_plugin_data_path()) / "astrbot_plugin_humanize"
 
+    def astrbot_root(self) -> Path:
+        """AstrBot 安装根目录。
+
+        用于把模型改写过的路径（例如 ``/workspace/<会话id>/AstrBot/...``）
+        重基回真实文件系统路径。
+        """
+        from astrbot.core.utils.astrbot_path import get_astrbot_root
+
+        return Path(get_astrbot_root())
+
     def as_public_dict(self) -> dict[str, Any]:
         return {
             "enabled": self.enabled,
