@@ -262,6 +262,10 @@ def test_read_normalizes_container_rewritten_path(tmp_path: Path) -> None:
             Path(result.file_path).name,
             f"/Workspace/8db647f94920/AstrBot/{relative}",
             f"/workspace/{relative}",
+            # 引号与句末标点混用
+            f'"{rewritten}"，',
+            # 模型把整段标注一起传进来
+            f"[图片：一只猫（图片路径 {rewritten}）]",
         ):
             assert await store.read(raw) == b"image-bytes", raw
 

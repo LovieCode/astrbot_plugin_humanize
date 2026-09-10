@@ -42,13 +42,25 @@ _TRAILING_CHARS = "，。；、,;）)】]"
 
 
 def _unwrap_reference(raw: object) -> str:
-    """Strip quotes, backticks and sentence punctuation a model may add."""
+    """Strip quotes, backticks and sentence punctuation a model may add.
+
+    模型会写出 ``"路径"，`` 这种引号与句末标点混用的形态，也会只给半边引号，
+    所以要反复剥到稳定为止；剥过头的风险由调用方兜底——原值本身同样会作为候选。
+    """
     text = str(raw or "").strip()
-    while len(text) >= 2 and text[0] in _QUOTE_CHARS and text[-1] in _QUOTE_CHARS:
-        text = text[1:-1].strip()
-    while text and text[-1] in _TRAILING_CHARS:
-        text = text[:-1].strip()
-    return text
+    while True:
+        while text and text[-1] in _TRAILING_CHARS:
+            text = text[:-1].strip()
+        if len(text) >= 2 and text[0] in _QUOTE_CHARS and text[-1] in _QUOTE_CHARS:
+            text = text[1:-1].strip()
+            continue
+        if text and text[0] in _QUOTE_CHARS:
+            text = text[1:].strip()
+            continue
+        if text and text[-1] in _QUOTE_CHARS:
+            text = text[:-1].strip()
+            continue
+        return text
 
 
 def _file_uri_to_path(text: str) -> str:
@@ -65,6 +77,20 @@ def _file_uri_to_path(text: str) -> str:
     if len(path) >= 3 and path[0] == "/" and path[2] == ":" and path[1].isalpha():
         path = path[1:]
     return path
+
+
+# 消息里的标注格式是「[图片：…（图片路径 <path>）]」，模型有时会整段照抄进来。
+_ANNOTATION_PATH = re.compile(r"图片路径\s*([^（）()\s]+)")
+
+
+def _embedded_references(text: str) -> list[str]:
+    """Return paths found inside a copied annotation, in order."""
+    found: list[str] = []
+    for match in _ANNOTATION_PATH.finditer(text):
+        value = match.group(1).strip()
+        if value and value not in found:
+            found.append(value)
+    return found
 
 
 def _sandbox_remainder(text: str) -> str:
@@ -126,21 +152,30 @@ def reference_candidates(
         if candidate and candidate not in ordered:
             ordered.append(candidate)
 
-    local = _file_uri_to_path(text)
-    push(local)
-    remainder = _sandbox_remainder(local)
-    if remainder:
-        push(remainder)
-        # 重基时同时按「剥掉前缀后的剩余段」和「完整路径」各试一次：模型可能把
-        # id 段和 data 段并到一起（/workspace/data/plugin_data/…），只剥一层会把
-        # data 锚点吃掉。
-        for candidate in _rebase_candidates(remainder, astrbot_root):
-            push(candidate)
-        for candidate in _rebase_candidates(local, astrbot_root):
-            push(candidate)
-    if "/" not in local and "\\" not in local:
-        for root in bare_roots:
-            push(Path(root) / local)
+    def expand(value: str) -> None:
+        local = _file_uri_to_path(value)
+        push(local)
+        remainder = _sandbox_remainder(local)
+        if remainder:
+            push(remainder)
+            # 重基时同时按「剥掉前缀后的剩余段」和「完整路径」各试一次：模型可能把
+            # id 段和 data 段并到一起（/workspace/data/plugin_data/…），只剥一层会
+            # 把 data 锚点吃掉。
+            for candidate in _rebase_candidates(remainder, astrbot_root):
+                push(candidate)
+            for candidate in _rebase_candidates(local, astrbot_root):
+                push(candidate)
+        if "/" not in local and "\\" not in local:
+            for root in bare_roots:
+                push(Path(root) / local)
+
+    # 原值本身可能就可用（例如文件名里真的带引号），优先试它，去包装的结果排后面。
+    push(str(raw or "").strip())
+    push(text)
+    expand(text)
+    # 模型可能把整段「[图片：…（图片路径 …）]」标注一起传进来，把其中的路径也展开。
+    for embedded in _embedded_references(text):
+        expand(embedded)
     return ordered
 
 
