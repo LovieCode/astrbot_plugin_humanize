@@ -174,6 +174,42 @@ _STICKER_TRANSCRIPTION_PROMPT = (
     "2）这张表情包通常用来表达什么情绪或意思（如无语、开心、阴阳怪气等）。"
     "控制在 1~3 句话，直接输出解读，不要开场白和解释。"
 )
+# 核心为多模态请求注入的图片附件占位文本（引用消息里的是
+# "[Image Attachment in quoted message: path …]"，同样以此开头）。
+_IMAGE_ATTACHMENT_MARKER = "[Image Attachment"
+# 核心压缩出来的中间图片：data/temp/compressed_<时间戳><随机>.jpg，事件结束后
+# 约 2 分钟被清理。模型有时会从历史里引用它，需要给出针对性的提示。
+_TEMPORARY_IMAGE_PATH = re.compile(r"[/\\]temp[/\\]compressed_[^/\\]+")
+
+
+def _strip_image_attachment_parts(
+    request: Any,
+    *,
+    drop_image_urls: bool = False,
+) -> None:
+    """Remove core's ``[Image Attachment: path …]`` placeholder lines.
+
+    核心会把用户图片压缩成 ``data/temp/compressed_*.jpg``，再把该临时路径写进
+    ``extra_user_content_parts``；临时文件在事件结束后约 2 分钟被清理，模型一旦
+    在后续回合引用这条路径就必然读不到。插件自己的标注
+    （``[图片：…（图片路径 <缓存路径>）]``）已经给出持久路径，所以这里把这行统一
+    摘掉：路径只留一个来源，模型不会再去用那个注定失效的临时文件。
+
+    Args:
+        request: ProviderRequest whose user content parts are rewritten.
+        drop_image_urls: Also clear ``image_urls``. Non-multimodal providers
+            cannot consume the image anyway, so the placeholders must go too;
+            multimodal providers still need ``image_urls`` as the vision
+            payload, only the temporary *path* is useless to them.
+    """
+    if drop_image_urls:
+        request.image_urls = []
+    parts = [
+        part
+        for part in (getattr(request, "extra_user_content_parts", None) or [])
+        if _IMAGE_ATTACHMENT_MARKER not in str(getattr(part, "text", "") or "")
+    ]
+    request.extra_user_content_parts = parts
 
 
 def _direct_image_kinds(event: AstrMessageEvent) -> list[tuple[str, str]]:
@@ -754,19 +790,20 @@ class HumanizePlugin(Star):
         except Exception:
             # 判定失败按多模态处理：保留原图路径（与旧行为一致），不阻断请求。
             provider_multimodal = True
-        if image_paths and not provider_multimodal:
-            req.image_urls = []
-            parts = [
-                part
-                for part in (getattr(req, "extra_user_content_parts", None) or [])
-                if "[Image Attachment" not in str(getattr(part, "text", "") or "")
-            ]
+        if image_paths:
+            # 非多模态：连原图一起剥离，只留"缓存路径 + 转述"文本。
+            # 多模态：保留 image_urls 作为视觉载荷，但同样摘掉核心注入的
+            # [Image Attachment: path <压缩临时文件>] 占位行——否则模型会从
+            # 这行里拿到 data/temp/compressed_*.jpg，而在后续回合引用它时该
+            # 临时文件早已被清理。插件标注的缓存路径是唯一且持久的路径来源。
             try:
-                req.extra_user_content_parts = parts
+                _strip_image_attachment_parts(
+                    req,
+                    drop_image_urls=not provider_multimodal,
+                )
             except Exception:
                 logger.exception(
-                    "[Humanize] failed to strip image attachments for "
-                    "non-multimodal provider"
+                    "[Humanize] failed to strip image attachment placeholders"
                 )
 
         context_window_active = False
@@ -1192,6 +1229,13 @@ class HumanizePlugin(Star):
             if data is None:
                 if image_paths and requested in image_paths:
                     return "图片读取失败。"
+                if _TEMPORARY_IMAGE_PATH.search(requested):
+                    # 核心压缩出来的中间文件，事件结束后就被清理；模型若从
+                    # 历史里捞到它，直接告诉它去用缓存路径，别反复重试。
+                    return (
+                        "这是临时压缩图片路径，文件已被清理。"
+                        "请改用消息中 [图片：…（图片路径 …）] 标注里的缓存路径。"
+                    )
                 return "图片不存在或已被缓存清理。"
             user_text = str(
                 event.get_message_str() if hasattr(event, "get_message_str") else ""
@@ -1239,6 +1283,8 @@ class HumanizePlugin(Star):
                             "图片路径，来自消息中的 [图片：…（图片路径 …）] 或"
                             " [表情包：…（图片路径 …）] 标注。原样传入，不要添加"
                             " /workspace、/sandbox 之类的前缀或自行改写路径。"
+                            "如果只看到 data/temp/compressed_*.jpg 这类临时路径，"
+                            "不要去读——临时文件已被清理，请改用标注里的缓存路径。"
                         ),
                     }
                 },
